@@ -3,7 +3,7 @@ name = "ccxt-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
-authors = ["CCXT Team"]
+authors = ["Praying"]
 license = "MIT"
 description = "Core types and traits for CCXT Rust"
 

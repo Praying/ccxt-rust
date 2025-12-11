@@ -3,12 +3,12 @@ name = "ccxt-exchanges"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
-authors = ["CCXT Team"]
+authors = ["Praying"]
 license = "MIT"
 description = "Exchange implementations for CCXT Rust"
 
 [dependencies]
-ccxt-core = { path = "../ccxt-core" }
+ccxt-core = { path = "../ccxt-core" , version = "0.1.0"}
 
 # Async runtime
 tokio = { workspace = true }
