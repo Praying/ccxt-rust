@@ -74,7 +74,7 @@ regex = "1.10"
 lazy_static = "1.4"
 
 # Configuration
-config = "0.14"
+config = "0.15"
 
 # Rate limiting
 governor = "0.10"
