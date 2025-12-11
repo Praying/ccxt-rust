@@ -1,0 +1,257 @@
+//! HyperLiquid exchange implementation.
+//!
+//! HyperLiquid is a decentralized perpetual futures exchange built on its own L1 blockchain.
+//! Unlike centralized exchanges (CEX) like Binance or Bitget, HyperLiquid uses:
+//! - Ethereum wallet private keys for authentication (EIP-712 typed data signatures)
+//! - Wallet addresses as account identifiers (no registration required)
+//! - USDC as the sole settlement currency
+//!
+//! # Features
+//!
+//! - Perpetual futures trading with up to 50x leverage
+//! - Cross-margin and isolated margin modes
+//! - Real-time WebSocket data streaming
+//! - EIP-712 compliant transaction signing
+//!
+//! # Example
+//!
+//! ```no_run
+//! use ccxt_exchanges::hyperliquid::HyperLiquid;
+//!
+//! # async fn example() -> ccxt_core::Result<()> {
+//! // Create a public-only instance (no authentication)
+//! let exchange = HyperLiquid::builder()
+//!     .testnet(true)
+//!     .build()?;
+//!
+//! // Fetch markets
+//! let markets = exchange.fetch_markets().await?;
+//! println!("Found {} markets", markets.len());
+//!
+//! // Create an authenticated instance
+//! let exchange = HyperLiquid::builder()
+//!     .private_key("0x...")
+//!     .testnet(true)
+//!     .build()?;
+//!
+//! // Fetch balance
+//! let balance = exchange.fetch_balance().await?;
+//! # Ok(())
+//! # }
+//! ```
+
+use ccxt_core::{BaseExchange, ExchangeConfig, Result};
+
+pub mod auth;
+pub mod builder;
+pub mod error;
+mod exchange_impl;
+pub mod parser;
+pub mod rest;
+pub mod ws;
+mod ws_exchange_impl;
+
+pub use auth::HyperLiquidAuth;
+pub use builder::HyperLiquidBuilder;
+pub use error::{HyperLiquidErrorCode, is_error_response, parse_error};
+
+/// HyperLiquid exchange structure.
+#[derive(Debug)]
+pub struct HyperLiquid {
+    /// Base exchange instance.
+    base: BaseExchange,
+    /// HyperLiquid-specific options.
+    options: HyperLiquidOptions,
+    /// Authentication instance (optional, for private API).
+    auth: Option<HyperLiquidAuth>,
+}
+
+/// HyperLiquid-specific options.
+#[derive(Debug, Clone)]
+pub struct HyperLiquidOptions {
+    /// Whether to use testnet.
+    pub testnet: bool,
+    /// Vault address for vault trading (optional).
+    pub vault_address: Option<String>,
+    /// Default leverage multiplier.
+    pub default_leverage: u32,
+}
+
+impl Default for HyperLiquidOptions {
+    fn default() -> Self {
+        Self {
+            testnet: false,
+            vault_address: None,
+            default_leverage: 1,
+        }
+    }
+}
+
+impl HyperLiquid {
+    /// Creates a new HyperLiquid instance using the builder pattern.
+    ///
+    /// This is the recommended way to create a HyperLiquid instance.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::hyperliquid::HyperLiquid;
+    ///
+    /// let exchange = HyperLiquid::builder()
+    ///     .private_key("0x...")
+    ///     .testnet(true)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn builder() -> HyperLiquidBuilder {
+        HyperLiquidBuilder::new()
+    }
+
+    /// Creates a new HyperLiquid instance with custom options.
+    ///
+    /// This is used internally by the builder pattern.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Exchange configuration.
+    /// * `options` - HyperLiquid-specific options.
+    /// * `auth` - Optional authentication instance.
+    pub fn new_with_options(
+        config: ExchangeConfig,
+        options: HyperLiquidOptions,
+        auth: Option<HyperLiquidAuth>,
+    ) -> Result<Self> {
+        let base = BaseExchange::new(config)?;
+        Ok(Self {
+            base,
+            options,
+            auth,
+        })
+    }
+
+    /// Returns a reference to the base exchange.
+    pub fn base(&self) -> &BaseExchange {
+        &self.base
+    }
+
+    /// Returns a mutable reference to the base exchange.
+    pub fn base_mut(&mut self) -> &mut BaseExchange {
+        &mut self.base
+    }
+
+    /// Returns the HyperLiquid options.
+    pub fn options(&self) -> &HyperLiquidOptions {
+        &self.options
+    }
+
+    /// Returns a reference to the authentication instance.
+    pub fn auth(&self) -> Option<&HyperLiquidAuth> {
+        self.auth.as_ref()
+    }
+
+    /// Returns the exchange ID.
+    pub fn id(&self) -> &str {
+        "hyperliquid"
+    }
+
+    /// Returns the exchange name.
+    pub fn name(&self) -> &str {
+        "HyperLiquid"
+    }
+
+    /// Returns the API version.
+    pub fn version(&self) -> &str {
+        "1"
+    }
+
+    /// Returns `true` if the exchange is CCXT-certified.
+    pub fn certified(&self) -> bool {
+        false
+    }
+
+    /// Returns `true` if Pro version (WebSocket) is supported.
+    pub fn pro(&self) -> bool {
+        true
+    }
+
+    /// Returns the rate limit in requests per second.
+    pub fn rate_limit(&self) -> f64 {
+        // HyperLiquid has generous rate limits
+        100.0
+    }
+
+    /// Returns the API URLs.
+    pub fn urls(&self) -> HyperLiquidUrls {
+        if self.options.testnet {
+            HyperLiquidUrls::testnet()
+        } else {
+            HyperLiquidUrls::mainnet()
+        }
+    }
+
+    /// Returns the wallet address if authenticated.
+    pub fn wallet_address(&self) -> Option<&str> {
+        self.auth.as_ref().map(|a| a.wallet_address())
+    }
+
+    // TODO: Implement in task 11 (WebSocket Implementation)
+    // /// Creates a public WebSocket client.
+    // pub fn create_ws(&self) -> ws::HyperLiquidWs {
+    //     let urls = self.urls();
+    //     ws::HyperLiquidWs::new(urls.ws)
+    // }
+}
+
+/// HyperLiquid API URLs.
+#[derive(Debug, Clone)]
+pub struct HyperLiquidUrls {
+    /// REST API base URL.
+    pub rest: String,
+    /// WebSocket URL.
+    pub ws: String,
+}
+
+impl HyperLiquidUrls {
+    /// Returns mainnet environment URLs.
+    pub fn mainnet() -> Self {
+        Self {
+            rest: "https://api.hyperliquid.xyz".to_string(),
+            ws: "wss://api.hyperliquid.xyz/ws".to_string(),
+        }
+    }
+
+    /// Returns testnet environment URLs.
+    pub fn testnet() -> Self {
+        Self {
+            rest: "https://api.hyperliquid-testnet.xyz".to_string(),
+            ws: "wss://api.hyperliquid-testnet.xyz/ws".to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_options() {
+        let options = HyperLiquidOptions::default();
+        assert!(!options.testnet);
+        assert!(options.vault_address.is_none());
+        assert_eq!(options.default_leverage, 1);
+    }
+
+    #[test]
+    fn test_mainnet_urls() {
+        let urls = HyperLiquidUrls::mainnet();
+        assert_eq!(urls.rest, "https://api.hyperliquid.xyz");
+        assert_eq!(urls.ws, "wss://api.hyperliquid.xyz/ws");
+    }
+
+    #[test]
+    fn test_testnet_urls() {
+        let urls = HyperLiquidUrls::testnet();
+        assert_eq!(urls.rest, "https://api.hyperliquid-testnet.xyz");
+        assert_eq!(urls.ws, "wss://api.hyperliquid-testnet.xyz/ws");
+    }
+}

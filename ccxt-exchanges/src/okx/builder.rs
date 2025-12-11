@@ -1,0 +1,319 @@
+//! OKX exchange builder pattern implementation.
+//!
+//! Provides a fluent API for constructing OKX exchange instances with
+//! type-safe configuration options.
+
+use super::{Okx, OkxOptions};
+use ccxt_core::{ExchangeConfig, Result};
+use serde_json::Value;
+use std::collections::HashMap;
+
+/// Builder for creating OKX exchange instances.
+///
+/// Provides a fluent API for configuring all aspects of the OKX exchange,
+/// including authentication, connection settings, and OKX-specific options.
+///
+/// # Example
+///
+/// ```no_run
+/// use ccxt_exchanges::okx::OkxBuilder;
+///
+/// let okx = OkxBuilder::new()
+///     .api_key("your-api-key")
+///     .secret("your-secret")
+///     .passphrase("your-passphrase")
+///     .sandbox(true)
+///     .timeout(30)
+///     .build()
+///     .unwrap();
+/// ```
+#[derive(Debug, Clone)]
+pub struct OkxBuilder {
+    /// Exchange configuration
+    config: ExchangeConfig,
+    /// OKX-specific options
+    options: OkxOptions,
+}
+
+impl Default for OkxBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OkxBuilder {
+    /// Creates a new builder with default configuration.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::okx::OkxBuilder;
+    ///
+    /// let builder = OkxBuilder::new();
+    /// ```
+    pub fn new() -> Self {
+        Self {
+            config: ExchangeConfig {
+                id: "okx".to_string(),
+                name: "OKX".to_string(),
+                ..Default::default()
+            },
+            options: OkxOptions::default(),
+        }
+    }
+
+    /// Sets the API key for authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The API key string.
+    pub fn api_key(mut self, key: impl Into<String>) -> Self {
+        self.config.api_key = Some(key.into());
+        self
+    }
+
+    /// Sets the API secret for authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret` - The API secret string.
+    pub fn secret(mut self, secret: impl Into<String>) -> Self {
+        self.config.secret = Some(secret.into());
+        self
+    }
+
+    /// Sets the passphrase for authentication.
+    ///
+    /// OKX requires a passphrase in addition to API key and secret.
+    ///
+    /// # Arguments
+    ///
+    /// * `passphrase` - The passphrase string.
+    pub fn passphrase(mut self, passphrase: impl Into<String>) -> Self {
+        self.config.password = Some(passphrase.into());
+        self
+    }
+
+    /// Enables or disables sandbox/demo mode.
+    ///
+    /// When enabled, the exchange will connect to OKX's demo
+    /// environment instead of the production environment.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to enable sandbox mode.
+    pub fn sandbox(mut self, enabled: bool) -> Self {
+        self.config.sandbox = enabled;
+        self.options.demo = enabled;
+        self
+    }
+
+    /// Sets the account mode for trading.
+    ///
+    /// Valid values: "cash" (spot), "cross" (cross margin), "isolated" (isolated margin).
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - The account mode string.
+    pub fn account_mode(mut self, mode: impl Into<String>) -> Self {
+        self.options.account_mode = mode.into();
+        self
+    }
+
+    /// Sets the request timeout in seconds.
+    ///
+    /// # Arguments
+    ///
+    /// * `seconds` - Timeout duration in seconds.
+    pub fn timeout(mut self, seconds: u64) -> Self {
+        self.config.timeout = seconds;
+        self
+    }
+
+    /// Enables or disables rate limiting.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to enable rate limiting.
+    pub fn enable_rate_limit(mut self, enabled: bool) -> Self {
+        self.config.enable_rate_limit = enabled;
+        self
+    }
+
+    /// Sets the HTTP proxy server URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy` - The proxy server URL.
+    pub fn proxy(mut self, proxy: impl Into<String>) -> Self {
+        self.config.proxy = Some(proxy.into());
+        self
+    }
+
+    /// Enables or disables verbose logging.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to enable verbose logging.
+    pub fn verbose(mut self, enabled: bool) -> Self {
+        self.config.verbose = enabled;
+        self
+    }
+
+    /// Sets a custom option.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Option key.
+    /// * `value` - Option value as JSON.
+    pub fn option(mut self, key: impl Into<String>, value: Value) -> Self {
+        self.config.options.insert(key.into(), value);
+        self
+    }
+
+    /// Sets multiple custom options.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - HashMap of option key-value pairs.
+    pub fn options(mut self, options: HashMap<String, Value>) -> Self {
+        self.config.options.extend(options);
+        self
+    }
+
+    /// Returns the current configuration (for testing purposes).
+    #[cfg(test)]
+    pub fn get_config(&self) -> &ExchangeConfig {
+        &self.config
+    }
+
+    /// Returns the current options (for testing purposes).
+    #[cfg(test)]
+    pub fn get_options(&self) -> &OkxOptions {
+        &self.options
+    }
+
+    /// Builds the OKX exchange instance.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the configured `Okx` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the exchange cannot be initialized.
+    pub fn build(self) -> Result<Okx> {
+        Okx::new_with_options(self.config, self.options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builder_default() {
+        let builder = OkxBuilder::new();
+        assert_eq!(builder.config.id, "okx");
+        assert_eq!(builder.config.name, "OKX");
+        assert!(!builder.config.sandbox);
+        assert_eq!(builder.options.account_mode, "cash");
+    }
+
+    #[test]
+    fn test_builder_api_key() {
+        let builder = OkxBuilder::new().api_key("test-key");
+        assert_eq!(builder.config.api_key, Some("test-key".to_string()));
+    }
+
+    #[test]
+    fn test_builder_secret() {
+        let builder = OkxBuilder::new().secret("test-secret");
+        assert_eq!(builder.config.secret, Some("test-secret".to_string()));
+    }
+
+    #[test]
+    fn test_builder_passphrase() {
+        let builder = OkxBuilder::new().passphrase("test-passphrase");
+        assert_eq!(builder.config.password, Some("test-passphrase".to_string()));
+    }
+
+    #[test]
+    fn test_builder_sandbox() {
+        let builder = OkxBuilder::new().sandbox(true);
+        assert!(builder.config.sandbox);
+        assert!(builder.options.demo);
+    }
+
+    #[test]
+    fn test_builder_account_mode() {
+        let builder = OkxBuilder::new().account_mode("cross");
+        assert_eq!(builder.options.account_mode, "cross");
+    }
+
+    #[test]
+    fn test_builder_timeout() {
+        let builder = OkxBuilder::new().timeout(60);
+        assert_eq!(builder.config.timeout, 60);
+    }
+
+    #[test]
+    fn test_builder_chaining() {
+        let builder = OkxBuilder::new()
+            .api_key("key")
+            .secret("secret")
+            .passphrase("pass")
+            .sandbox(true)
+            .timeout(30)
+            .account_mode("isolated");
+
+        assert_eq!(builder.config.api_key, Some("key".to_string()));
+        assert_eq!(builder.config.secret, Some("secret".to_string()));
+        assert_eq!(builder.config.password, Some("pass".to_string()));
+        assert!(builder.config.sandbox);
+        assert_eq!(builder.config.timeout, 30);
+        assert_eq!(builder.options.account_mode, "isolated");
+    }
+
+    #[test]
+    fn test_builder_build() {
+        let result = OkxBuilder::new().build();
+        assert!(result.is_ok());
+
+        let okx = result.unwrap();
+        assert_eq!(okx.id(), "okx");
+        assert_eq!(okx.name(), "OKX");
+    }
+
+    #[test]
+    fn test_builder_build_with_credentials() {
+        let result = OkxBuilder::new()
+            .api_key("test-key")
+            .secret("test-secret")
+            .passphrase("test-passphrase")
+            .build();
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_builder_enable_rate_limit() {
+        let builder = OkxBuilder::new().enable_rate_limit(false);
+        assert!(!builder.config.enable_rate_limit);
+    }
+
+    #[test]
+    fn test_builder_proxy() {
+        let builder = OkxBuilder::new().proxy("http://proxy.example.com:8080");
+        assert_eq!(
+            builder.config.proxy,
+            Some("http://proxy.example.com:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_builder_verbose() {
+        let builder = OkxBuilder::new().verbose(true);
+        assert!(builder.config.verbose);
+    }
+}

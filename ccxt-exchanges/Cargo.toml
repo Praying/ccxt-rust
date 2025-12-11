@@ -1,0 +1,98 @@
+[package]
+name = "ccxt-exchanges"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+authors = ["CCXT Team"]
+license = "MIT"
+description = "Exchange implementations for CCXT Rust"
+
+[dependencies]
+ccxt-core = { path = "../ccxt-core" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# HTTP client (TLS configured via features)
+reqwest = { workspace = true, default-features = false, features = ["json", "gzip"] }
+
+# WebSocket (TLS configured via features, optional)
+tokio-tungstenite = { workspace = true, default-features = false, optional = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Decimal
+rust_decimal = { workspace = true }
+
+# Cryptography (for HMAC-SHA256 signatures)
+hmac = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+k256 = { workspace = true }
+
+# URL encoding
+urlencoding = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utility
+url = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+wiremock = "0.6"
+criterion = { workspace = true }
+dotenvy = { workspace = true }
+rust_decimal_macros = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["binance", "rustls-tls", "websocket"]
+
+# TLS implementations (mutually exclusive, choose one)
+rustls-tls = [
+    "ccxt-core/rustls-tls",
+    "reqwest/rustls-tls",
+    "tokio-tungstenite?/rustls-tls-native-roots",
+    "tokio-tungstenite?/connect"
+]
+native-tls = [
+    "ccxt-core/native-tls",
+    "reqwest/native-tls",
+    "tokio-tungstenite?/native-tls",
+    "tokio-tungstenite?/connect"
+]
+
+# Protocol support
+websocket = ["tokio-tungstenite", "ccxt-core/websocket"]
+
+# Exchange implementations (按需启用)
+binance = []
+# 未来可添加更多交易所:
+# coinbase = []
+# kraken = []
+# okex = []
+# huobi = []
+# bybit = []
+
+# 完整版 (开发使用)
+full = ["binance", "websocket"]
+
+[[bench]]
+name = "binance_benchmark"
+harness = false

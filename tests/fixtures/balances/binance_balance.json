@@ -1,0 +1,56 @@
+{
+  "info": {
+    "makerCommission": 10,
+    "takerCommission": 10,
+    "buyerCommission": 0,
+    "sellerCommission": 0,
+    "canTrade": true,
+    "canWithdraw": true,
+    "canDeposit": true,
+    "updateTime": 1699872000000,
+    "accountType": "SPOT",
+    "balances": [
+      {
+        "asset": "BTC",
+        "free": "1.23456789",
+        "locked": "0.10000000"
+      },
+      {
+        "asset": "ETH",
+        "free": "10.5",
+        "locked": "0.5"
+      },
+      {
+        "asset": "USDT",
+        "free": "50000.00",
+        "locked": "5000.00"
+      },
+      {
+        "asset": "BNB",
+        "free": "100.0",
+        "locked": "0.0"
+      }
+    ],
+    "permissions": ["SPOT"]
+  },
+  "timestamp": 1699872000000,
+  "datetime": "2023-11-13T08:00:00.000Z",
+  "free": {
+    "BTC": 1.23456789,
+    "ETH": 10.5,
+    "USDT": 50000.0,
+    "BNB": 100.0
+  },
+  "used": {
+    "BTC": 0.1,
+    "ETH": 0.5,
+    "USDT": 5000.0,
+    "BNB": 0.0
+  },
+  "total": {
+    "BTC": 1.33456789,
+    "ETH": 11.0,
+    "USDT": 55000.0,
+    "BNB": 100.0
+  }
+}

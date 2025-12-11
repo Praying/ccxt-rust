@@ -1,0 +1,102 @@
+[package]
+name = "ccxt-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+authors = ["CCXT Team"]
+license = "MIT"
+description = "Core types and traits for CCXT Rust"
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+async-trait = { workspace = true }
+
+# HTTP client (TLS configured via features)
+reqwest = { workspace = true, default-features = false, features = ["json", "gzip"] }
+
+# WebSocket client (TLS configured via features, optional)
+tokio-tungstenite = { workspace = true, default-features = false, optional = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Decimal precision
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Collections
+dashmap = { workspace = true }
+indexmap = { workspace = true }
+
+# Cryptography
+hmac = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true }
+md-5 = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utility
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+
+# Test configuration (optional, enabled by test-utils feature)
+dotenvy = { workspace = true, optional = true }
+envy = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+dotenvy = { workspace = true }
+envy = { workspace = true }
+paste = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["rustls-tls", "websocket"]
+
+# TLS implementations (mutually exclusive, choose one)
+rustls-tls = [
+    "reqwest/rustls-tls",
+    "tokio-tungstenite?/rustls-tls-native-roots",
+    "tokio-tungstenite?/connect"
+]
+native-tls = [
+    "reqwest/native-tls",
+    "tokio-tungstenite?/native-tls",
+    "tokio-tungstenite?/connect"
+]
+
+# Protocol support
+websocket = ["tokio-tungstenite"]
+
+# Compression support
+compression = [
+    "reqwest/brotli",
+    "reqwest/deflate"
+]
+
+# Test utilities and configuration loading
+test-utils = ["dotenvy", "envy"]
+
+# Enable backtrace capture in errors (for debugging)
+backtrace = []

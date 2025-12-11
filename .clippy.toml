@@ -1,0 +1,19 @@
+cognitive-complexity-threshold = 25
+type-complexity-threshold = 300
+
+too-many-arguments-threshold = 7
+
+warn-on-all-wildcard-imports = true
+
+single-char-binding-names-threshold = 4 
+
+
+missing-docs-in-crate-items = true 
+
+
+disallowed-methods = [
+    { path = "std::option::Option::unwrap", reason = "Risk of panic. Use unwrap_or, unwrap_or_default, or match." },
+    { path = "std::result::Result::unwrap", reason = "Risk of panic. Handle the error properly." },
+]
+
+msrv = "1.91.0"

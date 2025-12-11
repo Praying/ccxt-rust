@@ -1,0 +1,64 @@
+[
+  {
+    "id": "123456789",
+    "order": "987654321",
+    "timestamp": 1699872000000,
+    "datetime": "2023-11-13T08:00:00.000Z",
+    "symbol": "BTC/USDT",
+    "type": "limit",
+    "side": "buy",
+    "takerOrMaker": "taker",
+    "price": 37125.50,
+    "amount": 0.5,
+    "cost": 18562.75,
+    "fee": {
+      "currency": "USDT",
+      "cost": 18.56275,
+      "rate": 0.001
+    },
+    "info": {
+      "id": "123456789",
+      "orderId": "987654321",
+      "price": "37125.50",
+      "qty": "0.5",
+      "quoteQty": "18562.75",
+      "commission": "18.56275",
+      "commissionAsset": "USDT",
+      "time": 1699872000000,
+      "isBuyer": true,
+      "isMaker": false,
+      "isBestMatch": true
+    }
+  },
+  {
+    "id": "123456790",
+    "order": "987654322",
+    "timestamp": 1699872030000,
+    "datetime": "2023-11-13T08:00:30.000Z",
+    "symbol": "BTC/USDT",
+    "type": "market",
+    "side": "sell",
+    "takerOrMaker": "taker",
+    "price": 37126.00,
+    "amount": 0.3,
+    "cost": 11137.80,
+    "fee": {
+      "currency": "USDT",
+      "cost": 11.13780,
+      "rate": 0.001
+    },
+    "info": {
+      "id": "123456790",
+      "orderId": "987654322",
+      "price": "37126.00",
+      "qty": "0.3",
+      "quoteQty": "11137.80",
+      "commission": "11.13780",
+      "commissionAsset": "USDT",
+      "time": 1699872030000,
+      "isBuyer": false,
+      "isMaker": false,
+      "isBestMatch": true
+    }
+  }
+]
