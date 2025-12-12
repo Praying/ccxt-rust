@@ -335,29 +335,29 @@ impl Order {
     }
 }
 
-/// Order建造错误
+/// Errors that can occur while building an order.
 #[derive(Debug, thiserror::Error)]
 pub enum OrderBuilderError {
-    /// 缺少必需的价格字段
+    /// Missing required limit price.
     #[error("限价单必须指定价格")]
     MissingPrice,
 
-    /// 缺少必需的止损价格
+    /// Missing required stop price.
     #[error("止损单必须指定止损价格")]
     MissingStopPrice,
 
-    /// 无效的订单配置
+    /// Invalid order configuration.
     #[error("无效的订单配置: {0}")]
     InvalidConfiguration(String),
 
-    /// 金额必须为正数
+    /// Amount must be positive.
     #[error("订单金额必须大于0")]
     InvalidAmount,
 }
 
-/// Order Builder - 流畅API设计
+/// Order builder implementing a fluent API design.
 ///
-/// 提供一个类型安全且用户友好的方式来构建订单。
+/// Provides a type-safe and user-friendly way to construct orders.
 ///
 /// # Examples
 ///
@@ -366,19 +366,19 @@ pub enum OrderBuilderError {
 /// use ccxt_core::types::order::OrderBuilder;
 /// use rust_decimal_macros::dec;
 ///
-/// // 创建限价买单
+/// // Create a limit buy order
 /// let order = OrderBuilder::new("BTC/USDT".to_string(), OrderSide::Buy, dec!(0.1))
 ///     .limit(dec!(50000))
 ///     .client_order_id("my-order-123")
 ///     .post_only()
 ///     .build()
-///     .expect("有效的订单配置");
+///     .expect("valid order configuration");
 ///
-/// // 创建市价卖单
+/// // Create a market sell order
 /// let order = OrderBuilder::new("ETH/USDT".to_string(), OrderSide::Sell, dec!(1.5))
 ///     .market()
 ///     .build()
-///     .expect("有效的订单配置");
+///     .expect("valid order configuration");
 /// ```
 #[derive(Debug, Clone)]
 pub struct OrderBuilder {
@@ -403,19 +403,19 @@ pub struct OrderBuilder {
 }
 
 impl OrderBuilder {
-    /// 创建新的订单建造器
+    /// Creates a new order builder instance.
     ///
     /// # Arguments
     ///
-    /// * `symbol` - 交易对符号 (例如: "BTC/USDT")
-    /// * `side` - 订单方向 (买或卖)
-    /// * `amount` - 订单数量
+    /// * `symbol` - Trading pair symbol (for example, "BTC/USDT")
+    /// * `side` - Order side (buy or sell)
+    /// * `amount` - Order quantity
     pub fn new(symbol: Symbol, side: OrderSide, amount: Decimal) -> Self {
         Self {
             symbol,
             side,
             amount,
-            order_type: OrderType::Market, // 默认市价单
+            order_type: OrderType::Market, // Default to market order
             price: None,
             client_order_id: None,
             time_in_force: None,
@@ -433,21 +433,21 @@ impl OrderBuilder {
         }
     }
 
-    /// 设置为限价单
+    /// Sets the builder to create a limit order.
     pub fn limit(mut self, price: Decimal) -> Self {
         self.order_type = OrderType::Limit;
         self.price = Some(price);
         self
     }
 
-    /// 设置为市价单
+    /// Sets the builder to create a market order.
     pub fn market(mut self) -> Self {
         self.order_type = OrderType::Market;
         self.price = None;
         self
     }
 
-    /// 设置为限价只挂单(Limit Maker)
+    /// Sets the builder to create a post-only limit order.
     pub fn limit_maker(mut self, price: Decimal) -> Self {
         self.order_type = OrderType::LimitMaker;
         self.price = Some(price);
@@ -455,14 +455,14 @@ impl OrderBuilder {
         self
     }
 
-    /// 设置为止损单
+    /// Sets the builder to create a stop-loss order.
     pub fn stop_loss(mut self, stop_price: Decimal) -> Self {
         self.order_type = OrderType::StopLoss;
         self.stop_price = Some(stop_price);
         self
     }
 
-    /// 设置为止损限价单
+    /// Sets the builder to create a stop-loss limit order.
     pub fn stop_loss_limit(mut self, stop_price: Decimal, price: Decimal) -> Self {
         self.order_type = OrderType::StopLossLimit;
         self.stop_price = Some(stop_price);
@@ -470,14 +470,14 @@ impl OrderBuilder {
         self
     }
 
-    /// 设置为止盈单
+    /// Sets the builder to create a take-profit order.
     pub fn take_profit(mut self, trigger_price: Decimal) -> Self {
         self.order_type = OrderType::TakeProfit;
         self.trigger_price = Some(trigger_price);
         self
     }
 
-    /// 设置为止盈限价单
+    /// Sets the builder to create a take-profit limit order.
     pub fn take_profit_limit(mut self, trigger_price: Decimal, price: Decimal) -> Self {
         self.order_type = OrderType::TakeProfitLimit;
         self.trigger_price = Some(trigger_price);
@@ -485,14 +485,14 @@ impl OrderBuilder {
         self
     }
 
-    /// 设置为止损市价单
+    /// Sets the builder to create a stop-market order.
     pub fn stop_market(mut self, stop_price: Decimal) -> Self {
         self.order_type = OrderType::StopMarket;
         self.stop_price = Some(stop_price);
         self
     }
 
-    /// 设置为止损限价单(另一种形式)
+    /// Sets the builder to create an alternative stop-limit order form.
     pub fn stop_limit(mut self, stop_price: Decimal, price: Decimal) -> Self {
         self.order_type = OrderType::StopLimit;
         self.stop_price = Some(stop_price);
@@ -500,102 +500,102 @@ impl OrderBuilder {
         self
     }
 
-    /// 设置为追踪止损单
+    /// Sets the builder to create a trailing stop order.
     pub fn trailing_stop(mut self, callback_rate: Decimal) -> Self {
         self.order_type = OrderType::TrailingStop;
         self.callback_rate = Some(callback_rate);
         self
     }
 
-    /// 设置客户端订单ID
+    /// Sets the client order identifier.
     pub fn client_order_id(mut self, id: impl Into<String>) -> Self {
         self.client_order_id = Some(id.into());
         self
     }
 
-    /// 设置有效期类型
+    /// Sets the time-in-force policy.
     pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
         self.time_in_force = Some(tif);
         self
     }
 
-    /// 设置触发价格
+    /// Sets the trigger price.
     pub fn trigger_price(mut self, price: Decimal) -> Self {
         self.trigger_price = Some(price);
         self
     }
 
-    /// 设置止盈价格
+    /// Sets the take-profit price.
     pub fn take_profit_price(mut self, price: Decimal) -> Self {
         self.take_profit_price = Some(price);
         self
     }
 
-    /// 设置止损价格
+    /// Sets the stop-loss price.
     pub fn stop_loss_price(mut self, price: Decimal) -> Self {
         self.stop_loss_price = Some(price);
         self
     }
 
-    /// 设置追踪增量(单位: basis points)
+    /// Sets the trailing delta (in basis points).
     pub fn trailing_delta(mut self, delta: Decimal) -> Self {
         self.trailing_delta = Some(delta);
         self
     }
 
-    /// 设置追踪百分比
+    /// Sets the trailing percentage.
     pub fn trailing_percent(mut self, percent: Decimal) -> Self {
         self.trailing_percent = Some(percent);
         self
     }
 
-    /// 设置激活价格
+    /// Sets the activation price.
     pub fn activation_price(mut self, price: Decimal) -> Self {
         self.activation_price = Some(price);
         self
     }
 
-    /// 设置回调率(用于期货追踪止损)
+    /// Sets the callback rate (used for futures trailing stops).
     pub fn callback_rate(mut self, rate: Decimal) -> Self {
         self.callback_rate = Some(rate);
         self
     }
 
-    /// 设置工作类型(CONTRACT_PRICE 或 MARK_PRICE)
+    /// Sets the working type (`CONTRACT_PRICE` or `MARK_PRICE`).
     pub fn working_type(mut self, wtype: impl Into<String>) -> Self {
         self.working_type = Some(wtype.into());
         self
     }
 
-    /// 设置为只挂单(post-only)
+    /// Marks the order as post-only.
     pub fn post_only(mut self) -> Self {
         self.post_only = true;
         self
     }
 
-    /// 设置为只减仓(reduce-only，用于期货)
+    /// Marks the order as reduce-only (used for futures).
     pub fn reduce_only(mut self) -> Self {
         self.reduce_only = true;
         self
     }
 
-    /// 验证并构建Order
+    /// Validates the configuration and builds an [`Order`].
     ///
-    /// 该方法会验证订单配置的有效性，例如：
-    /// - 限价单必须有价格
-    /// - 止损单必须有止损价格
-    /// - 数量必须大于0
+    /// Ensures the order configuration is valid. For example:
+    /// - Limit orders require a price
+    /// - Stop orders require a stop price
+    /// - Quantities must be greater than zero
     ///
     /// # Errors
     ///
-    /// 如果订单配置无效，返回 [`OrderBuilderError`]
+    /// Returns [`OrderBuilderError`] if the configuration is invalid.
     pub fn build(self) -> Result<Order, OrderBuilderError> {
-        // 验证金额
+        // Validate amount
         if self.amount <= Decimal::ZERO {
             return Err(OrderBuilderError::InvalidAmount);
         }
 
-        // 验证订单类型特定的必需字段
+        // Validate required fields for each order type
         match self.order_type {
             OrderType::Limit | OrderType::LimitMaker => {
                 if self.price.is_none() {
@@ -640,15 +640,15 @@ impl OrderBuilder {
                 }
             }
             OrderType::Market => {
-                // 市价单不需要额外验证
+                // Market orders require no additional checks
             }
         }
 
-        // 构建Order
+        // Construct the order
         let time_in_force_str = self.time_in_force.map(|tif| tif.to_string());
 
         Ok(Order {
-            id: String::new(), // 订单ID由交易所生成
+            id: String::new(), // Order IDs are assigned by the exchange
             client_order_id: self.client_order_id,
             timestamp: None,
             datetime: None,
@@ -674,7 +674,7 @@ impl OrderBuilder {
             remaining: Some(self.amount),
             cost: None,
             average: None,
-            status: OrderStatus::Open, // 新订单默认为Open状态
+            status: OrderStatus::Open, // Newly created orders start as open
             fee: None,
             fees: None,
             trades: None,
@@ -684,9 +684,9 @@ impl OrderBuilder {
 }
 
 impl Order {
-    /// 创建订单建造器
+    /// Creates an order builder.
     ///
-    /// 这是创建Order的推荐方式，提供了流畅的API和类型安全的验证。
+    /// Preferred way to construct orders, providing a fluent API with validation.
     ///
     /// # Examples
     ///
@@ -698,47 +698,47 @@ impl Order {
     ///     .limit(dec!(50000))
     ///     .time_in_force(ccxt_core::types::TimeInForce::GTC)
     ///     .build()
-    ///     .expect("有效的订单");
+    ///     .expect("valid order");
     /// ```
     pub fn builder(symbol: Symbol, side: OrderSide, amount: Decimal) -> OrderBuilder {
         OrderBuilder::new(symbol, side, amount)
     }
 }
 
-/// 批量订单请求（用于create_orders方法）
+/// Batch order request payload used by `create_orders`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchOrderRequest {
-    /// 交易对符号
+    /// Trading pair symbol.
     pub symbol: String,
 
-    /// 订单方向 (BUY/SELL)
+    /// Order side (`BUY`/`SELL`).
     pub side: String,
 
-    /// 订单类型 (LIMIT/MARKET等)
+    /// Order type (`LIMIT`, `MARKET`, etc.).
     #[serde(rename = "type")]
     pub order_type: String,
 
-    /// 数量
+    /// Order quantity.
     pub quantity: String,
 
-    /// 价格（市价单可选）
+    /// Order price (optional for market orders).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price: Option<String>,
 
-    /// 只减仓标记
+    /// Reduce-only flag.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reduce_only: Option<String>,
 
-    /// 持仓方向 (LONG/SHORT/BOTH)
+    /// Position side (`LONG`/`SHORT`/`BOTH`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position_side: Option<String>,
 
-    /// 有效期类型
+    /// Time-in-force value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_in_force: Option<String>,
 
-    /// 客户端订单ID
+    /// Client order identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_client_order_id: Option<String>,
 }
@@ -754,18 +754,18 @@ pub struct BatchOrderResult {
     /// Trading pair symbol.
     pub symbol: String,
 
-    /// Status code (200=success).
+    /// Status code (`200` indicates success).
     pub code: i32,
 
-    /// Message.
+    /// Message body.
     pub msg: String,
 
-    /// Client order ID.
+    /// Client order identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_order_id: Option<String>,
 }
 
-/// Batch order update request for edit_orders method.
+/// Batch order update request payload used by `edit_orders`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchOrderUpdate {
@@ -773,7 +773,7 @@ pub struct BatchOrderUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order_id: Option<i64>,
 
-    /// Original client order ID.
+    /// Original client order identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orig_client_order_id: Option<String>,
 
@@ -783,10 +783,10 @@ pub struct BatchOrderUpdate {
     /// Order side.
     pub side: String,
 
-    /// Quantity.
+    /// Order quantity.
     pub quantity: String,
 
-    /// Price.
+    /// Order price.
     pub price: String,
 }
 
@@ -801,26 +801,26 @@ pub struct BatchCancelResult {
     /// Trading pair symbol.
     pub symbol: String,
 
-    /// Status.
+    /// Order status.
     pub status: String,
 
-    /// Client order ID.
+    /// Client order identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_order_id: Option<String>,
 
-    /// Message.
+    /// Optional message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub msg: Option<String>,
 }
 
-/// Cancel all orders result.
+/// Cancel-all orders result payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelAllOrdersResult {
     /// Status code.
     pub code: i32,
 
-    /// Message.
+    /// Message body.
     pub msg: String,
 }
 
