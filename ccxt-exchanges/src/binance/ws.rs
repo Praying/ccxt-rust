@@ -1,6 +1,6 @@
-//! Binance WebSocket实现
+//! Binance WebSocket implementation
 //!
-//! 提供Binance交易所的WebSocket实时数据流订阅功能
+//! Provides WebSocket real-time data stream subscriptions for the Binance exchange
 
 use crate::binance::Binance;
 use crate::binance::parser;
@@ -18,43 +18,43 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-/// Binance WebSocket端点
+/// Binance WebSocket endpoints
 #[allow(dead_code)]
 const WS_BASE_URL: &str = "wss://stream.binance.com:9443/ws";
 #[allow(dead_code)]
 const WS_TESTNET_URL: &str = "wss://testnet.binance.vision/ws";
 
-/// Listen Key刷新间隔（30分钟）
+/// Listen key refresh interval (30 minutes)
 const LISTEN_KEY_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
-/// Listen Key管理器
+/// Listen key manager
 ///
-/// 自动管理Binance用户数据流的listen key，包括：
-/// - 创建和缓存listen key
-/// - 自动刷新（每30分钟）
-/// - 过期检测和重建
-/// - 连接状态管理
+/// Automatically manages Binance user data stream listen keys by:
+/// - Creating and caching listen keys
+/// - Refreshing them every 30 minutes
+/// - Detecting expiration and rebuilding
+/// - Tracking connection state
 pub struct ListenKeyManager {
-    /// Binance实例引用
+    /// Reference to the Binance instance
     binance: Arc<Binance>,
-    /// 当前的listen key
+    /// Currently active listen key
     listen_key: Arc<RwLock<Option<String>>>,
-    /// listen key创建时间
+    /// Listen key creation timestamp
     created_at: Arc<RwLock<Option<Instant>>>,
-    /// 刷新间隔
+    /// Configured refresh interval
     refresh_interval: Duration,
-    /// 自动刷新任务句柄
+    /// Handle to the auto-refresh task
     refresh_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl ListenKeyManager {
-    /// 创建新的ListenKeyManager
+    /// Creates a new `ListenKeyManager`
     ///
     /// # Arguments
-    /// * `binance` - Binance实例引用
+    /// * `binance` - Reference-counted Binance instance
     ///
     /// # Returns
-    /// ListenKeyManager实例
+    /// Configured `ListenKeyManager`
     pub fn new(binance: Arc<Binance>) -> Self {
         Self {
             binance,
@@ -65,26 +65,26 @@ impl ListenKeyManager {
         }
     }
 
-    /// 获取或创建listen key
+    /// Retrieves or creates a listen key
     ///
-    /// 如果已有有效的listen key则返回，否则创建新的
+    /// Returns an existing valid listen key when present; otherwise creates a new one.
     ///
     /// # Returns
-    /// listen key字符串
+    /// Listen key string
     ///
     /// # Errors
-    /// - 创建listen key失败
-    /// - 缺少API认证信息
+    /// - Failed to create the listen key
+    /// - Missing API credentials
     pub async fn get_or_create(&self) -> Result<String> {
-        // 检查是否已有listen key
+        // Check if a listen key already exists
         let key_opt = self.listen_key.read().await.clone();
 
         if let Some(key) = key_opt {
-            // 检查是否需要刷新
+            // Check whether the key needs to be refreshed
             let created = self.created_at.read().await;
             if let Some(created_time) = *created {
                 let elapsed = created_time.elapsed();
-                // 如果已经超过50分钟，重新创建
+                // If more than 50 minutes have elapsed, create a new key
                 if elapsed > Duration::from_secs(50 * 60) {
                     drop(created);
                     return self.create_new().await;
@@ -93,36 +93,36 @@ impl ListenKeyManager {
             return Ok(key);
         }
 
-        // 创建新的listen key
+        // Create a new listen key
         self.create_new().await
     }
 
-    /// 创建新的listen key
+    /// Creates a new listen key
     ///
     /// # Returns
-    /// 新创建的listen key
+    /// Newly created listen key
     async fn create_new(&self) -> Result<String> {
         let key = self.binance.create_listen_key().await?;
 
-        // 更新缓存
+        // Update cache
         *self.listen_key.write().await = Some(key.clone());
         *self.created_at.write().await = Some(Instant::now());
 
         Ok(key)
     }
 
-    /// 刷新listen key
+    /// Refreshes the current listen key
     ///
-    /// 延长当前listen key的有效期60分钟
+    /// Extends the listen key lifetime by 60 minutes
     ///
     /// # Returns
-    /// 刷新结果
+    /// Refresh result
     pub async fn refresh(&self) -> Result<()> {
         let key_opt = self.listen_key.read().await.clone();
 
         if let Some(key) = key_opt {
             self.binance.refresh_listen_key(&key).await?;
-            // 更新创建时间
+            // Update the creation timestamp
             *self.created_at.write().await = Some(Instant::now());
             Ok(())
         } else {
@@ -130,11 +130,11 @@ impl ListenKeyManager {
         }
     }
 
-    /// 启动自动刷新任务
+    /// Starts the auto-refresh task
     ///
-    /// 每30分钟自动刷新一次listen key
+    /// Refreshes the listen key every 30 minutes
     pub async fn start_auto_refresh(&self) {
-        // 停止现有任务
+        // Stop any existing task
         self.stop_auto_refresh().await;
 
         let listen_key = self.listen_key.clone();
@@ -146,24 +146,24 @@ impl ListenKeyManager {
             loop {
                 tokio::time::sleep(interval).await;
 
-                // 检查是否有listen key
+                // Check whether a listen key exists
                 let key_opt = listen_key.read().await.clone();
                 if let Some(key) = key_opt {
-                    // 尝试刷新
+                    // Attempt to refresh the key
                     match binance.refresh_listen_key(&key).await {
                         Ok(_) => {
                             *created_at.write().await = Some(Instant::now());
                             // Listen key refreshed successfully
                         }
                         Err(_e) => {
-                            // Failed to refresh listen key, clear cache and recreate next time
+                            // Failed to refresh; clear cache so a new key will be created next time
                             *listen_key.write().await = None;
                             *created_at.write().await = None;
                             break;
                         }
                     }
                 } else {
-                    // 没有listen key，停止刷新任务
+                    // No listen key available; stop the task
                     break;
                 }
             }
@@ -172,7 +172,7 @@ impl ListenKeyManager {
         *self.refresh_task.lock().await = Some(handle);
     }
 
-    /// 停止自动刷新任务
+    /// Stops the auto-refresh task
     pub async fn stop_auto_refresh(&self) {
         let mut task_opt = self.refresh_task.lock().await;
         if let Some(handle) = task_opt.take() {
@@ -180,14 +180,14 @@ impl ListenKeyManager {
         }
     }
 
-    /// 删除listen key
+    /// Deletes the listen key
     ///
-    /// 关闭用户数据流并使key失效
+    /// Closes the user data stream and invalidates the key
     ///
     /// # Returns
-    /// 删除结果
+    /// Result of the deletion
     pub async fn delete(&self) -> Result<()> {
-        // 停止自动刷新
+        // Stop the auto-refresh first
         self.stop_auto_refresh().await;
 
         let key_opt = self.listen_key.read().await.clone();
@@ -195,22 +195,22 @@ impl ListenKeyManager {
         if let Some(key) = key_opt {
             self.binance.delete_listen_key(&key).await?;
 
-            // 清除缓存
+            // Clear cached state
             *self.listen_key.write().await = None;
             *self.created_at.write().await = None;
 
             Ok(())
         } else {
-            Ok(()) // 没有listen key，视为成功
+            Ok(()) // No listen key; treat as success
         }
     }
 
-    /// 获取当前listen key（如果存在）
+    /// Returns the current listen key when available
     pub async fn get_current(&self) -> Option<String> {
         self.listen_key.read().await.clone()
     }
 
-    /// 检查listen key是否有效
+    /// Checks whether the listen key is still valid
     pub async fn is_valid(&self) -> bool {
         let key_opt = self.listen_key.read().await;
         if key_opt.is_none() {
@@ -219,7 +219,7 @@ impl ListenKeyManager {
 
         let created = self.created_at.read().await;
         if let Some(created_time) = *created {
-            // 检查是否在有效期内（小于55分钟）
+            // Key is considered valid if less than 55 minutes old
             created_time.elapsed() < Duration::from_secs(55 * 60)
         } else {
             false
@@ -229,43 +229,43 @@ impl ListenKeyManager {
 
 impl Drop for ListenKeyManager {
     fn drop(&mut self) {
-        // 注意：由于Drop是同步的，我们不能在这里await异步操作
-        // 用户应该显式调用delete()方法来清理资源
+        // Note: Drop is synchronous, so we cannot await asynchronous operations here.
+        // Callers should explicitly invoke `delete()` to release resources.
     }
 }
-/// 订阅类型
+/// Subscription types supported by the Binance WebSocket API.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SubscriptionType {
-    /// 24小时行情ticker
+    /// 24-hour ticker stream
     Ticker,
-    /// 订单簿深度
+    /// Order book depth stream
     OrderBook,
-    /// 实时成交
+    /// Real-time trade stream
     Trades,
-    /// K线数据（包含时间周期，如"1m", "5m", "1h"等）
+    /// Kline (candlestick) stream with interval (e.g. "1m", "5m", "1h")
     Kline(String),
-    /// 账户余额
+    /// Account balance stream
     Balance,
-    /// 订单更新
+    /// Order update stream
     Orders,
-    /// 持仓更新
+    /// Position update stream
     Positions,
-    /// 我的成交记录
+    /// Personal trade execution stream
     MyTrades,
-    /// 标记价格
+    /// Mark price stream
     MarkPrice,
-    /// 最优挂单
+    /// Book ticker (best bid/ask) stream
     BookTicker,
 }
 
 impl SubscriptionType {
-    /// 从流名称识别订阅类型
+    /// Infers a subscription type from a stream name
     ///
     /// # Arguments
-    /// * `stream` - 流名称（如"btcusdt@ticker"）
+    /// * `stream` - Stream identifier (e.g. "btcusdt@ticker")
     ///
     /// # Returns
-    /// 订阅类型（如果能识别）
+    /// Subscription type, when the stream can be identified
     pub fn from_stream(stream: &str) -> Option<Self> {
         if stream.contains("@ticker") {
             Some(Self::Ticker)
@@ -274,7 +274,7 @@ impl SubscriptionType {
         } else if stream.contains("@trade") || stream.contains("@aggTrade") {
             Some(Self::Trades)
         } else if stream.contains("@kline_") {
-            // 提取时间周期
+            // Extract timeframe suffix
             let parts: Vec<&str> = stream.split("@kline_").collect();
             if parts.len() == 2 {
                 Some(Self::Kline(parts[1].to_string()))
@@ -291,23 +291,23 @@ impl SubscriptionType {
     }
 }
 
-/// 订阅信息
+/// Subscription metadata
 #[derive(Clone)]
 pub struct Subscription {
-    /// 订阅的流名称（如 "btcusdt@ticker"）
+    /// Stream name (e.g. "btcusdt@ticker")
     pub stream: String,
-    /// 交易对符号（如 "BTCUSDT"，标准化格式）
+    /// Normalized trading symbol (e.g. "BTCUSDT")
     pub symbol: String,
-    /// 订阅类型
+    /// Subscription type descriptor
     pub sub_type: SubscriptionType,
-    /// 订阅时间
+    /// Timestamp when the subscription was created
     pub subscribed_at: Instant,
-    /// 消息发送器（用于发送数据到消费者）
+    /// Sender for forwarding WebSocket messages to consumers
     pub sender: tokio::sync::mpsc::UnboundedSender<Value>,
 }
 
 impl Subscription {
-    /// 创建新的订阅
+    /// Creates a new subscription with the provided parameters
     pub fn new(
         stream: String,
         symbol: String,
@@ -323,35 +323,35 @@ impl Subscription {
         }
     }
 
-    /// 发送消息到订阅者
+    /// Sends a message to the subscriber
     ///
     /// # Arguments
-    /// * `message` - WebSocket消息
+    /// * `message` - WebSocket payload to forward
     ///
     /// # Returns
-    /// 发送是否成功
+    /// Whether the message was delivered successfully
     pub fn send(&self, message: Value) -> bool {
         self.sender.send(message).is_ok()
     }
 }
 
-/// 订阅管理器
+/// Subscription manager
 ///
-/// 负责管理所有WebSocket订阅的生命周期，包括：
-/// - 添加和移除订阅
-/// - 订阅查询和验证
-/// - 统计活跃订阅数
+/// Manages the lifecycle of all WebSocket subscriptions, including:
+/// - Adding and removing subscriptions
+/// - Querying and validating subscriptions
+/// - Tracking the number of active subscriptions
 pub struct SubscriptionManager {
-    /// 订阅映射：stream_name -> Subscription
+    /// Mapping of `stream_name -> Subscription`
     subscriptions: Arc<RwLock<HashMap<String, Subscription>>>,
-    /// 按交易对索引：symbol -> Vec<stream_name>
+    /// Index by symbol: `symbol -> Vec<stream_name>`
     symbol_index: Arc<RwLock<HashMap<String, Vec<String>>>>,
-    /// 活跃订阅计数
+    /// Counter of active subscriptions
     active_count: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl SubscriptionManager {
-    /// 创建新的订阅管理器
+    /// Creates a new `SubscriptionManager`
     pub fn new() -> Self {
         Self {
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
@@ -360,16 +360,16 @@ impl SubscriptionManager {
         }
     }
 
-    /// 添加订阅
+    /// Adds a subscription to the manager
     ///
     /// # Arguments
-    /// * `stream` - 流名称（如"btcusdt@ticker"）
-    /// * `symbol` - 交易对符号（标准化格式，如"BTCUSDT"）
-    /// * `sub_type` - 订阅类型
-    /// * `sender` - 消息发送器
+    /// * `stream` - Stream identifier (e.g. "btcusdt@ticker")
+    /// * `symbol` - Normalized trading symbol (e.g. "BTCUSDT")
+    /// * `sub_type` - Subscription classification
+    /// * `sender` - Channel for dispatching messages
     ///
     /// # Returns
-    /// 添加结果
+    /// Result of the insertion
     pub async fn add_subscription(
         &self,
         stream: String,
@@ -379,43 +379,43 @@ impl SubscriptionManager {
     ) -> Result<()> {
         let subscription = Subscription::new(stream.clone(), symbol.clone(), sub_type, sender);
 
-        // 添加到订阅映射
+        // Insert into the subscription map
         let mut subs = self.subscriptions.write().await;
         subs.insert(stream.clone(), subscription);
 
-        // 更新symbol索引
+        // Update the per-symbol index
         let mut index = self.symbol_index.write().await;
         index.entry(symbol).or_insert_with(Vec::new).push(stream);
 
-        // 更新计数
+        // Increment the active subscription count
         self.active_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
     }
 
-    /// 移除订阅
+    /// Removes a subscription by stream name
     ///
     /// # Arguments
-    /// * `stream` - 流名称
+    /// * `stream` - Stream identifier to remove
     ///
     /// # Returns
-    /// 移除结果
+    /// Result of the removal
     pub async fn remove_subscription(&self, stream: &str) -> Result<()> {
         let mut subs = self.subscriptions.write().await;
 
         if let Some(subscription) = subs.remove(stream) {
-            // 从symbol索引中移除
+            // Remove from the symbol index as well
             let mut index = self.symbol_index.write().await;
             if let Some(streams) = index.get_mut(&subscription.symbol) {
                 streams.retain(|s| s != stream);
-                // 如果该symbol没有订阅了，移除整个条目
+                // Drop the symbol entry when no subscriptions remain
                 if streams.is_empty() {
                     index.remove(&subscription.symbol);
                 }
             }
 
-            // 更新计数
+            // Decrement the active subscription counter
             self.active_count
                 .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -423,46 +423,40 @@ impl SubscriptionManager {
         Ok(())
     }
 
-    /// 获取订阅
+    /// Retrieves a subscription by stream name
     ///
     /// # Arguments
-    /// * `stream` - 流名称
+    /// * `stream` - Stream identifier
     ///
     /// # Returns
-    /// 订阅信息（如果存在）
+    /// Optional subscription record
     pub async fn get_subscription(&self, stream: &str) -> Option<Subscription> {
         let subs = self.subscriptions.read().await;
         subs.get(stream).cloned()
     }
 
-    /// 检查订阅是否存在
+    /// Checks whether a subscription exists for the given stream
     ///
     /// # Arguments
-    /// * `stream` - 流名称
+    /// * `stream` - Stream identifier
     ///
     /// # Returns
-    /// 是否存在
+    /// `true` if the subscription exists, otherwise `false`
     pub async fn has_subscription(&self, stream: &str) -> bool {
         let subs = self.subscriptions.read().await;
         subs.contains_key(stream)
     }
 
-    /// 获取所有订阅
-    ///
-    /// # Returns
-    /// 订阅列表
+    /// Returns all registered subscriptions
     pub async fn get_all_subscriptions(&self) -> Vec<Subscription> {
         let subs = self.subscriptions.read().await;
         subs.values().cloned().collect()
     }
 
-    /// 获取指定交易对的所有订阅
+    /// Returns all subscriptions associated with a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对符号
-    ///
-    /// # Returns
-    /// 订阅列表
+    /// * `symbol` - Trading symbol
     pub async fn get_subscriptions_by_symbol(&self, symbol: &str) -> Vec<Subscription> {
         let index = self.symbol_index.read().await;
         let subs = self.subscriptions.read().await;
@@ -477,15 +471,12 @@ impl SubscriptionManager {
         }
     }
 
-    /// 获取活跃订阅数
-    ///
-    /// # Returns
-    /// 活跃订阅数量
+    /// Returns the number of active subscriptions
     pub fn active_count(&self) -> usize {
         self.active_count.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// 清除所有订阅
+    /// Removes all subscriptions and clears indexes
     pub async fn clear(&self) {
         let mut subs = self.subscriptions.write().await;
         let mut index = self.symbol_index.write().await;
@@ -496,14 +487,14 @@ impl SubscriptionManager {
             .store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// 向指定流的订阅者发送消息
+    /// Sends a message to subscribers of a specific stream
     ///
     /// # Arguments
-    /// * `stream` - 流名称
-    /// * `message` - WebSocket消息
+    /// * `stream` - Stream identifier
+    /// * `message` - WebSocket payload to broadcast
     ///
     /// # Returns
-    /// 是否发送成功
+    /// `true` when the message was delivered, otherwise `false`
     pub async fn send_to_stream(&self, stream: &str, message: Value) -> bool {
         let subs = self.subscriptions.read().await;
         if let Some(subscription) = subs.get(stream) {
@@ -513,14 +504,14 @@ impl SubscriptionManager {
         }
     }
 
-    /// 向指定交易对的所有订阅者发送消息
+    /// Sends a message to all subscribers of a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对符号
-    /// * `message` - WebSocket消息
+    /// * `symbol` - Trading symbol
+    /// * `message` - Shared WebSocket payload
     ///
     /// # Returns
-    /// 成功发送的订阅数
+    /// Number of subscribers that received the message
     pub async fn send_to_symbol(&self, symbol: &str, message: &Value) -> usize {
         let index = self.symbol_index.read().await;
         let subs = self.subscriptions.read().await;
@@ -540,24 +531,24 @@ impl SubscriptionManager {
         sent_count
     }
 }
-/// 重连配置
+/// Reconnect configuration
 ///
-/// 配置WebSocket连接断开后的自动重连策略
+/// Defines the automatic reconnection strategy after a WebSocket disconnect
 #[derive(Debug, Clone)]
 pub struct ReconnectConfig {
-    /// 是否启用自动重连
+    /// Enables or disables automatic reconnection
     pub enabled: bool,
 
-    /// 初始重连延迟（毫秒）
+    /// Initial reconnection delay in milliseconds
     pub initial_delay_ms: u64,
 
-    /// 最大重连延迟（毫秒）
+    /// Maximum reconnection delay in milliseconds
     pub max_delay_ms: u64,
 
-    /// 延迟倍增因子
+    /// Exponential backoff multiplier
     pub backoff_multiplier: f64,
 
-    /// 最大重连尝试次数（0表示无限制）
+    /// Maximum number of reconnection attempts (0 means unlimited)
     pub max_attempts: usize,
 }
 
@@ -565,80 +556,80 @@ impl Default for ReconnectConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            initial_delay_ms: 1000,  // 1秒
-            max_delay_ms: 30000,     // 30秒
-            backoff_multiplier: 2.0, // 指数退避
-            max_attempts: 0,         // 无限重连
+            initial_delay_ms: 1000,  // 1 second
+            max_delay_ms: 30000,     // 30 seconds
+            backoff_multiplier: 2.0, // Exponential backoff
+            max_attempts: 0,         // Unlimited retries
         }
     }
 }
 
 impl ReconnectConfig {
-    /// 计算重连延迟
+    /// Calculates the reconnection delay
     ///
-    /// 使用指数退避策略计算延迟时间
+    /// Uses exponential backoff to determine the delay duration
     ///
     /// # Arguments
-    /// * `attempt` - 当前重连尝试次数（从0开始）
+    /// * `attempt` - Current reconnection attempt (zero-based)
     ///
     /// # Returns
-    /// 延迟时间（毫秒）
+    /// Delay duration in milliseconds
     pub fn calculate_delay(&self, attempt: usize) -> u64 {
         let delay = (self.initial_delay_ms as f64) * self.backoff_multiplier.powi(attempt as i32);
         delay.min(self.max_delay_ms as f64) as u64
     }
 
-    /// 检查是否应该继续重连
+    /// Determines whether another reconnection attempt should be made
     ///
     /// # Arguments
-    /// * `attempt` - 当前重连尝试次数
+    /// * `attempt` - Current reconnection attempt
     ///
     /// # Returns
-    /// 是否应该继续重连
+    /// `true` if another retry should be attempted
     pub fn should_retry(&self, attempt: usize) -> bool {
         self.enabled && (self.max_attempts == 0 || attempt < self.max_attempts)
     }
 }
 
-/// 消息路由器
+/// Message router
 ///
-/// 负责WebSocket消息的接收、解析和分发，核心功能包括：
-/// - WebSocket连接管理
-/// - 消息接收和路由
-/// - 自动重连机制
-/// - 订阅管理
+/// Handles reception, parsing, and dispatching of WebSocket messages. Core responsibilities:
+/// - Managing WebSocket connections
+/// - Receiving and routing messages
+/// - Coordinating automatic reconnection
+/// - Managing subscriptions
 pub struct MessageRouter {
-    /// WebSocket客户端
+    /// WebSocket client instance
     ws_client: Arc<RwLock<Option<WsClient>>>,
 
-    /// 订阅管理器
+    /// Subscription manager registry
     subscription_manager: Arc<SubscriptionManager>,
 
-    /// 路由任务句柄
+    /// Handle to the background routing task
     router_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 
-    /// 连接状态标志
+    /// Connection state flag
     is_connected: Arc<std::sync::atomic::AtomicBool>,
 
-    /// 重连配置
+    /// Configuration for reconnection behavior
     reconnect_config: Arc<RwLock<ReconnectConfig>>,
 
-    /// WebSocket URL
+    /// WebSocket endpoint URL
     ws_url: String,
 
-    /// 请求ID计数器（用于订阅/取消订阅）
+    /// Request ID counter (used for subscribe/unsubscribe)
     request_id: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl MessageRouter {
-    /// 创建新的消息路由器
+    /// Creates a new message router
     ///
     /// # Arguments
-    /// * `ws_url` - WebSocket连接URL
-    /// * `subscription_manager` - 订阅管理器
+    /// * `ws_url` - WebSocket connection URL
+    /// * `subscription_manager` - Subscription manager handle
     ///
     /// # Returns
-    /// MessageRouter实例
+    /// Configured router instance
     pub fn new(ws_url: String, subscription_manager: Arc<SubscriptionManager>) -> Self {
         Self {
             ws_client: Arc::new(RwLock::new(None)),
@@ -651,19 +642,19 @@ impl MessageRouter {
         }
     }
 
-    /// 启动消息路由器
+    /// Starts the message router
     ///
-    /// 建立WebSocket连接并启动消息接收循环
+    /// Establishes the WebSocket connection and launches the message loop
     ///
     /// # Returns
-    /// 启动结果
+    /// Result of the startup sequence
     pub async fn start(&self) -> Result<()> {
-        // 如果已经在运行，先停止
+        // Stop any running instance before starting again
         if self.is_connected() {
             self.stop().await?;
         }
 
-        // 建立WebSocket连接
+        // Establish a new WebSocket connection
         let config = WsConfig {
             url: self.ws_url.clone(),
             ..Default::default()
@@ -671,14 +662,14 @@ impl MessageRouter {
         let client = WsClient::new(config);
         client.connect().await?;
 
-        // 保存客户端
+        // Store the client handle
         *self.ws_client.write().await = Some(client);
 
-        // 设置连接状态
+        // Update connection state
         self.is_connected
             .store(true, std::sync::atomic::Ordering::SeqCst);
 
-        // 启动消息循环
+        // Spawn the message processing loop
         let ws_client = self.ws_client.clone();
         let subscription_manager = self.subscription_manager.clone();
         let is_connected = self.is_connected.clone();
@@ -701,24 +692,24 @@ impl MessageRouter {
         Ok(())
     }
 
-    /// 停止消息路由器
+    /// Stops the message router
     ///
-    /// 停止消息接收任务并关闭WebSocket连接
+    /// Terminates the message loop and disconnects the WebSocket client
     ///
     /// # Returns
-    /// 停止结果
+    /// Result of the shutdown procedure
     pub async fn stop(&self) -> Result<()> {
-        // 设置连接状态为false
+        // Mark the connection as inactive
         self.is_connected
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
-        // 停止路由任务
+        // Cancel the background routing task
         let mut task_opt = self.router_task.lock().await;
         if let Some(handle) = task_opt.take() {
             handle.abort();
         }
 
-        // 关闭WebSocket连接
+        // Disconnect the WebSocket client if present
         let mut client_opt = self.ws_client.write().await;
         if let Some(client) = client_opt.take() {
             let _ = client.disconnect().await;
@@ -727,51 +718,42 @@ impl MessageRouter {
         Ok(())
     }
 
-    /// 重启消息路由器
+    /// Restarts the message router
     ///
-    /// 先停止再启动，用于重连场景
+    /// Stops the current connection and restarts it, typically used during reconnect scenarios
     ///
     /// # Returns
-    /// 重启结果
+    /// Result of the restart sequence
     pub async fn restart(&self) -> Result<()> {
         self.stop().await?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         self.start().await
     }
 
-    /// 获取连接状态
-    ///
-    /// # Returns
-    /// 是否已连接
+    /// Returns the current connection state
     pub fn is_connected(&self) -> bool {
         self.is_connected.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// 设置重连配置
+    /// Applies a new reconnection configuration
     ///
     /// # Arguments
-    /// * `config` - 重连配置
+    /// * `config` - Updated reconnection configuration
     pub async fn set_reconnect_config(&self, config: ReconnectConfig) {
         *self.reconnect_config.write().await = config;
     }
 
-    /// 获取重连配置
-    ///
-    /// # Returns
-    /// 当前重连配置
+    /// Retrieves the current reconnection configuration
     pub async fn get_reconnect_config(&self) -> ReconnectConfig {
         self.reconnect_config.read().await.clone()
     }
 
-    /// 订阅流
+    /// Subscribes to the provided streams
     ///
-    /// 向Binance发送订阅请求
+    /// Sends a subscription request to Binance
     ///
     /// # Arguments
-    /// * `streams` - 流名称列表
-    ///
-    /// # Returns
-    /// 订阅结果
+    /// * `streams` - Collection of stream identifiers
     pub async fn subscribe(&self, streams: Vec<String>) -> Result<()> {
         if streams.is_empty() {
             return Ok(());
@@ -782,13 +764,12 @@ impl MessageRouter {
             .as_ref()
             .ok_or_else(|| Error::network("WebSocket not connected"))?;
 
-        // 生成请求ID
+        // Generate a request identifier
         let id = self
             .request_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        // 构造订阅请求
-        // json! macro with literal values is infallible
+        // Build the subscribe payload
         #[allow(clippy::disallowed_methods)]
         let request = serde_json::json!({
             "method": "SUBSCRIBE",
@@ -796,7 +777,7 @@ impl MessageRouter {
             "id": id
         });
 
-        // 发送订阅请求
+        // Send the request to Binance
         client
             .send(Message::Text(request.to_string().into()))
             .await?;
@@ -804,15 +785,12 @@ impl MessageRouter {
         Ok(())
     }
 
-    /// 取消订阅流
+    /// Unsubscribes from the provided streams
     ///
-    /// 向Binance发送取消订阅请求
+    /// Sends an unsubscribe request to Binance
     ///
     /// # Arguments
-    /// * `streams` - 流名称列表
-    ///
-    /// # Returns
-    /// 取消订阅结果
+    /// * `streams` - Collection of stream identifiers
     pub async fn unsubscribe(&self, streams: Vec<String>) -> Result<()> {
         if streams.is_empty() {
             return Ok(());
@@ -823,13 +801,12 @@ impl MessageRouter {
             .as_ref()
             .ok_or_else(|| Error::network("WebSocket not connected"))?;
 
-        // 生成请求ID
+        // Generate a request identifier
         let id = self
             .request_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        // 构造取消订阅请求
-        // json! macro with literal values is infallible
+        // Build the unsubscribe payload
         #[allow(clippy::disallowed_methods)]
         let request = serde_json::json!({
             "method": "UNSUBSCRIBE",
@@ -837,7 +814,7 @@ impl MessageRouter {
             "id": id
         });
 
-        // 发送取消订阅请求
+        // Send the request to Binance
         client
             .send(Message::Text(request.to_string().into()))
             .await?;
@@ -845,9 +822,9 @@ impl MessageRouter {
         Ok(())
     }
 
-    /// 消息接收循环
+    /// Message reception loop
     ///
-    /// 持续接收WebSocket消息并路由到订阅者
+    /// Continuously receives WebSocket messages and routes them to subscribers
     async fn message_loop(
         ws_client: Arc<RwLock<Option<WsClient>>>,
         subscription_manager: Arc<SubscriptionManager>,
@@ -858,16 +835,16 @@ impl MessageRouter {
         let mut reconnect_attempt = 0;
 
         loop {
-            // 检查是否应该停止
+            // Exit if instructed to stop
             if !is_connected.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
 
-            // 检查客户端是否存在
+            // Confirm that a client instance exists
             let has_client = ws_client.read().await.is_some();
 
             if !has_client {
-                // 尝试重连
+                // Attempt to reconnect when no client is present
                 let config = reconnect_config.read().await;
                 if config.should_retry(reconnect_attempt) {
                     let delay = config.calculate_delay(reconnect_attempt);
@@ -877,7 +854,7 @@ impl MessageRouter {
 
                     match Self::reconnect(&ws_url, ws_client.clone()).await {
                         Ok(_) => {
-                            reconnect_attempt = 0; // 重连成功，重置计数
+                            reconnect_attempt = 0; // Reset counter on success
                             continue;
                         }
                         Err(_) => {
@@ -886,13 +863,13 @@ impl MessageRouter {
                         }
                     }
                 } else {
-                    // 不再重连，退出循环
+                    // Stop attempting to reconnect
                     is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
                     break;
                 }
             }
 
-            // 接收消息（需要重新获取锁）
+            // Receive the next message (requires re-acquiring the lock)
             let message_opt = {
                 let guard = ws_client.read().await;
                 if let Some(client) = guard.as_ref() {
@@ -904,18 +881,17 @@ impl MessageRouter {
 
             match message_opt {
                 Some(value) => {
-                    // 处理消息
+                    // Handle the message; ignore failures but continue the loop
                     if let Err(_e) = Self::handle_message(value, subscription_manager.clone()).await
                     {
-                        // 消息处理错误，继续接收下一条
                         continue;
                     }
 
-                    // 重置重连计数（连接正常）
+                    // Reset the reconnection counter because the connection is healthy
                     reconnect_attempt = 0;
                 }
                 None => {
-                    // 连接错误，尝试重连
+                    // Connection failure; attempt to reconnect
                     let config = reconnect_config.read().await;
                     if config.should_retry(reconnect_attempt) {
                         let delay = config.calculate_delay(reconnect_attempt);
@@ -934,7 +910,7 @@ impl MessageRouter {
                             }
                         }
                     } else {
-                        // 不再重连，退出循环
+                        // Reconnection not permitted anymore; stop the loop
                         is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
                         break;
                     }
@@ -943,17 +919,17 @@ impl MessageRouter {
         }
     }
 
-    /// 处理WebSocket消息
+    /// Processes a WebSocket message
     ///
-    /// 解析消息并路由到对应订阅者
+    /// Parses the message and routes it to relevant subscribers
     async fn handle_message(
         message: Value,
         subscription_manager: Arc<SubscriptionManager>,
     ) -> Result<()> {
-        // 提取流名称
+        // Determine the stream name for routing
         let stream_name = Self::extract_stream_name(&message)?;
 
-        // 路由消息到订阅者
+        // Forward the message to the corresponding subscribers
         let sent = subscription_manager
             .send_to_stream(&stream_name, message)
             .await;
@@ -965,35 +941,34 @@ impl MessageRouter {
         }
     }
 
-    /// 从消息中提取流名称
+    /// Extracts the stream name from an incoming message
     ///
-    /// 支持两种消息格式：
-    /// 1. 组合流：`{"stream":"btcusdt@ticker","data":{...}}`
-    /// 2. 单流：`{"e":"24hrTicker","s":"BTCUSDT",...}`
+    /// Supports two formats:
+    /// 1. Combined stream: `{"stream":"btcusdt@ticker","data":{...}}`
+    /// 2. Single stream: `{"e":"24hrTicker","s":"BTCUSDT",...}`
     ///
     /// # Arguments
-    /// * `message` - WebSocket消息
+    /// * `message` - Raw WebSocket payload
     ///
     /// # Returns
-    /// 流名称
+    /// Stream identifier for routing
     fn extract_stream_name(message: &Value) -> Result<String> {
-        // 尝试从组合流格式提取
+        // Attempt to read the combined-stream format
         if let Some(stream) = message.get("stream").and_then(|s| s.as_str()) {
             return Ok(stream.to_string());
         }
 
-        // 尝试从单流格式提取
-        // 格式：事件类型@交易对（小写）
+        // Fall back to single-stream format: event@symbol (lowercase)
         if let Some(event_type) = message.get("e").and_then(|e| e.as_str()) {
             if let Some(symbol) = message.get("s").and_then(|s| s.as_str()) {
-                // 构造流名称
+                // Build the stream identifier
                 let stream = match event_type {
                     "24hrTicker" => format!("{}@ticker", symbol.to_lowercase()),
                     "depthUpdate" => format!("{}@depth", symbol.to_lowercase()),
                     "aggTrade" => format!("{}@aggTrade", symbol.to_lowercase()),
                     "trade" => format!("{}@trade", symbol.to_lowercase()),
                     "kline" => {
-                        // K线需要提取时间周期
+                        // Kline messages carry the interval within the "k" object
                         if let Some(kline) = message.get("k") {
                             if let Some(interval) = kline.get("i").and_then(|i| i.as_str()) {
                                 format!("{}@kline_{}", symbol.to_lowercase(), interval)
@@ -1017,7 +992,7 @@ impl MessageRouter {
             }
         }
 
-        // 如果是订阅响应或错误响应，不需要路由
+        // Ignore subscription acknowledgements and error responses
         if message.get("result").is_some() || message.get("error").is_some() {
             return Err(Error::generic("Subscription response, skip routing"));
         }
@@ -1025,11 +1000,11 @@ impl MessageRouter {
         Err(Error::generic("Cannot extract stream name from message"))
     }
 
-    /// 重连WebSocket
+    /// Reconnects the WebSocket client
     ///
-    /// 关闭旧连接并建立新连接
+    /// Closes the existing connection and establishes a new one
     async fn reconnect(ws_url: &str, ws_client: Arc<RwLock<Option<WsClient>>>) -> Result<()> {
-        // 关闭旧连接
+        // Close the previous connection
         {
             let mut client_opt = ws_client.write().await;
             if let Some(client) = client_opt.take() {
@@ -1037,17 +1012,17 @@ impl MessageRouter {
             }
         }
 
-        // 建立新连接
+        // Establish a fresh connection
         let config = WsConfig {
             url: ws_url.to_string(),
             ..Default::default()
         };
         let new_client = WsClient::new(config);
 
-        // 连接WebSocket
+        // Connect to the WebSocket endpoint
         new_client.connect().await?;
 
-        // 保存新客户端
+        // Store the new client handle
         *ws_client.write().await = Some(new_client);
 
         Ok(())
@@ -1056,8 +1031,8 @@ impl MessageRouter {
 
 impl Drop for MessageRouter {
     fn drop(&mut self) {
-        // 注意：由于Drop是同步的，我们不能在这里await异步操作
-        // 用户应该显式调用stop()方法来清理资源
+        // Note: Drop is synchronous, so we cannot await asynchronous operations here.
+        // Callers should explicitly invoke `stop()` to release resources.
     }
 }
 
@@ -1067,55 +1042,55 @@ impl Default for SubscriptionManager {
     }
 }
 
-/// Binance WebSocket客户端包装器
+/// Binance WebSocket client wrapper
 pub struct BinanceWs {
     client: Arc<WsClient>,
     listen_key: Arc<RwLock<Option<String>>>,
-    /// Listen key管理器
+    /// Listen key manager
     listen_key_manager: Option<Arc<ListenKeyManager>>,
-    /// 自动重连协调器
+    /// Auto-reconnect coordinator
     auto_reconnect_coordinator: Arc<Mutex<Option<ccxt_core::ws_client::AutoReconnectCoordinator>>>,
-    /// 缓存的ticker数据
+    /// Cached ticker data
     tickers: Arc<Mutex<HashMap<String, Ticker>>>,
-    /// 缓存的bid/ask数据
+    /// Cached bid/ask snapshots
     bids_asks: Arc<Mutex<HashMap<String, BidAsk>>>,
-    /// 缓存的mark price数据
+    /// Cached mark price entries
     #[allow(dead_code)]
     mark_prices: Arc<Mutex<HashMap<String, MarkPrice>>>,
-    /// 缓存的订单簿数据
+    /// Cached order book snapshots
     orderbooks: Arc<Mutex<HashMap<String, OrderBook>>>,
-    /// 缓存的交易数据（保留最近1000条）
+    /// Cached trade history (retains the latest 1000 entries)
     trades: Arc<Mutex<HashMap<String, VecDeque<Trade>>>>,
-    /// 缓存的K线数据
+    /// Cached OHLCV candles
     ohlcvs: Arc<Mutex<HashMap<String, VecDeque<OHLCV>>>>,
-    /// 缓存的余额数据（按账户类型）
+    /// Cached balance data grouped by account type
     balances: Arc<RwLock<HashMap<String, Balance>>>,
-    /// 缓存的订单数据（按symbol分组，再按orderId索引）
+    /// Cached orders grouped by symbol then order ID
     orders: Arc<RwLock<HashMap<String, HashMap<String, Order>>>>,
-    /// 缓存的成交记录（按symbol分组，保留最近1000条）
+    /// Cached personal trades grouped by symbol (retains the latest 1000 entries)
     my_trades: Arc<RwLock<HashMap<String, VecDeque<Trade>>>>,
-    /// 缓存的持仓数据（按symbol和side分组）
+    /// Cached positions grouped by symbol and side
     positions: Arc<RwLock<HashMap<String, HashMap<String, Position>>>>,
 }
 
 impl BinanceWs {
-    /// 创建新的Binance WebSocket客户端
+    /// Creates a new Binance WebSocket client
     ///
     /// # Arguments
-    /// * `url` - WebSocket服务器URL
+    /// * `url` - WebSocket server URL
     ///
     /// # Returns
-    /// Binance WebSocket客户端实例
+    /// Initialized Binance WebSocket client
     pub fn new(url: String) -> Self {
         let config = WsConfig {
             url,
             connect_timeout: 10000,
-            ping_interval: 180000, // Binance推荐3分钟
+            ping_interval: 180000, // Binance recommends 3 minutes
             reconnect_interval: 5000,
             max_reconnect_attempts: 5,
             auto_reconnect: true,
             enable_compression: false,
-            pong_timeout: 90000, // pong超时设置为90秒
+            pong_timeout: 90000, // Set pong timeout to 90 seconds
         };
 
         Self {
@@ -1136,24 +1111,24 @@ impl BinanceWs {
         }
     }
 
-    /// 创建带有listen key管理器的WebSocket客户端
+    /// Creates a WebSocket client with a listen key manager
     ///
     /// # Arguments
-    /// * `url` - WebSocket服务器URL
-    /// * `binance` - Binance实例引用
+    /// * `url` - WebSocket server URL
+    /// * `binance` - Shared Binance instance
     ///
     /// # Returns
-    /// Binance WebSocket客户端实例（带listen key管理器）
+    /// Binance WebSocket client configured with a listen key manager
     pub fn new_with_auth(url: String, binance: Arc<Binance>) -> Self {
         let config = WsConfig {
             url,
             connect_timeout: 10000,
-            ping_interval: 180000,
+            ping_interval: 180000, // Binance recommends 3 minutes
             reconnect_interval: 5000,
             max_reconnect_attempts: 5,
             auto_reconnect: true,
             enable_compression: false,
-            pong_timeout: 90000, // pong超时设置为90秒
+            pong_timeout: 90000, // Set pong timeout to 90 seconds
         };
 
         Self {
@@ -1174,12 +1149,12 @@ impl BinanceWs {
         }
     }
 
-    /// 连接到WebSocket服务器
+    /// Connects to the WebSocket server
     pub async fn connect(&self) -> Result<()> {
-        // 先连接WebSocket
+        // Establish the WebSocket connection
         self.client.connect().await?;
 
-        // 启动自动重连协调器
+        // Start the auto-reconnect coordinator when not already running
         let mut coordinator_guard = self.auto_reconnect_coordinator.lock().await;
         if coordinator_guard.is_none() {
             let coordinator = self.client.clone().create_auto_reconnect_coordinator();
@@ -1191,16 +1166,16 @@ impl BinanceWs {
         Ok(())
     }
 
-    /// 断开WebSocket连接
+    /// Disconnects from the WebSocket server
     pub async fn disconnect(&self) -> Result<()> {
-        // 停止自动重连协调器
+        // Stop the auto-reconnect coordinator first
         let mut coordinator_guard = self.auto_reconnect_coordinator.lock().await;
         if let Some(coordinator) = coordinator_guard.take() {
             coordinator.stop().await;
             tracing::info!("Auto-reconnect coordinator stopped");
         }
 
-        // 如果有listen key管理器，停止自动刷新
+        // Stop automatic listen key refresh if available
         if let Some(manager) = &self.listen_key_manager {
             manager.stop_auto_refresh().await;
         }
@@ -1208,17 +1183,17 @@ impl BinanceWs {
         self.client.disconnect().await
     }
 
-    /// 连接用户数据流
+    /// Connects to the user data stream
     ///
-    /// 创建或获取listen key，连接到用户数据流WebSocket，并启动自动刷新
+    /// Creates or retrieves a listen key, connects to the user data WebSocket, and starts auto-refresh
     ///
     /// # Returns
-    /// 连接结果
+    /// Result of the connection attempt
     ///
     /// # Errors
-    /// - 缺少listen key管理器（需要使用new_with_auth创建实例）
-    /// - 创建listen key失败
-    /// - WebSocket连接失败
+    /// - Listen key manager is missing (requires `new_with_auth` constructor)
+    /// - Listen key creation failed
+    /// - WebSocket connection failed
     ///
     /// # Example
     /// ```rust,no_run
@@ -1237,13 +1212,13 @@ impl BinanceWs {
                 "Listen key manager not available. Use new_with_auth() to create authenticated WebSocket"
             ))?;
 
-        // 获取或创建listen key
+        // Obtain an existing listen key or create a new one
         let listen_key = manager.get_or_create().await?;
 
-        // 更新配置中的URL
+        // Update the WebSocket URL using the listen key
         let user_stream_url = format!("wss://stream.binance.com:9443/ws/{}", listen_key);
 
-        // 重新创建WebSocket客户端
+        // Recreate the WebSocket client configuration
         let config = WsConfig {
             url: user_stream_url,
             connect_timeout: 10000,
@@ -1252,32 +1227,31 @@ impl BinanceWs {
             max_reconnect_attempts: 5,
             auto_reconnect: true,
             enable_compression: false,
-            pong_timeout: 90000, // 90秒，默认值
+            pong_timeout: 90000, // Default 90-second timeout
         };
 
-        // 更新客户端配置
-        // 注意：这里我们需要重新创建WsClient
+        // Initialize a new client instance (retained for future replacement logic)
         let _new_client = Arc::new(WsClient::new(config));
-        // 由于client是Arc，我们不能直接修改，需要在实际使用时处理
+        // An `Arc` cannot be modified in place; concrete handling is deferred for future work
 
-        // 连接到WebSocket
+        // Connect to the WebSocket endpoint
         self.client.connect().await?;
 
-        // 启动自动刷新
+        // Start automatic listen key refresh
         manager.start_auto_refresh().await;
 
-        // 缓存listen key
+        // Cache the current listen key locally
         *self.listen_key.write().await = Some(listen_key);
 
         Ok(())
     }
 
-    /// 关闭用户数据流
+    /// Closes the user data stream
     ///
-    /// 停止自动刷新并删除listen key
+    /// Stops auto-refresh and deletes the listen key
     ///
     /// # Returns
-    /// 关闭结果
+    /// Result of the shutdown
     pub async fn close_user_stream(&self) -> Result<()> {
         if let Some(manager) = &self.listen_key_manager {
             manager.delete().await?;
@@ -1286,7 +1260,7 @@ impl BinanceWs {
         Ok(())
     }
 
-    /// 获取当前的listen key（如果有）
+    /// Returns the active listen key, when available
     pub async fn get_listen_key(&self) -> Option<String> {
         if let Some(manager) = &self.listen_key_manager {
             manager.get_current().await
@@ -1295,13 +1269,13 @@ impl BinanceWs {
         }
     }
 
-    /// 订阅行情ticker
+    /// Subscribes to the ticker stream for a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_ticker(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@ticker", symbol.to_lowercase());
         self.client
@@ -1309,20 +1283,20 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅24小时所有ticker
+    /// Subscribes to the 24-hour ticker stream for all symbols
     pub async fn subscribe_all_tickers(&self) -> Result<()> {
         self.client
             .subscribe("!ticker@arr".to_string(), None, None)
             .await
     }
 
-    /// 订阅交易记录
+    /// Subscribes to real-time trade executions for a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_trades(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@trade", symbol.to_lowercase());
         self.client
@@ -1330,13 +1304,13 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅聚合交易记录
+    /// Subscribes to the aggregated trade stream for a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_agg_trades(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@aggTrade", symbol.to_lowercase());
         self.client
@@ -1344,15 +1318,15 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅订单簿深度
+    /// Subscribes to the order book depth stream
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
-    /// * `levels` - 深度档位（5, 10, 20）
-    /// * `update_speed` - 更新速度（"100ms" 或 "1000ms"）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
+    /// * `levels` - Depth levels (5, 10, 20)
+    /// * `update_speed` - Update frequency ("100ms" or "1000ms")
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_orderbook(
         &self,
         symbol: &str,
@@ -1370,14 +1344,14 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅差分深度
+    /// Subscribes to the diff order book stream
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
-    /// * `update_speed` - 更新速度（"100ms" 或 "1000ms"）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
+    /// * `update_speed` - Update frequency ("100ms" or "1000ms")
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_orderbook_diff(
         &self,
         symbol: &str,
@@ -1398,14 +1372,14 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅K线数据
+    /// Subscribes to Kline (candlestick) data for a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
-    /// * `interval` - K线周期（1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
+    /// * `interval` - Kline interval (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M)
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_kline(&self, symbol: &str, interval: &str) -> Result<()> {
         let stream = format!("{}@kline_{}", symbol.to_lowercase(), interval);
         self.client
@@ -1413,13 +1387,13 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅迷你ticker
+    /// Subscribes to the mini ticker stream for a symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（如 "btcusdt"）
+    /// * `symbol` - Trading pair (e.g. "btcusdt")
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription request
     pub async fn subscribe_mini_ticker(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@miniTicker", symbol.to_lowercase());
         self.client
@@ -1427,64 +1401,64 @@ impl BinanceWs {
             .await
     }
 
-    /// 订阅所有迷你ticker
+    /// Subscribes to the mini ticker stream for all symbols
     pub async fn subscribe_all_mini_tickers(&self) -> Result<()> {
         self.client
             .subscribe("!miniTicker@arr".to_string(), None, None)
             .await
     }
 
-    /// 取消订阅
+    /// Cancels an existing subscription
     ///
     /// # Arguments
-    /// * `stream` - 流名称
+    /// * `stream` - Stream identifier to unsubscribe from
     ///
     /// # Returns
-    /// 取消订阅结果
+    /// Result of the unsubscribe request
     pub async fn unsubscribe(&self, stream: String) -> Result<()> {
         self.client.unsubscribe(stream, None).await
     }
 
-    /// 接收消息
+    /// Receives the next available message
     ///
     /// # Returns
-    /// 接收到的消息（如果有）
+    /// Optional message payload when available
     pub async fn receive(&self) -> Option<Value> {
         self.client.receive().await
     }
 
-    /// 是否已连接
+    /// Indicates whether the WebSocket connection is active
     pub async fn is_connected(&self) -> bool {
         self.client.is_connected().await
     }
 
-    /// Watch单个ticker（内部方法）
+    /// Watches a single ticker stream (internal helper)
     ///
     /// # Arguments
-    /// * `symbol` - 交易对（小写格式，如 "btcusdt"）
-    /// * `channel_name` - 频道名称（ticker/miniTicker/markPrice/bookTicker）
+    /// * `symbol` - Lowercase trading pair (e.g. "btcusdt")
+    /// * `channel_name` - Channel identifier (ticker/miniTicker/markPrice/bookTicker)
     ///
     /// # Returns
-    /// Ticker数据
+    /// Parsed ticker data
     async fn watch_ticker_internal(&self, symbol: &str, channel_name: &str) -> Result<Ticker> {
         let stream = format!("{}@{}", symbol.to_lowercase(), channel_name);
 
-        // 订阅流
+        // Subscribe to the requested stream
         self.client
             .subscribe(stream.clone(), Some(symbol.to_string()), None)
             .await?;
 
-        // 等待并解析消息
+        // Wait for and parse incoming messages
         loop {
             if let Some(message) = self.client.receive().await {
-                // 检查是否是订阅确认消息
+                // Ignore subscription acknowledgements
                 if message.get("result").is_some() {
                     continue;
                 }
 
-                // 解析ticker数据
+                // Parse ticker payload
                 if let Ok(ticker) = parser::parse_ws_ticker(&message, None) {
-                    // 缓存ticker
+                    // Cache the ticker for later retrieval
                     let mut tickers = self.tickers.lock().await;
                     tickers.insert(ticker.symbol.clone(), ticker.clone());
 
@@ -1494,51 +1468,51 @@ impl BinanceWs {
         }
     }
 
-    /// Watch多个ticker（内部方法）
+    /// Watches multiple ticker streams (internal helper)
     ///
     /// # Arguments
-    /// * `symbols` - 交易对列表（小写格式）
-    /// * `channel_name` - 频道名称
+    /// * `symbols` - Optional list of lowercase trading pairs
+    /// * `channel_name` - Target channel name
     ///
     /// # Returns
-    /// Ticker数据映射
+    /// Mapping of symbol to ticker payloads
     async fn watch_tickers_internal(
         &self,
         symbols: Option<Vec<String>>,
         channel_name: &str,
     ) -> Result<HashMap<String, Ticker>> {
         let streams: Vec<String> = if let Some(syms) = symbols.as_ref() {
-            // 订阅指定交易对
+            // Subscribe to specific trading pairs
             syms.iter()
                 .map(|s| format!("{}@{}", s.to_lowercase(), channel_name))
                 .collect()
         } else {
-            // 订阅所有交易对
+            // Subscribe to the aggregated ticker stream
             vec![format!("!{}@arr", channel_name)]
         };
 
-        // 批量订阅
+        // Issue subscription requests
         for stream in &streams {
             self.client.subscribe(stream.clone(), None, None).await?;
         }
 
-        // 等待并解析消息
+        // Collect and parse messages
         let mut result = HashMap::new();
 
         loop {
             if let Some(message) = self.client.receive().await {
-                // 检查是否是订阅确认消息
+                // Skip subscription acknowledgements
                 if message.get("result").is_some() {
                     continue;
                 }
 
-                // 处理数组格式（所有ticker）
+                // Handle array payloads (all tickers)
                 if let Some(arr) = message.as_array() {
                     for item in arr {
                         if let Ok(ticker) = parser::parse_ws_ticker(item, None) {
                             let symbol = ticker.symbol.clone();
 
-                            // 如果指定了symbols，只返回匹配的
+                            // Return only requested symbols when provided
                             if let Some(syms) = &symbols {
                                 if syms.contains(&symbol.to_lowercase()) {
                                     result.insert(symbol.clone(), ticker.clone());
@@ -1547,13 +1521,13 @@ impl BinanceWs {
                                 result.insert(symbol.clone(), ticker.clone());
                             }
 
-                            // 缓存ticker
+                            // Cache the ticker payload
                             let mut tickers = self.tickers.lock().await;
                             tickers.insert(symbol, ticker);
                         }
                     }
 
-                    // 如果已经收到了所有请求的ticker，返回
+                    // Exit once all requested tickers have been observed
                     if let Some(syms) = &symbols {
                         if result.len() == syms.len() {
                             return Ok(result);
@@ -1561,21 +1535,19 @@ impl BinanceWs {
                     } else {
                         return Ok(result);
                     }
-                } else {
-                    // 处理单个ticker
-                    if let Ok(ticker) = parser::parse_ws_ticker(&message, None) {
-                        let symbol = ticker.symbol.clone();
-                        result.insert(symbol.clone(), ticker.clone());
+                } else if let Ok(ticker) = parser::parse_ws_ticker(&message, None) {
+                    // Handle single-ticker payloads
+                    let symbol = ticker.symbol.clone();
+                    result.insert(symbol.clone(), ticker.clone());
 
-                        // 缓存ticker
-                        let mut tickers = self.tickers.lock().await;
-                        tickers.insert(symbol, ticker);
+                    // Cache the ticker payload
+                    let mut tickers = self.tickers.lock().await;
+                    tickers.insert(symbol, ticker);
 
-                        // 如果已经收到了所有请求的ticker，返回
-                        if let Some(syms) = &symbols {
-                            if result.len() == syms.len() {
-                                return Ok(result);
-                            }
+                    // Exit once all requested tickers have been observed
+                    if let Some(syms) = &symbols {
+                        if result.len() == syms.len() {
+                            return Ok(result);
                         }
                     }
                 }
@@ -1583,16 +1555,15 @@ impl BinanceWs {
         }
     }
 
-    /// 获取缓存的ticker
-    /// 处理订单簿增量更新（内部方法）
+    /// Processes an order book delta update (internal helper)
     ///
     /// # Arguments
-    /// * `symbol` - 交易对
-    /// * `delta_message` - WebSocket增量消息
-    /// * `is_futures` - 是否是期货市场
+    /// * `symbol` - Trading pair
+    /// * `delta_message` - Raw WebSocket delta payload
+    /// * `is_futures` - Whether the feed originates from the futures market
     ///
     /// # Returns
-    /// 处理结果，如果需要重同步则返回特殊错误
+    /// Result of the update; returns a special error when resynchronization is required
     async fn handle_orderbook_delta(
         &self,
         symbol: &str,
@@ -1602,7 +1573,7 @@ impl BinanceWs {
         use ccxt_core::types::orderbook::{OrderBookDelta, OrderBookEntry};
         use rust_decimal::Decimal;
 
-        // 解析增量消息
+        // Parse the delta message
         let first_update_id = delta_message["U"]
             .as_i64()
             .ok_or_else(|| Error::invalid_request("Missing first update ID in delta message"))?;
@@ -1621,7 +1592,7 @@ impl BinanceWs {
             .as_i64()
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-        // 解析bids
+        // Parse bid updates
         let mut bids = Vec::new();
         if let Some(bids_arr) = delta_message["b"].as_array() {
             for bid in bids_arr {
@@ -1635,7 +1606,7 @@ impl BinanceWs {
             }
         }
 
-        // 解析asks
+        // Parse ask updates
         let mut asks = Vec::new();
         if let Some(asks_arr) = delta_message["a"].as_array() {
             for ask in asks_arr {
@@ -1649,7 +1620,7 @@ impl BinanceWs {
             }
         }
 
-        // 创建delta对象
+        // Build the delta structure
         let delta = OrderBookDelta {
             symbol: symbol.to_string(),
             first_update_id,
@@ -1660,26 +1631,26 @@ impl BinanceWs {
             asks,
         };
 
-        // 获取或创建订单簿
+        // Retrieve or create the cached order book
         let mut orderbooks = self.orderbooks.lock().await;
         let orderbook = orderbooks
             .entry(symbol.to_string())
             .or_insert_with(|| OrderBook::new(symbol.to_string(), timestamp));
 
-        // 如果订单簿未同步，缓冲delta
+        // If the order book is not synchronized yet, buffer the delta
         if !orderbook.is_synced {
             orderbook.buffer_delta(delta);
             return Ok(());
         }
 
-        // 应用delta更新
+        // Apply the delta to the order book
         if let Err(e) = orderbook.apply_delta(&delta, is_futures) {
-            // 检查是否需要重同步
+            // Check whether a resynchronization cycle is needed
             if orderbook.needs_resync {
                 tracing::warn!("Orderbook {} needs resync due to: {}", symbol, e);
-                // 缓冲当前delta，它可能在重同步后有用
+                // Buffer the delta so it can be reused after resync
                 orderbook.buffer_delta(delta);
-                // 返回特殊错误指示需要重同步
+                // Signal that resynchronization is required
                 return Err(Error::invalid_request(format!("RESYNC_NEEDED: {}", e)));
             }
             return Err(Error::invalid_request(e));
@@ -1688,16 +1659,16 @@ impl BinanceWs {
         Ok(())
     }
 
-    /// 获取订单簿快照并初始化（内部方法）
+    /// Retrieves an order book snapshot and initializes cached state (internal helper)
     ///
     /// # Arguments
-    /// * `exchange` - Exchange引用用于REST API调用
-    /// * `symbol` - 交易对
-    /// * `limit` - 深度档位
-    /// * `is_futures` - 是否是期货市场
+    /// * `exchange` - Exchange reference used for REST API calls
+    /// * `symbol` - Trading pair identifier
+    /// * `limit` - Depth limit to request
+    /// * `is_futures` - Whether the symbol is a futures market
     ///
     /// # Returns
-    /// 初始化的订单簿
+    /// Initialized order book structure
     async fn fetch_orderbook_snapshot(
         &self,
         exchange: &Binance,
@@ -1705,8 +1676,8 @@ impl BinanceWs {
         limit: Option<i64>,
         is_futures: bool,
     ) -> Result<OrderBook> {
-        // 通过REST API获取快照
-        let mut params = std::collections::HashMap::new();
+        // Fetch snapshot via REST API
+        let mut params = HashMap::new();
         if let Some(l) = limit {
             // json! macro with simple values is infallible
             #[allow(clippy::disallowed_methods)]
@@ -1716,38 +1687,38 @@ impl BinanceWs {
 
         let mut snapshot = exchange.fetch_order_book(symbol, None).await?;
 
-        // 标记为已同步
+        // Mark the snapshot as synchronized
         snapshot.is_synced = true;
 
-        // 处理缓冲的增量消息
+        // Apply buffered deltas captured before the snapshot
         let mut orderbooks = self.orderbooks.lock().await;
         if let Some(cached_ob) = orderbooks.get_mut(symbol) {
-            // 将缓冲的delta移到快照中
+            // Transfer buffered deltas to the snapshot instance
             snapshot.buffered_deltas = cached_ob.buffered_deltas.clone();
 
-            // 处理缓冲的delta
+            // Apply buffered deltas to catch up
             if let Ok(processed) = snapshot.process_buffered_deltas(is_futures) {
                 tracing::debug!("Processed {} buffered deltas for {}", processed, symbol);
             }
         }
 
-        // 更新缓存
+        // Update cache with the synchronized snapshot
         orderbooks.insert(symbol.to_string(), snapshot.clone());
 
         Ok(snapshot)
     }
 
-    /// Watch单个订单簿（内部方法）
+    /// Watches a single order book stream (internal helper)
     ///
     /// # Arguments
-    /// * `exchange` - Exchange引用
-    /// * `symbol` - 交易对（小写格式）
-    /// * `limit` - 深度档位
-    /// * `update_speed` - 更新速度（100或1000ms）
-    /// * `is_futures` - 是否是期货市场
+    /// * `exchange` - Exchange reference
+    /// * `symbol` - Lowercase trading pair
+    /// * `limit` - Depth limit
+    /// * `update_speed` - Update frequency (100 or 1000 ms)
+    /// * `is_futures` - Whether the symbol is a futures market
     ///
     /// # Returns
-    /// 订单簿数据
+    /// Order book snapshot enriched with streamed updates
     async fn watch_orderbook_internal(
         &self,
         exchange: &Binance,
@@ -1756,59 +1727,57 @@ impl BinanceWs {
         update_speed: i32,
         is_futures: bool,
     ) -> Result<OrderBook> {
-        // 构建stream名称
+        // Construct the stream name
         let stream = if update_speed == 100 {
             format!("{}@depth@100ms", symbol.to_lowercase())
         } else {
             format!("{}@depth", symbol.to_lowercase())
         };
 
-        // 订阅流
+        // Subscribe to depth updates
         self.client
             .subscribe(stream.clone(), Some(symbol.to_string()), None)
             .await?;
 
-        // 开始接收增量消息并缓冲
-        let snapshot_fetched = Arc::new(tokio::sync::Mutex::new(false));
+        // Start buffering deltas before the snapshot is ready
+        let snapshot_fetched = Arc::new(Mutex::new(false));
         let _snapshot_fetched_clone = snapshot_fetched.clone();
 
-        // 启动消息处理循环
+        // Spawn a placeholder processing loop (actual handling occurs elsewhere)
         let _orderbooks_clone = self.orderbooks.clone();
         let _symbol_clone = symbol.to_string();
 
         tokio::spawn(async move {
-            // 这里只是示意,实际需要从client接收消息
-            // 实际实现会在主循环中处理
+            // Placeholder: actual message handling occurs in the main loop
         });
 
-        // 等待一些增量消息到达后获取快照
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // Give the stream time to accumulate initial deltas before fetching a snapshot
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // 初始快照获取
+        // Fetch the initial snapshot
         let _snapshot = self
             .fetch_orderbook_snapshot(exchange, symbol, limit, is_futures)
             .await?;
 
         *snapshot_fetched.lock().await = true;
 
-        // 主循环处理更新
+        // Main processing loop
         loop {
             if let Some(message) = self.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgements
                 if message.get("result").is_some() {
                     continue;
                 }
 
-                // 检查是否是depth更新
+                // Process depth updates only
                 if let Some(event_type) = message.get("e").and_then(|v| v.as_str()) {
                     if event_type == "depthUpdate" {
-                        // 处理增量更新
                         match self
                             .handle_orderbook_delta(symbol, &message, is_futures)
                             .await
                         {
                             Ok(_) => {
-                                // 成功处理，返回更新后的订单簿
+                                // Return the updated order book once synchronized
                                 let orderbooks = self.orderbooks.lock().await;
                                 if let Some(ob) = orderbooks.get(symbol) {
                                     if ob.is_synced {
@@ -1819,11 +1788,10 @@ impl BinanceWs {
                             Err(e) => {
                                 let err_msg = e.to_string();
 
-                                // 检查是否需要重同步
+                                // Initiate resynchronization when instructed
                                 if err_msg.contains("RESYNC_NEEDED") {
                                     tracing::warn!("Resync needed for {}: {}", symbol, err_msg);
 
-                                    // 检查速率限制
                                     let current_time = chrono::Utc::now().timestamp_millis();
                                     let should_resync = {
                                         let orderbooks = self.orderbooks.lock().await;
@@ -1837,7 +1805,7 @@ impl BinanceWs {
                                     if should_resync {
                                         tracing::info!("Initiating resync for {}", symbol);
 
-                                        // 重置订单簿状态
+                                        // Reset local state in preparation for resync
                                         {
                                             let mut orderbooks = self.orderbooks.lock().await;
                                             if let Some(ob) = orderbooks.get_mut(symbol) {
@@ -1846,11 +1814,10 @@ impl BinanceWs {
                                             }
                                         }
 
-                                        // 等待一些新的增量消息
-                                        tokio::time::sleep(tokio::time::Duration::from_millis(500))
-                                            .await;
+                                        // Allow some deltas to buffer before fetching a new snapshot
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
 
-                                        // 重新获取快照
+                                        // Fetch a fresh snapshot and continue processing
                                         match self
                                             .fetch_orderbook_snapshot(
                                                 exchange, symbol, limit, is_futures,
@@ -1862,7 +1829,6 @@ impl BinanceWs {
                                                     "Resync completed successfully for {}",
                                                     symbol
                                                 );
-                                                // 继续循环处理后续更新
                                                 continue;
                                             }
                                             Err(resync_err) => {
@@ -1896,17 +1862,17 @@ impl BinanceWs {
         }
     }
 
-    /// Watch多个订单簿（内部方法）
+    /// Watches multiple order book streams (internal helper)
     ///
     /// # Arguments
-    /// * `exchange` - Exchange引用
-    /// * `symbols` - 交易对列表
-    /// * `limit` - 深度档位
-    /// * `update_speed` - 更新速度
-    /// * `is_futures` - 是否是期货市场
+    /// * `exchange` - Exchange reference
+    /// * `symbols` - List of trading pairs
+    /// * `limit` - Requested depth level
+    /// * `update_speed` - Update frequency
+    /// * `is_futures` - Whether the symbols are futures markets
     ///
     /// # Returns
-    /// 订单簿数据映射
+    /// Mapping of symbol to order book data
     async fn watch_orderbooks_internal(
         &self,
         exchange: &Binance,
@@ -1915,14 +1881,14 @@ impl BinanceWs {
         update_speed: i32,
         is_futures: bool,
     ) -> Result<HashMap<String, OrderBook>> {
-        // Binance限制最多200个交易对
+        // Binance enforces a 200-symbol limit per connection
         if symbols.len() > 200 {
             return Err(Error::invalid_request(
                 "Binance supports max 200 symbols per connection",
             ));
         }
 
-        // 批量订阅
+        // Subscribe to each symbol
         for symbol in &symbols {
             let stream = if update_speed == 100 {
                 format!("{}@depth@100ms", symbol.to_lowercase())
@@ -1935,32 +1901,31 @@ impl BinanceWs {
                 .await?;
         }
 
-        // 等待一些消息到达
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // Allow messages to accumulate before snapshot retrieval
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // 获取所有快照
+        // Fetch snapshots for all symbols
         for symbol in &symbols {
             let _ = self
                 .fetch_orderbook_snapshot(exchange, symbol, limit, is_futures)
                 .await;
         }
 
-        // 开始处理增量更新
+        // Process incremental updates
         let mut result = HashMap::new();
         let mut update_count = 0;
 
         while update_count < symbols.len() {
             if let Some(message) = self.client.receive().await {
-                // 跳过订阅确认
+                // Skip subscription acknowledgements
                 if message.get("result").is_some() {
                     continue;
                 }
 
-                // 处理depth更新
+                // Handle depth updates
                 if let Some(event_type) = message.get("e").and_then(|v| v.as_str()) {
                     if event_type == "depthUpdate" {
                         if let Some(msg_symbol) = message.get("s").and_then(|v| v.as_str()) {
-                            // 处理增量
                             if let Err(e) = self
                                 .handle_orderbook_delta(msg_symbol, &message, is_futures)
                                 .await
@@ -1976,7 +1941,7 @@ impl BinanceWs {
             }
         }
 
-        // 收集结果
+        // Collect the resulting order books
         let orderbooks = self.orderbooks.lock().await;
         for symbol in &symbols {
             if let Some(ob) = orderbooks.get(symbol) {
@@ -1989,47 +1954,47 @@ impl BinanceWs {
 
     ///
     /// # Arguments
-    /// * `symbol` - 交易对
+    /// * `symbol` - Trading pair identifier
     ///
     /// # Returns
-    /// Ticker数据（如果存在）
+    /// Ticker snapshot when available
     pub async fn get_cached_ticker(&self, symbol: &str) -> Option<Ticker> {
         let tickers = self.tickers.lock().await;
         tickers.get(symbol).cloned()
     }
 
-    /// 获取所有缓存的tickers
+    /// Returns all cached ticker snapshots
     pub async fn get_all_cached_tickers(&self) -> HashMap<String, Ticker> {
         let tickers = self.tickers.lock().await;
         tickers.clone()
     }
 
-    /// 处理余额更新消息（内部方法）
+    /// Handles balance update messages (internal helper)
     ///
     /// # Arguments
-    /// * `message` - WebSocket消息
-    /// * `account_type` - 账户类型（spot/future/delivery等）
+    /// * `message` - WebSocket payload
+    /// * `account_type` - Account category (spot/future/delivery, etc.)
     ///
     /// # Returns
-    /// 处理结果
+    /// Result of the balance update processing
     async fn handle_balance_message(&self, message: &Value, account_type: &str) -> Result<()> {
         use rust_decimal::Decimal;
         use std::str::FromStr;
 
-        // 获取事件类型
+        // Identify the event type
         let event_type = message
             .get("e")
             .and_then(|e| e.as_str())
             .ok_or_else(|| Error::invalid_request("Missing event type in balance message"))?;
 
-        // 获取或创建账户余额缓存
+        // Retrieve or create cached balances for the account
         let mut balances = self.balances.write().await;
         let balance = balances
             .entry(account_type.to_string())
             .or_insert_with(Balance::new);
 
         match event_type {
-            // 单个资产增量更新（Spot）
+            // Spot account incremental balance update
             "balanceUpdate" => {
                 let asset = message
                     .get("a")
@@ -2044,11 +2009,11 @@ impl BinanceWs {
                 let delta = Decimal::from_str(delta_str)
                     .map_err(|e| Error::invalid_request(format!("Invalid delta value: {}", e)))?;
 
-                // 应用增量更新
+                // Apply delta to the cached balance
                 balance.apply_delta(asset.to_string(), delta);
             }
 
-            // Spot账户完整余额更新
+            // Spot account full balance update
             "outboundAccountPosition" => {
                 if let Some(balances_array) = message.get("B").and_then(|b| b.as_array()) {
                     for balance_item in balances_array {
@@ -2078,16 +2043,16 @@ impl BinanceWs {
                             Error::invalid_request(format!("Invalid locked value: {}", e))
                         })?;
 
-                        // 更新完整余额
+                        // Update the cached balance snapshot
                         balance.update_balance(asset.to_string(), free, locked);
                     }
                 }
             }
 
-            // 期货/交割账户更新
+            // Futures/delivery account updates
             "ACCOUNT_UPDATE" => {
                 if let Some(account_data) = message.get("a") {
-                    // 处理余额数组
+                    // Parse balance array
                     if let Some(balances_array) = account_data.get("B").and_then(|b| b.as_array()) {
                         for balance_item in balances_array {
                             let asset = balance_item.get("a").and_then(|a| a.as_str()).ok_or_else(
@@ -2104,19 +2069,18 @@ impl BinanceWs {
                                     Error::invalid_request(format!("Invalid wallet balance: {}", e))
                                 })?;
 
-                            // 可选的cross wallet balance
+                            // Optional cross wallet balance
                             let cross_wallet = balance_item
                                 .get("cw")
                                 .and_then(|cw| cw.as_str())
                                 .and_then(|s| Decimal::from_str(s).ok());
 
-                            // 更新钱包余额
+                            // Update wallet balance snapshot
                             balance.update_wallet(asset.to_string(), wallet_balance, cross_wallet);
                         }
                     }
 
-                    // 注意：持仓信息在 account_data.get("P") 中
-                    // 这里暂不处理持仓，将在 watch_positions 中处理
+                    // Positions are contained in account_data["P"]; handling occurs in watch_positions
                 }
             }
 
@@ -2131,57 +2095,57 @@ impl BinanceWs {
         Ok(())
     }
 
-    /// 解析WebSocket成交记录消息
+    /// Parses a WebSocket trade message
     ///
-    /// 从executionReport事件中提取成交信息
+    /// Extracts trade information from an `executionReport` event
     ///
     /// # Arguments
-    /// * `data` - WebSocket消息JSON数据
+    /// * `data` - Raw WebSocket JSON payload
     ///
     /// # Returns
-    /// 解析后的Trade对象
+    /// Parsed `Trade` structure
     fn parse_ws_trade(&self, data: &Value) -> Result<Trade> {
         use ccxt_core::types::{Fee, OrderSide, OrderType, TakerOrMaker};
         use rust_decimal::Decimal;
         use std::str::FromStr;
 
-        // 提取基本字段
+        // Extract symbol field
         let symbol = data
             .get("s")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::invalid_request("缺少symbol字段".to_string()))?
+            .ok_or_else(|| Error::invalid_request("Missing symbol field".to_string()))?
             .to_string();
 
-        // 成交ID（字段t）
+        // Trade ID (field `t`)
         let id = data
             .get("t")
             .and_then(|v| v.as_i64())
             .map(|v| v.to_string());
 
-        // 成交时间（字段T）
+        // Trade timestamp (field `T`)
         let timestamp = data.get("T").and_then(|v| v.as_i64()).unwrap_or(0);
 
-        // 成交价格（字段L - Last executed price）
+        // Executed price (field `L` - last executed price)
         let price = data
             .get("L")
             .and_then(|v| v.as_str())
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
-        // 成交数量（字段l - Last executed quantity）
+        // Executed amount (field `l` - last executed quantity)
         let amount = data
             .get("l")
             .and_then(|v| v.as_str())
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
-        // 成交金额（字段Y - Last quote asset transacted quantity，现货适用）
+        // Quote asset amount (field `Y` - last quote asset transacted quantity)
         let cost = data
             .get("Y")
             .and_then(|v| v.as_str())
             .and_then(|s| Decimal::from_str(s).ok())
             .or_else(|| {
-                // 如果没有Y字段，通过价格*数量计算
+                // Fallback: compute from price * amount when `Y` is unavailable
                 if price > Decimal::ZERO && amount > Decimal::ZERO {
                     Some(price * amount)
                 } else {
@@ -2189,7 +2153,7 @@ impl BinanceWs {
                 }
             });
 
-        // 买卖方向（字段S）
+        // Trade side (field `S`)
         let side = data
             .get("S")
             .and_then(|v| v.as_str())
@@ -2200,7 +2164,7 @@ impl BinanceWs {
             })
             .unwrap_or(OrderSide::Buy);
 
-        // 订单类型（字段o）
+        // Order type (field `o`)
         let trade_type =
             data.get("o")
                 .and_then(|v| v.as_str())
@@ -2210,13 +2174,13 @@ impl BinanceWs {
                     _ => None,
                 });
 
-        // 订单ID（字段i）
+        // Associated order ID (field `i`)
         let order_id = data
             .get("i")
             .and_then(|v| v.as_i64())
             .map(|v| v.to_string());
 
-        // Maker/Taker角色（字段m - Is the buyer the market maker?）
+        // Maker/taker flag (field `m` - true when buyer is the maker)
         let taker_or_maker = data.get("m").and_then(|v| v.as_bool()).map(|is_maker| {
             if is_maker {
                 TakerOrMaker::Maker
@@ -2225,7 +2189,7 @@ impl BinanceWs {
             }
         });
 
-        // 手续费信息（字段n = fee amount, N = fee currency）
+        // Fee information (fields `n` = fee amount, `N` = fee currency)
         let fee = if let Some(fee_cost_str) = data.get("n").and_then(|v| v.as_str()) {
             if let Ok(fee_cost) = Decimal::from_str(fee_cost_str) {
                 let currency = data
@@ -2245,11 +2209,11 @@ impl BinanceWs {
             None
         };
 
-        // 构建datetime字符串
+        // Derive ISO8601 timestamp string when possible
         let datetime = chrono::DateTime::from_timestamp_millis(timestamp)
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
 
-        // 构建info HashMap
+        // Preserve the raw payload in the `info` map
         let mut info = HashMap::new();
         if let Value::Object(map) = data {
             for (k, v) in map.iter() {
@@ -2263,7 +2227,7 @@ impl BinanceWs {
             symbol,
             trade_type,
             side,
-            taker_or_maker: taker_or_maker,
+            taker_or_maker,
             price: Price::from(price),
             amount: Amount::from(amount),
             cost: cost.map(Cost::from),
@@ -2274,9 +2238,12 @@ impl BinanceWs {
         })
     }
 
-    /// 过滤成交记录列表
+    /// Filters cached personal trades by symbol, time range, and limit
     ///
-    /// 根据symbol、时间范围和数量限制过滤成交记录
+    /// # Arguments
+    /// * `symbol` - Optional symbol filter
+    /// * `since` - Optional starting timestamp (inclusive)
+    /// * `limit` - Optional maximum number of trades to return
     async fn filter_my_trades(
         &self,
         symbol: Option<&str>,
@@ -2285,7 +2252,7 @@ impl BinanceWs {
     ) -> Result<Vec<Trade>> {
         let trades_map = self.my_trades.read().await;
 
-        // 根据symbol过滤
+        // Filter by symbol when provided
         let mut trades: Vec<Trade> = if let Some(sym) = symbol {
             trades_map
                 .get(sym)
@@ -2298,19 +2265,19 @@ impl BinanceWs {
                 .collect()
         };
 
-        // 根据since时间过滤
+        // Apply `since` filter when provided
         if let Some(since_ts) = since {
             trades.retain(|trade| trade.timestamp >= since_ts);
         }
 
-        // 按时间戳降序排序（最新的在前）
+        // Sort by timestamp descending (latest first)
         trades.sort_by(|a, b| {
             let ts_a = a.timestamp;
             let ts_b = b.timestamp;
             ts_b.cmp(&ts_a)
         });
 
-        // 应用limit限制
+        // Apply optional limit
         if let Some(lim) = limit {
             trades.truncate(lim);
         }
@@ -2318,30 +2285,30 @@ impl BinanceWs {
         Ok(trades)
     }
 
-    /// 解析WebSocket持仓数据
+    /// Parses a WebSocket position payload
     ///
     /// # Arguments
-    /// * `data` - WebSocket持仓数据（来自ACCOUNT_UPDATE事件的P数组元素）
+    /// * `data` - Position data from the ACCOUNT_UPDATE event (`P` array element)
     ///
     /// # Returns
-    /// 解析后的Position对象
+    /// Parsed `Position` instance
     ///
-    /// # Binance WebSocket持仓数据格式
+    /// # Binance WebSocket Position Payload Example
     /// ```json
     /// {
-    ///   "s": "BTCUSDT",           // 交易对
-    ///   "pa": "-0.089",           // 持仓数量（负数表示空头）
-    ///   "ep": "19700.03933",      // 开仓价格
-    ///   "cr": "-1260.24809979",   // 累计实现盈亏
-    ///   "up": "1.53058860",       // 未实现盈亏
-    ///   "mt": "isolated",         // 保证金模式：isolated/cross
-    ///   "iw": "87.13658940",      // 逐仓钱包余额
-    ///   "ps": "BOTH",             // 持仓方向：BOTH/LONG/SHORT
-    ///   "ma": "USDT"              // 保证金资产
+    ///   "s": "BTCUSDT",           // Trading pair
+    ///   "pa": "-0.089",           // Position amount (negative indicates short)
+    ///   "ep": "19700.03933",      // Entry price
+    ///   "cr": "-1260.24809979",   // Accumulated realized PnL
+    ///   "up": "1.53058860",       // Unrealized PnL
+    ///   "mt": "isolated",         // Margin mode: isolated/cross
+    ///   "iw": "87.13658940",      // Isolated wallet balance
+    ///   "ps": "BOTH",             // Position side: BOTH/LONG/SHORT
+    ///   "ma": "USDT"              // Margin asset
     /// }
     /// ```
-    async fn parse_ws_position(&self, data: &serde_json::Value) -> Result<Position> {
-        // 提取必需字段
+    async fn parse_ws_position(&self, data: &Value) -> Result<Position> {
+        // Extract required fields
         let symbol = data["s"]
             .as_str()
             .ok_or_else(|| Error::invalid_request("Missing symbol field"))?
@@ -2355,15 +2322,15 @@ impl BinanceWs {
             .parse::<f64>()
             .map_err(|e| Error::invalid_request(format!("Invalid position amount: {}", e)))?;
 
-        // 提取持仓方向字段
+        // Extract position side
         let position_side = data["ps"]
             .as_str()
             .ok_or_else(|| Error::invalid_request("Missing position side"))?
             .to_uppercase();
 
-        // 判断hedged模式和实际持仓方向
-        // - 如果ps=BOTH，则hedged=false，根据pa的正负判断实际方向
-        // - 如果ps=LONG/SHORT，则hedged=true，side就是ps的值
+        // Determine hedged mode and actual side
+        // - If ps = BOTH, hedged = false and use sign of `pa` for actual side
+        // - If ps = LONG/SHORT, hedged = true and side equals ps
         let (side, hedged) = if position_side == "BOTH" {
             let actual_side = if position_amount < 0.0 {
                 "short"
@@ -2375,32 +2342,27 @@ impl BinanceWs {
             (position_side.to_lowercase(), true)
         };
 
-        // 提取其他字段
+        // Extract additional fields
         let entry_price = data["ep"].as_str().and_then(|s| s.parse::<f64>().ok());
-
         let unrealized_pnl = data["up"].as_str().and_then(|s| s.parse::<f64>().ok());
-
         let realized_pnl = data["cr"].as_str().and_then(|s| s.parse::<f64>().ok());
-
         let margin_mode = data["mt"].as_str().map(|s| s.to_string());
-
         let initial_margin = data["iw"].as_str().and_then(|s| s.parse::<f64>().ok());
-
         let _margin_asset = data["ma"].as_str().map(|s| s.to_string());
 
-        // 构建Position对象
+        // Construct the `Position` object
         Ok(Position {
             info: data.clone(),
             id: None,
             symbol,
             side: Some(side),
-            contracts: Some(position_amount.abs()), // 合约数量取绝对值
+            contracts: Some(position_amount.abs()), // Absolute contract amount
             contract_size: None,
             entry_price,
             mark_price: None,
             notional: None,
             leverage: None,
-            collateral: initial_margin, // 使用逐仓钱包余额作为抵押品
+            collateral: initial_margin, // Use isolated wallet balance as collateral
             initial_margin,
             initial_margin_percentage: None,
             maintenance_margin: None,
@@ -2419,15 +2381,15 @@ impl BinanceWs {
         })
     }
 
-    /// 根据条件过滤持仓
+    /// Filters cached positions by symbol, time range, and limit
     ///
     /// # Arguments
-    /// * `symbols` - 交易对符号列表（可选）
-    /// * `since` - 起始时间戳（可选）
-    /// * `limit` - 返回数量限制（可选）
+    /// * `symbols` - Optional list of symbols to include
+    /// * `since` - Optional starting timestamp (inclusive)
+    /// * `limit` - Optional maximum number of positions to return
     ///
     /// # Returns
-    /// 过滤后的持仓列表
+    /// Filtered list of positions
     async fn filter_positions(
         &self,
         symbols: Option<&[String]>,
@@ -2436,22 +2398,20 @@ impl BinanceWs {
     ) -> Result<Vec<Position>> {
         let positions_map = self.positions.read().await;
 
-        // 根据symbols过滤
+        // Filter by symbol list when provided
         let mut positions: Vec<Position> = if let Some(syms) = symbols {
-            // 只返回指定symbols的持仓
             syms.iter()
                 .filter_map(|sym| positions_map.get(sym))
                 .flat_map(|side_map| side_map.values().cloned())
                 .collect()
         } else {
-            // 返回所有持仓
             positions_map
                 .values()
                 .flat_map(|side_map| side_map.values().cloned())
                 .collect()
         };
 
-        // 根据since时间过滤
+        // Apply `since` filter when provided
         if let Some(since_ts) = since {
             positions.retain(|pos| {
                 pos.timestamp
@@ -2460,14 +2420,14 @@ impl BinanceWs {
             });
         }
 
-        // 按时间戳降序排序（最新的在前）
+        // Sort by timestamp descending (latest first)
         positions.sort_by(|a, b| {
             let ts_a = a.timestamp.unwrap_or(0);
             let ts_b = b.timestamp.unwrap_or(0);
             ts_b.cmp(&ts_a)
         });
 
-        // 应用limit限制
+        // Apply optional limit
         if let Some(lim) = limit {
             positions.truncate(lim);
         }
@@ -2477,29 +2437,29 @@ impl BinanceWs {
 }
 
 impl Binance {
-    /// 订阅ticker数据流
+    /// Subscribes to the ticker stream for a unified symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对
+    /// * `symbol` - Unified trading pair identifier
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription call
     pub async fn subscribe_ticker(&self, symbol: &str) -> Result<()> {
         let ws = self.create_ws();
         ws.connect().await?;
 
-        // 转换交易对格式 BTC/USDT -> btcusdt
+        // Convert symbol format BTC/USDT -> btcusdt
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_ticker(&binance_symbol).await
     }
 
-    /// 订阅交易记录数据流
+    /// Subscribes to the trade stream for a unified symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对
+    /// * `symbol` - Unified trading pair identifier
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription call
     pub async fn subscribe_trades(&self, symbol: &str) -> Result<()> {
         let ws = self.create_ws();
         ws.connect().await?;
@@ -2508,14 +2468,14 @@ impl Binance {
         ws.subscribe_trades(&binance_symbol).await
     }
 
-    /// 订阅订单簿数据流
+    /// Subscribes to the order book stream for a unified symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对
-    /// * `levels` - 深度档位（默认20）
+    /// * `symbol` - Unified trading pair identifier
+    /// * `levels` - Optional depth limit (default 20)
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription call
     pub async fn subscribe_orderbook(&self, symbol: &str, levels: Option<u32>) -> Result<()> {
         let ws = self.create_ws();
         ws.connect().await?;
@@ -2526,14 +2486,14 @@ impl Binance {
             .await
     }
 
-    /// 订阅K线数据流
+    /// Subscribes to the candlestick stream for a unified symbol
     ///
     /// # Arguments
-    /// * `symbol` - 交易对
-    /// * `interval` - K线周期
+    /// * `symbol` - Unified trading pair identifier
+    /// * `interval` - Candlestick interval identifier
     ///
     /// # Returns
-    /// 订阅结果
+    /// Result of the subscription call
     pub async fn subscribe_kline(&self, symbol: &str, interval: &str) -> Result<()> {
         let ws = self.create_ws();
         ws.connect().await?;
@@ -2542,15 +2502,15 @@ impl Binance {
         ws.subscribe_kline(&binance_symbol, interval).await
     }
 
-    /// Watch ticker - 观察单个交易对的ticker数据
+    /// Watches a ticker stream for a single unified symbol
     ///
     /// # Arguments
-    /// * `symbol` - 统一交易对格式（如 "BTC/USDT"）
-    /// * `params` - 可选参数
-    ///   - `name`: 频道名称（ticker/miniTicker，默认ticker）
+    /// * `symbol` - Unified trading pair identifier (e.g. "BTC/USDT")
+    /// * `params` - Optional parameters
+    ///   - `name`: Channel name (ticker/miniTicker, defaults to ticker)
     ///
     /// # Returns
-    /// Ticker数据
+    /// Parsed ticker structure
     ///
     /// # Example
     /// ```rust,no_run
@@ -2567,21 +2527,21 @@ impl Binance {
         symbol: &str,
         params: Option<HashMap<String, Value>>,
     ) -> Result<Ticker> {
-        // 加载市场数据
+        // Load market metadata
         self.load_markets(false).await?;
 
-        // 转换交易对格式
+        // Convert unified symbol to exchange format
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // 获取频道名称
+        // Select channel name
         let channel_name = if let Some(p) = &params {
             p.get("name").and_then(|v| v.as_str()).unwrap_or("ticker")
         } else {
             "ticker"
         };
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
@@ -2590,15 +2550,15 @@ impl Binance {
             .await
     }
 
-    /// Watch tickers - 观察多个交易对的ticker数据
+    /// Watches ticker streams for multiple unified symbols
     ///
     /// # Arguments
-    /// * `symbols` - 交易对列表（None表示所有交易对）
-    /// * `params` - 可选参数
-    ///   - `name`: 频道名称（ticker/miniTicker，默认ticker）
+    /// * `symbols` - Optional list of unified trading pairs (None subscribes to all)
+    /// * `params` - Optional parameters
+    ///   - `name`: Channel name (ticker/miniTicker, defaults to ticker)
     ///
     /// # Returns
-    /// Ticker数据映射（symbol -> Ticker）
+    /// Mapping of symbol to ticker data
     ///
     /// # Example
     /// ```rust,no_run
@@ -2606,13 +2566,13 @@ impl Binance {
     /// # async fn example() -> ccxt_core::error::Result<()> {
     /// let exchange = Binance::new();
     ///
-    /// // Watch特定交易对
+    /// // Watch a subset of symbols
     /// let tickers = exchange.watch_tickers(
     ///     Some(vec!["BTC/USDT".to_string(), "ETH/USDT".to_string()]),
     ///     None
     /// ).await?;
     ///
-    /// // Watch所有交易对
+    /// // Watch all symbols
     /// let all_tickers = exchange.watch_tickers(None, None).await?;
     /// # Ok(())
     /// # }
@@ -2622,24 +2582,24 @@ impl Binance {
         symbols: Option<Vec<String>>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<HashMap<String, Ticker>> {
-        // 加载市场数据
+        // Load market metadata
         self.load_markets(false).await?;
 
-        // 获取频道名称
+        // Determine channel name
         let channel_name = if let Some(p) = &params {
             p.get("name").and_then(|v| v.as_str()).unwrap_or("ticker")
         } else {
             "ticker"
         };
 
-        // 验证频道名称
+        // Validate channel selection
         if channel_name == "bookTicker" {
             return Err(Error::invalid_request(
                 "To subscribe for bids-asks, use watch_bids_asks() method instead",
             ));
         }
 
-        // 转换交易对格式
+        // Convert unified symbols to exchange format
         let binance_symbols = if let Some(syms) = symbols {
             let mut result = Vec::new();
             for symbol in syms {
@@ -2651,7 +2611,7 @@ impl Binance {
             None
         };
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
@@ -2660,15 +2620,15 @@ impl Binance {
             .await
     }
 
-    /// Watch mark price - 观察期货标记价格
+    /// Watches the mark price stream for a futures market
     ///
     /// # Arguments
-    /// * `symbol` - 统一交易对格式（如 "BTC/USDT:USDT"）
-    /// * `params` - 可选参数
-    ///   - `use1sFreq`: 是否使用1秒更新频率（默认true，否则3秒）
+    /// * `symbol` - Unified trading pair identifier (e.g. "BTC/USDT:USDT")
+    /// * `params` - Optional parameters
+    ///   - `use1sFreq`: Whether to use 1-second updates (defaults to true)
     ///
     /// # Returns
-    /// MarkPrice数据（以Ticker格式返回）
+    /// Ticker structure representing the mark price
     ///
     /// # Example
     /// ```rust,no_run
@@ -2678,10 +2638,10 @@ impl Binance {
     /// # async fn example() -> ccxt_core::error::Result<()> {
     /// let exchange = Binance::new();
     ///
-    /// // 使用1秒更新
+    /// // Use 1-second updates
     /// let ticker = exchange.watch_mark_price("BTC/USDT:USDT", None).await?;
     ///
-    /// // 使用3秒更新
+    /// // Use 3-second updates
     /// let mut params = HashMap::new();
     /// params.insert("use1sFreq".to_string(), json!(false));
     /// let ticker = exchange.watch_mark_price("BTC/USDT:USDT", Some(params)).await?;
@@ -2693,10 +2653,10 @@ impl Binance {
         symbol: &str,
         params: Option<HashMap<String, Value>>,
     ) -> Result<Ticker> {
-        // 加载市场数据
+        // Load market metadata
         self.load_markets(false).await?;
 
-        // 验证是否是期货市场
+        // Ensure the symbol belongs to a futures market
         let market = self.base.market(symbol).await?;
         if market.market_type != MarketType::Swap && market.market_type != MarketType::Futures {
             return Err(Error::invalid_request(format!(
@@ -2707,21 +2667,21 @@ impl Binance {
 
         let binance_symbol = market.id.to_lowercase();
 
-        // 获取更新频率
+        // Determine update frequency
         let use_1s_freq = if let Some(p) = &params {
             p.get("use1sFreq").and_then(|v| v.as_bool()).unwrap_or(true)
         } else {
             true
         };
 
-        // 构建频道名称
+        // Construct channel name
         let channel_name = if use_1s_freq {
             "markPrice@1s"
         } else {
             "markPrice"
         };
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
@@ -2730,16 +2690,16 @@ impl Binance {
             .await
     }
 
-    /// Watch order book - 观察订单簿深度数据
+    /// Watches an order book stream for a unified symbol
     ///
     /// # Arguments
-    /// * `symbol` - 统一交易对格式（如 "BTC/USDT"）
-    /// * `limit` - 深度档位（可选，默认无限制）
-    /// * `params` - 可选参数
-    ///   - `speed`: 更新速度（100或1000ms，默认100）
+    /// * `symbol` - Unified trading pair identifier (e.g. "BTC/USDT")
+    /// * `limit` - Optional depth limit (defaults to unlimited)
+    /// * `params` - Optional parameters
+    ///   - `speed`: Update frequency (100 or 1000 ms, defaults to 100)
     ///
     /// # Returns
-    /// 订单簿数据
+    /// Order book snapshot populated with streaming updates
     ///
     /// # Example
     /// ```rust,no_run
@@ -2749,12 +2709,12 @@ impl Binance {
     /// # async fn example() -> ccxt_core::error::Result<()> {
     /// let exchange = Binance::new();
     ///
-    /// // Watch订单簿，100ms更新
+    /// // Watch order book with 100 ms updates
     /// let orderbook = exchange.watch_order_book("BTC/USDT", None, None).await?;
     /// println!("Best bid: {:?}", orderbook.best_bid());
     /// println!("Best ask: {:?}", orderbook.best_ask());
     ///
-    /// // Watch订单簿，限制100档，1000ms更新
+    /// // Watch order book limited to 100 levels with 1000 ms updates
     /// let mut params = HashMap::new();
     /// params.insert("speed".to_string(), json!(1000));
     /// let orderbook = exchange.watch_order_book(
@@ -2771,50 +2731,50 @@ impl Binance {
         limit: Option<i64>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<OrderBook> {
-        // 加载市场数据
+        // Load market metadata
         self.load_markets(false).await?;
 
-        // 获取市场信息
+        // Resolve market details
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // 确定是否是期货市场
+        // Determine whether this is a futures market
         let is_futures =
             market.market_type == MarketType::Swap || market.market_type == MarketType::Futures;
 
-        // 获取更新速度
+        // Determine update speed
         let update_speed = if let Some(p) = &params {
             p.get("speed").and_then(|v| v.as_i64()).unwrap_or(100) as i32
         } else {
             100
         };
 
-        // 验证更新速度
+        // Validate update speed
         if update_speed != 100 && update_speed != 1000 {
             return Err(Error::invalid_request(
                 "Update speed must be 100 or 1000 milliseconds",
             ));
         }
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
-        // Watch订单簿
+        // Watch the order book
         ws.watch_orderbook_internal(self, &binance_symbol, limit, update_speed, is_futures)
             .await
     }
 
-    /// Watch order books - 观察多个订单簿
+    /// Watches order books for multiple symbols
     ///
     /// # Arguments
-    /// * `symbols` - 交易对列表（最多200个）
-    /// * `limit` - 深度档位
-    /// * `params` - 可选参数
-    ///   - `speed`: 更新速度（100或1000ms）
+    /// * `symbols` - List of trading pairs (maximum 200)
+    /// * `limit` - Optional depth limit
+    /// * `params` - Optional parameters
+    ///   - `speed`: Update frequency (100 or 1000 ms)
     ///
     /// # Returns
-    /// 订单簿数据映射
+    /// Mapping of symbol to corresponding order book
     ///
     /// # Example
     /// ```rust,no_run
@@ -2840,7 +2800,7 @@ impl Binance {
         limit: Option<i64>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<HashMap<String, OrderBook>> {
-        // 验证数量限制
+        // Enforce symbol count constraints
         if symbols.is_empty() {
             return Err(Error::invalid_request("Symbols list cannot be empty"));
         }
@@ -2851,10 +2811,10 @@ impl Binance {
             ));
         }
 
-        // 加载市场数据
+        // Load market metadata
         self.load_markets(false).await?;
 
-        // 转换交易对格式并检查市场类型
+        // Convert symbols to exchange format and ensure consistent market type
         let mut binance_symbols = Vec::new();
         let mut is_futures = false;
 
@@ -2862,7 +2822,6 @@ impl Binance {
             let market = self.base.market(symbol).await?;
             binance_symbols.push(market.id.to_lowercase());
 
-            // 检查市场类型一致性
             let current_is_futures =
                 market.market_type == MarketType::Swap || market.market_type == MarketType::Futures;
             if !binance_symbols.is_empty() && current_is_futures != is_futures {
@@ -2873,54 +2832,54 @@ impl Binance {
             is_futures = current_is_futures;
         }
 
-        // 获取更新速度
+        // Determine update speed
         let update_speed = if let Some(p) = &params {
             p.get("speed").and_then(|v| v.as_i64()).unwrap_or(100) as i32
         } else {
             100
         };
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
-        // Watch多个订单簿
+        // Watch order books
         ws.watch_orderbooks_internal(self, binance_symbols, limit, update_speed, is_futures)
             .await
     }
 
-    /// Watch mark prices - 观察多个期货标记价格
+    /// Watches mark prices for multiple futures symbols
     ///
     /// # Arguments
-    /// * `symbols` - 交易对列表（None表示所有交易对）
-    /// * `params` - 可选参数
-    ///   - `use1sFreq`: 是否使用1秒更新频率（默认true）
+    /// * `symbols` - Optional list of symbols (None subscribes to all)
+    /// * `params` - Optional parameters
+    ///   - `use1sFreq`: Whether to use 1-second updates (defaults to true)
     ///
     /// # Returns
-    /// Ticker数据映射
+    /// Mapping of symbol to ticker data
     pub async fn watch_mark_prices(
         &self,
         symbols: Option<Vec<String>>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<HashMap<String, Ticker>> {
-        // 加载市场数据
+        // Load market metadata
         self.load_markets(false).await?;
 
-        // 获取更新频率
+        // Determine update frequency
         let use_1s_freq = if let Some(p) = &params {
             p.get("use1sFreq").and_then(|v| v.as_bool()).unwrap_or(true)
         } else {
             true
         };
 
-        // 构建频道名称
+        // Construct channel name
         let channel_name = if use_1s_freq {
             "markPrice@1s"
         } else {
             "markPrice"
         };
 
-        // 转换交易对格式并验证
+        // Convert symbols and validate market type
         let binance_symbols = if let Some(syms) = symbols {
             let mut result = Vec::new();
             for symbol in syms {
@@ -2940,7 +2899,7 @@ impl Binance {
             None
         };
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
@@ -2948,72 +2907,70 @@ impl Binance {
         ws.watch_tickers_internal(binance_symbols, channel_name)
             .await
     }
-    /// 监控交易数据流
+    /// Streams trade data for a unified symbol
     ///
     /// # Arguments
-    ///
-    /// * `symbol` - 交易对符号（统一格式，如 "BTC/USDT"）
-    /// * `since` - 起始时间戳（毫秒），可选
-    /// * `limit` - 返回数据数量限制，可选
+    /// * `symbol` - Unified trading pair identifier (e.g. "BTC/USDT")
+    /// * `since` - Optional starting timestamp in milliseconds
+    /// * `limit` - Optional maximum number of trades to return
     ///
     /// # Returns
-    ///
-    /// 返回交易数据数组
+    /// Vector of parsed trade data
     pub async fn watch_trades(
         &self,
         symbol: &str,
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Trade>> {
-        // 确保市场数据已加载
+        // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
-        // 获取市场信息
+        // Resolve market information
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
-        // 订阅交易数据流
+        // Subscribe to the trade stream
         ws.subscribe_trades(&binance_symbol).await?;
 
-        // 等待并处理消息
+        // Process incoming messages
         let mut retries = 0;
         const MAX_RETRIES: u32 = 50;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgement messages
                 if msg.get("result").is_some() || msg.get("id").is_some() {
                     continue;
                 }
 
-                // 解析交易数据
+                // Parse trade payload
                 if let Ok(trade) = parser::parse_ws_trade(&msg, Some(&market)) {
-                    // 缓存交易数据
+                    // Cache trade payload
                     let mut trades_map = ws.trades.lock().await;
                     let trades = trades_map
                         .entry(symbol.to_string())
                         .or_insert_with(VecDeque::new);
 
-                    // 限制缓存大小
+                    // Enforce cache size limit
                     const MAX_TRADES: usize = 1000;
                     if trades.len() >= MAX_TRADES {
                         trades.pop_front();
                     }
                     trades.push_back(trade);
 
-                    // 获取返回数据
+                    // Gather trades from cache
                     let mut result: Vec<Trade> = trades.iter().cloned().collect();
 
-                    // 应用since过滤
+                    // Apply optional `since` filter
                     if let Some(since_ts) = since {
                         result.retain(|t| t.timestamp >= since_ts);
                     }
 
-                    // 应用limit限制
+                    // Apply optional limit
                     if let Some(limit_size) = limit {
                         if result.len() > limit_size {
                             result = result.split_off(result.len() - limit_size);
@@ -3025,24 +2982,22 @@ impl Binance {
             }
 
             retries += 1;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Err(Error::network("Timeout waiting for trade data"))
     }
 
-    /// 监控K线/OHLCV数据流
+    /// Streams OHLCV data for a unified symbol
     ///
     /// # Arguments
-    ///
-    /// * `symbol` - 交易对符号（统一格式，如 "BTC/USDT"）
-    /// * `timeframe` - K线时间周期（如 "1m", "5m", "1h", "1d"）
-    /// * `since` - 起始时间戳（毫秒），可选
-    /// * `limit` - 返回数据数量限制，可选
+    /// * `symbol` - Unified trading pair identifier (e.g. "BTC/USDT")
+    /// * `timeframe` - Candlestick interval (e.g. "1m", "5m", "1h", "1d")
+    /// * `since` - Optional starting timestamp in milliseconds
+    /// * `limit` - Optional maximum number of entries to return
     ///
     /// # Returns
-    ///
-    /// 返回OHLCV数据数组
+    /// Vector of OHLCV entries
     pub async fn watch_ohlcv(
         &self,
         symbol: &str,
@@ -3050,54 +3005,54 @@ impl Binance {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<OHLCV>> {
-        // 确保市场数据已加载
+        // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
-        // 获取市场信息
+        // Resolve market information
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
-        // 订阅K线数据流
+        // Subscribe to the Kline stream
         ws.subscribe_kline(&binance_symbol, timeframe).await?;
 
-        // 等待并处理消息
+        // Process incoming messages
         let mut retries = 0;
         const MAX_RETRIES: u32 = 50;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgement messages
                 if msg.get("result").is_some() || msg.get("id").is_some() {
                     continue;
                 }
 
-                // 解析K线数据
+                // Parse OHLCV payload
                 if let Ok(ohlcv) = parser::parse_ws_ohlcv(&msg) {
-                    // 缓存K线数据
+                    // Cache OHLCV entries
                     let cache_key = format!("{}:{}", symbol, timeframe);
                     let mut ohlcvs_map = ws.ohlcvs.lock().await;
                     let ohlcvs = ohlcvs_map.entry(cache_key).or_insert_with(VecDeque::new);
 
-                    // 限制缓存大小
+                    // Enforce cache size limit
                     const MAX_OHLCVS: usize = 1000;
                     if ohlcvs.len() >= MAX_OHLCVS {
                         ohlcvs.pop_front();
                     }
                     ohlcvs.push_back(ohlcv);
 
-                    // 获取返回数据
+                    // Collect results from cache
                     let mut result: Vec<OHLCV> = ohlcvs.iter().cloned().collect();
 
-                    // 应用since过滤
+                    // Apply optional `since` filter
                     if let Some(since_ts) = since {
                         result.retain(|o| o.timestamp >= since_ts);
                     }
 
-                    // 应用limit限制
+                    // Apply optional limit
                     if let Some(limit_size) = limit {
                         if result.len() > limit_size {
                             result = result.split_off(result.len() - limit_size);
@@ -3109,53 +3064,51 @@ impl Binance {
             }
 
             retries += 1;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Err(Error::network("Timeout waiting for OHLCV data"))
     }
 
-    /// 监控最佳买卖价数据流
+    /// Streams the best bid/ask data for a unified symbol
     ///
     /// # Arguments
-    ///
-    /// * `symbol` - 交易对符号（统一格式，如 "BTC/USDT"）
+    /// * `symbol` - Unified trading pair identifier (e.g. "BTC/USDT")
     ///
     /// # Returns
-    ///
-    /// 返回最佳买卖价数据
+    /// Latest bid/ask snapshot
     pub async fn watch_bids_asks(&self, symbol: &str) -> Result<BidAsk> {
-        // 确保市场数据已加载
+        // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
-        // 获取市场信息
+        // Resolve market details
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // 创建WebSocket连接
+        // Establish WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
 
-        // 订阅bookTicker数据流
+        // Subscribe to the bookTicker stream
         let stream_name = format!("{}@bookTicker", binance_symbol);
         ws.client
             .subscribe(stream_name, Some(symbol.to_string()), None)
             .await?;
 
-        // 等待并处理消息
+        // Process incoming messages
         let mut retries = 0;
         const MAX_RETRIES: u32 = 50;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgement messages
                 if msg.get("result").is_some() || msg.get("id").is_some() {
                     continue;
                 }
 
-                // 解析BidAsk数据
+                // Parse bid/ask payload
                 if let Ok(bid_ask) = parser::parse_ws_bid_ask(&msg) {
-                    // 缓存数据
+                    // Cache the snapshot
                     let mut bids_asks_map = ws.bids_asks.lock().await;
                     bids_asks_map.insert(symbol.to_string(), bid_ask.clone());
 
@@ -3164,24 +3117,22 @@ impl Binance {
             }
 
             retries += 1;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Err(Error::network("Timeout waiting for BidAsk data"))
     }
 
-    /// 监控账户余额变化（私有数据流）
+    /// Streams account balance changes (private user data stream)
     ///
     /// # Arguments
-    ///
-    /// * `params` - 可选参数
-    ///   - `type`: 账户类型（spot/future/delivery/margin等）
-    ///   - `fetchBalanceSnapshot`: 是否获取初始快照（默认false）
-    ///   - `awaitBalanceSnapshot`: 是否等待快照完成（默认true）
+    /// * `params` - Optional parameters
+    ///   - `type`: Account type (spot/future/delivery/margin, etc.)
+    ///   - `fetchBalanceSnapshot`: Whether to fetch an initial snapshot (default false)
+    ///   - `awaitBalanceSnapshot`: Whether to wait for snapshot completion (default true)
     ///
     /// # Returns
-    ///
-    /// 返回账户余额数据
+    /// Updated account balances
     ///
     /// # Example
     ///
@@ -3196,12 +3147,11 @@ impl Binance {
     /// config.secret = Some("your-secret".to_string());
     /// let exchange = Binance::new(config)?;
     ///
-    /// // Watch现货账户余额
+    /// // Watch spot account balance
     /// let balance = exchange.watch_balance(None).await?;
     ///
-    /// // Watch期货账户余额
+    /// // Watch futures account balance
     /// let mut params = HashMap::new();
-    /// 创建带认证的WebSocket连接
     /// params.insert("type".to_string(), json!("future"));
     /// let futures_balance = exchange.watch_balance(Some(params)).await?;
     /// # Ok(())
@@ -3211,10 +3161,10 @@ impl Binance {
         self: Arc<Self>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<Balance> {
-        // 确保市场数据已加载
+        // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
-        // 获取账户类型
+        // Resolve account type
         let account_type = if let Some(p) = &params {
             p.get("type")
                 .and_then(|v| v.as_str())
@@ -3223,7 +3173,7 @@ impl Binance {
             &self.options.default_type
         };
 
-        // 获取配置选项
+        // Determine configuration flags
         let fetch_snapshot = if let Some(p) = &params {
             p.get("fetchBalanceSnapshot")
                 .and_then(|v| v.as_bool())
@@ -3240,15 +3190,15 @@ impl Binance {
             true
         };
 
-        // 创建带认证的WebSocket连接
+        // Establish authenticated WebSocket connection
         let ws = self.create_authenticated_ws();
         ws.connect().await?;
 
-        // 如果需要获取初始快照
+        // Optionally fetch the initial snapshot
         if fetch_snapshot {
             let snapshot = self.fetch_balance(params.clone()).await?;
 
-            // 更新缓存
+            // Update cache with the snapshot
             let mut balances = ws.balances.write().await;
             balances.insert(account_type.to_string(), snapshot.clone());
 
@@ -3257,25 +3207,25 @@ impl Binance {
             }
         }
 
-        // 等待并处理余额更新消息
+        // Process balance update messages
         let mut retries = 0;
         const MAX_RETRIES: u32 = 100;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgement messages
                 if msg.get("result").is_some() || msg.get("id").is_some() {
                     continue;
                 }
 
-                // 获取事件类型
+                // Determine message event type
                 if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    // 处理不同类型的余额消息
+                    // Handle supported balance message types
                     match event_type {
                         "balanceUpdate" | "outboundAccountPosition" | "ACCOUNT_UPDATE" => {
-                            // 解析并更新余额
+                            // Parse and update local balance cache
                             if let Ok(()) = ws.handle_balance_message(&msg, account_type).await {
-                                // 返回更新后的余额
+                                // Retrieve the updated balance snapshot
                                 let balances = ws.balances.read().await;
                                 if let Some(balance) = balances.get(account_type) {
                                     return Ok(balance.clone());
@@ -3288,26 +3238,26 @@ impl Binance {
             }
 
             retries += 1;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Err(Error::network("Timeout waiting for balance data"))
     }
 
-    /// 监听订单更新（私有WebSocket）
+    /// Watches authenticated order updates via the user data stream
     ///
-    /// 通过用户数据流接收订单状态变化的实时更新
+    /// Streams real-time order status changes delivered by Binance user data WebSocket messages
     ///
-    /// # 参数
-    /// * `symbol` - 可选的交易对过滤（例如"BTC/USDT"）
-    /// * `since` - 可选的起始时间戳（毫秒）
-    /// * `limit` - 可选的返回数量限制
-    /// * `params` - 可选的额外参数
+    /// # Arguments
+    /// * `symbol` - Optional trading pair filter (e.g. "BTC/USDT")
+    /// * `since` - Optional starting timestamp in milliseconds
+    /// * `limit` - Optional maximum number of orders to return
+    /// * `params` - Optional additional parameters
     ///
-    /// # 返回
-    /// 返回订单列表，按时间降序排列
+    /// # Returns
+    /// Orders returned in descending chronological order
     ///
-    /// # 示例
+    /// # Examples
     /// ```no_run
     /// use std::sync::Arc;
     /// use ccxt_exchanges::binance::Binance;
@@ -3315,13 +3265,13 @@ impl Binance {
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     let exchange = Arc::new(Binance::new(Default::default()));
     ///
-    ///     // 监听所有交易对的订单更新
+    ///     // Watch all order updates
     ///     let orders = exchange.watch_orders(None, None, None, None).await?;
-    ///     println!("收到 {} 个订单更新", orders.len());
+    ///     println!("Received {} order updates", orders.len());
     ///
-    ///     // 监听特定交易对的订单更新
+    ///     // Watch updates for a specific trading pair
     ///     let btc_orders = exchange.watch_orders(Some("BTC/USDT"), None, None, None).await?;
-    ///     println!("BTC/USDT 订单: {:?}", btc_orders);
+    ///     println!("BTC/USDT orders: {:?}", btc_orders);
     ///
     ///     Ok(())
     /// }
@@ -3338,17 +3288,17 @@ impl Binance {
         let ws = self.create_authenticated_ws();
         ws.connect().await?;
 
-        // 循环接收消息
+        // Receive messages in a loop
         loop {
             if let Some(msg) = ws.client.receive().await {
                 if let Value::Object(data) = msg {
                     if let Some(event_type) = data.get("e").and_then(|v| v.as_str()) {
                         match event_type {
                             "executionReport" => {
-                                // 解析订单数据
+                                // Parse order payload
                                 let order = self.parse_ws_order(&data)?;
 
-                                // 更新订单缓存
+                                // Update order cache
                                 let mut orders = ws.orders.write().await;
                                 let symbol_orders = orders
                                     .entry(order.symbol.clone())
@@ -3356,20 +3306,20 @@ impl Binance {
                                 symbol_orders.insert(order.id.clone(), order.clone());
                                 drop(orders);
 
-                                // 检查是否为成交事件（executionType = "TRADE"）
+                                // Check for trade execution events
                                 if let Some(exec_type) = data.get("x").and_then(|v| v.as_str()) {
                                     if exec_type == "TRADE" {
-                                        // 解析成交记录
+                                        // Parse execution trade payload
                                         if let Ok(trade) =
                                             ws.parse_ws_trade(&Value::Object(data.clone()))
                                         {
-                                            // 更新成交记录缓存
+                                            // Update my trades cache
                                             let mut trades = ws.my_trades.write().await;
                                             let symbol_trades = trades
                                                 .entry(trade.symbol.clone())
                                                 .or_insert_with(VecDeque::new);
 
-                                            // 添加新成交记录（保持最多1000条）
+                                            // Prepend newest trade and enforce max length of 1000
                                             symbol_trades.push_front(trade);
                                             if symbol_trades.len() > 1000 {
                                                 symbol_trades.pop_back();
@@ -3378,7 +3328,7 @@ impl Binance {
                                     }
                                 }
 
-                                // 返回过滤后的订单列表
+                                // Return filtered orders
                                 return self.filter_orders(&ws, symbol, since, limit).await;
                             }
                             _ => continue,
@@ -3386,18 +3336,18 @@ impl Binance {
                     }
                 }
             } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
     }
 
-    /// 解析WebSocket订单消息
+    /// Parses a WebSocket order message
     fn parse_ws_order(&self, data: &serde_json::Map<String, Value>) -> Result<Order> {
         use ccxt_core::types::{OrderSide, OrderStatus, OrderType};
         use rust_decimal::Decimal;
         use std::str::FromStr;
 
-        // 提取基本字段
+        // Extract core fields
         let symbol = data.get("s").and_then(|v| v.as_str()).unwrap_or("");
         let order_id = data
             .get("i")
@@ -3406,7 +3356,7 @@ impl Binance {
             .unwrap_or_default();
         let client_order_id = data.get("c").and_then(|v| v.as_str()).map(String::from);
 
-        // 解析订单状态
+        // Map order status
         let status_str = data.get("X").and_then(|v| v.as_str()).unwrap_or("NEW");
         let status = match status_str {
             "NEW" => OrderStatus::Open,
@@ -3418,7 +3368,7 @@ impl Binance {
             _ => OrderStatus::Open,
         };
 
-        // 解析订单方向
+        // Map order side
         let side_str = data.get("S").and_then(|v| v.as_str()).unwrap_or("BUY");
         let side = match side_str {
             "BUY" => OrderSide::Buy,
@@ -3426,7 +3376,7 @@ impl Binance {
             _ => OrderSide::Buy,
         };
 
-        // 解析订单类型
+        // Map order type
         let type_str = data.get("o").and_then(|v| v.as_str()).unwrap_or("LIMIT");
         let order_type = match type_str {
             "LIMIT" => OrderType::Limit,
@@ -3439,7 +3389,7 @@ impl Binance {
             _ => OrderType::Limit,
         };
 
-        // 解析数量和价格
+        // Parse amount and price fields
         let amount = data
             .get("q")
             .and_then(|v| v.as_str())
@@ -3461,19 +3411,19 @@ impl Binance {
             .and_then(|v| v.as_str())
             .and_then(|s| Decimal::from_str(s).ok());
 
-        // 计算剩余数量
+        // Derive remaining quantity
         let remaining = match filled {
             Some(fill) => Some(amount - fill),
             None => None,
         };
 
-        // 计算平均价格
+        // Compute average price
         let average = match (filled, cost) {
             (Some(fill), Some(c)) if fill > Decimal::ZERO && c > Decimal::ZERO => Some(c / fill),
             _ => None,
         };
 
-        // 解析时间戳
+        // Parse timestamps
         let timestamp = data.get("T").and_then(|v| v.as_i64());
         let last_trade_timestamp = data.get("T").and_then(|v| v.as_i64());
 
@@ -3519,7 +3469,7 @@ impl Binance {
         })
     }
 
-    /// 过滤订单列表
+    /// Filters cached orders by symbol, time range, and limit
     async fn filter_orders(
         &self,
         ws: &BinanceWs,
@@ -3529,7 +3479,7 @@ impl Binance {
     ) -> Result<Vec<Order>> {
         let orders_map = ws.orders.read().await;
 
-        // 根据symbol过滤
+        // Filter by symbol when provided
         let mut orders: Vec<Order> = if let Some(sym) = symbol {
             orders_map
                 .get(sym)
@@ -3542,19 +3492,19 @@ impl Binance {
                 .collect()
         };
 
-        // 根据since时间过滤
+        // Apply optional `since` filter
         if let Some(since_ts) = since {
             orders.retain(|order| order.timestamp.map_or(false, |ts| ts >= since_ts));
         }
 
-        // 按时间戳降序排序
+        // Sort by timestamp descending
         orders.sort_by(|a, b| {
             let ts_a = a.timestamp.unwrap_or(0);
             let ts_b = b.timestamp.unwrap_or(0);
             ts_b.cmp(&ts_a)
         });
 
-        // 应用limit限制
+        // Apply optional limit
         if let Some(lim) = limit {
             orders.truncate(lim);
         }
@@ -3562,16 +3512,16 @@ impl Binance {
         Ok(orders)
     }
 
-    /// 订阅用户成交记录更新（需要认证）
+    /// Watches authenticated user trade updates
     ///
     /// # Arguments
-    /// * `symbol` - 交易对符号（可选，如None则订阅所有交易对）
-    /// * `since` - 起始时间戳（毫秒）
-    /// * `limit` - 返回数量限制
-    /// * `params` - 额外参数
+    /// * `symbol` - Optional trading pair to filter (None subscribes to all)
+    /// * `since` - Starting timestamp in milliseconds
+    /// * `limit` - Maximum number of trades to return
+    /// * `params` - Additional parameters
     ///
     /// # Returns
-    /// 成交记录列表
+    /// List of trade records
     ///
     /// # Example
     /// ```rust,no_run
@@ -3583,7 +3533,7 @@ impl Binance {
     ///     let exchange = Arc::new(Binance::new(Default::default()));
     ///     let ws = exchange.create_authenticated_ws();
     ///     
-    ///     // 订阅BTC/USDT的成交记录
+    ///     // Subscribe to BTC/USDT trade updates
     ///     let trades = ws.watch_my_trades(Some("BTC/USDT"), None, None, None).await.unwrap();
     ///     println!("My trades: {:?}", trades);
     /// }
@@ -3595,38 +3545,35 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Trade>> {
-        // 创建带认证的WebSocket连接
+        // Establish authenticated WebSocket connection
         let ws = self.create_authenticated_ws();
         ws.connect().await?;
 
-        // 等待并处理成交记录消息
+        // Process trade update messages
         let mut retries = 0;
         const MAX_RETRIES: u32 = 100;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgements
                 if msg.get("result").is_some() || msg.get("id").is_some() {
                     continue;
                 }
 
-                // 获取事件类型
+                // Identify event type
                 if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    // 处理executionReport事件（包含成交信息）
+                    // Handle executionReport events containing trade updates
                     if event_type == "executionReport" {
-                        // 解析成交记录
                         if let Ok(trade) = ws.parse_ws_trade(&msg) {
                             let symbol_key = trade.symbol.clone();
 
-                            // 更新缓存
+                            // Update cached trades
                             let mut trades_map = ws.my_trades.write().await;
                             let symbol_trades =
                                 trades_map.entry(symbol_key).or_insert_with(VecDeque::new);
 
-                            // 添加到队列头部（最新的在前）
+                            // Prepend latest trade; bound cache to 1000 entries
                             symbol_trades.push_front(trade);
-
-                            // 限制每个symbol最多保留1000条记录
                             if symbol_trades.len() > 1000 {
                                 symbol_trades.pop_back();
                             }
@@ -3634,39 +3581,39 @@ impl Binance {
                     }
                 }
             } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
 
             retries += 1;
         }
 
-        // 过滤并返回成交记录
+        // Filter and return personal trades
         ws.filter_my_trades(symbol, since, limit).await
     }
 
-    /// Watch Positions - 观察期货持仓变化（需要认证）
+    /// Watches authenticated futures position updates
     ///
-    /// 监听用户的期货持仓变化，通过WebSocket实时接收ACCOUNT_UPDATE事件。
-    /// 支持USDⓈ-M合约和COIN-M合约。
+    /// Receives ACCOUNT_UPDATE events via the user data stream to track changes to futures
+    /// Supports both USD-margined (USD-M) and coin-margined (COIN-M) contracts.
     ///
     /// # Arguments
-    /// * `symbols` - 交易对符号列表（可选，None表示订阅所有持仓）
-    /// * `since` - 起始时间戳（可选）
-    /// * `limit` - 返回数量限制（可选）
-    /// * `params` - 可选参数
-    ///   - `type`: 市场类型（future/delivery，默认future）
-    ///   - `subType`: 子类型（linear/inverse）
+    /// * `symbols` - Optional list of symbols (None subscribes to all positions)
+    /// * `since` - Optional starting timestamp
+    /// * `limit` - Optional maximum number of positions to return
+    /// * `params` - Optional parameters
+    ///   - `type`: Market type (`future`/`delivery`, default `future`)
+    ///   - `subType`: Subtype (`linear`/`inverse`)
     ///
     /// # Returns
-    /// 持仓列表
+    /// Collection of positions
     ///
-    /// # 实现细节
-    /// 1. 通过User Data Stream接收ACCOUNT_UPDATE事件
-    /// 2. 解析事件中的持仓数据（P数组）
-    /// 3. 更新内部持仓缓存
-    /// 4. 根据过滤条件返回结果
+    /// # Implementation Details
+    /// 1. Subscribe to ACCOUNT_UPDATE events through the user data stream.
+    /// 2. Parse the position data contained in the `P` array.
+    /// 3. Update the internal position cache.
+    /// 4. Filter results according to the provided arguments.
     ///
-    /// # WebSocket消息格式
+    /// # WebSocket Message Format
     /// ```json
     /// {
     ///   "e": "ACCOUNT_UPDATE",
@@ -3694,14 +3641,14 @@ impl Binance {
     /// # async fn example() -> ccxt_core::error::Result<()> {
     /// let exchange = Arc::new(Binance::new());
     ///
-    /// // 观察所有持仓
+    /// // Watch all positions
     /// let positions = exchange.watch_positions(None, None, None, None).await?;
     /// for pos in positions {
     ///     println!("Symbol: {}, Side: {:?}, Contracts: {:?}",
     ///              pos.symbol, pos.side, pos.contracts);
     /// }
     ///
-    /// // 观察特定交易对的持仓
+    /// // Watch a subset of symbols
     /// let symbols = vec!["BTC/USDT".to_string(), "ETH/USDT".to_string()];
     /// let positions = exchange.watch_positions(Some(symbols), None, Some(10), None).await?;
     /// # Ok(())
@@ -3714,31 +3661,28 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Position>> {
-        // 创建带认证的WebSocket连接
+        // Establish authenticated WebSocket connection
         let ws = self.create_authenticated_ws();
         ws.connect().await?;
 
-        // 等待并处理持仓更新消息
+        // Process position update messages
         let mut retries = 0;
         const MAX_RETRIES: u32 = 100;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
-                // 跳过订阅确认消息
+                // Skip subscription acknowledgement messages
                 if msg.get("result").is_some() || msg.get("id").is_some() {
                     continue;
                 }
 
-                // 获取事件类型
+                // Handle ACCOUNT_UPDATE events only
                 if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    // 处理ACCOUNT_UPDATE事件
                     if event_type == "ACCOUNT_UPDATE" {
-                        // 提取持仓数据
                         if let Some(account_data) = msg.get("a") {
                             if let Some(positions_array) =
                                 account_data.get("P").and_then(|p| p.as_array())
                             {
-                                // 解析并更新每个持仓
                                 for position_data in positions_array {
                                     if let Ok(position) = ws.parse_ws_position(position_data).await
                                     {
@@ -3748,21 +3692,19 @@ impl Binance {
                                             .clone()
                                             .unwrap_or_else(|| "both".to_string());
 
-                                        // 更新缓存
+                                        // Update cached positions
                                         let mut positions_map = ws.positions.write().await;
                                         let symbol_positions = positions_map
                                             .entry(symbol_key)
                                             .or_insert_with(HashMap::new);
 
-                                        // 如果持仓数量为0，从缓存中移除
+                                        // Remove positions with effectively zero contracts
                                         if position.contracts.unwrap_or(0.0).abs() < 0.000001 {
                                             symbol_positions.remove(&side_key);
-                                            // 如果该symbol没有任何持仓了，移除整个symbol
                                             if symbol_positions.is_empty() {
                                                 positions_map.remove(&position.symbol);
                                             }
                                         } else {
-                                            // 更新或添加持仓
                                             symbol_positions.insert(side_key, position);
                                         }
                                     }
@@ -3772,13 +3714,13 @@ impl Binance {
                     }
                 }
             } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
 
             retries += 1;
         }
 
-        // 过滤并返回持仓
+        // Filter and return positions
         let symbols_ref = symbols.as_ref().map(|v| v.as_slice());
         ws.filter_positions(symbols_ref, since, limit).await
     }
@@ -3791,27 +3733,27 @@ mod tests {
     #[test]
     fn test_binance_ws_creation() {
         let ws = BinanceWs::new(WS_BASE_URL.to_string());
-        // 基本创建测试
-        assert!(!ws.listen_key.try_read().is_err());
+        // Basic creation test: ensure the listen key lock is accessible
+        assert!(ws.listen_key.try_read().is_ok());
     }
 
     #[test]
     fn test_stream_format() {
         let symbol = "btcusdt";
 
-        // Ticker流格式
+        // Ticker stream format
         let ticker_stream = format!("{}@ticker", symbol);
         assert_eq!(ticker_stream, "btcusdt@ticker");
 
-        // 交易流格式
+        // Trade stream format
         let trade_stream = format!("{}@trade", symbol);
         assert_eq!(trade_stream, "btcusdt@trade");
 
-        // 深度流格式
+        // Depth stream format
         let depth_stream = format!("{}@depth20", symbol);
         assert_eq!(depth_stream, "btcusdt@depth20");
 
-        // K线流格式
+        // Kline stream format
         let kline_stream = format!("{}@kline_1m", symbol);
         assert_eq!(kline_stream, "btcusdt@kline_1m");
     }
@@ -3821,11 +3763,11 @@ mod tests {
         let manager = SubscriptionManager::new();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // 测试初始状态
+        // Validate initial state
         assert_eq!(manager.active_count(), 0);
         assert!(!manager.has_subscription("btcusdt@ticker").await);
 
-        // 测试添加订阅
+        // Add a subscription
         manager
             .add_subscription(
                 "btcusdt@ticker".to_string(),
@@ -3839,7 +3781,7 @@ mod tests {
         assert_eq!(manager.active_count(), 1);
         assert!(manager.has_subscription("btcusdt@ticker").await);
 
-        // 测试获取订阅
+        // Retrieve subscription
         let sub = manager.get_subscription("btcusdt@ticker").await;
         assert!(sub.is_some());
         let sub = sub.unwrap();
@@ -3847,7 +3789,7 @@ mod tests {
         assert_eq!(sub.symbol, "BTCUSDT");
         assert_eq!(sub.sub_type, SubscriptionType::Ticker);
 
-        // 测试移除订阅
+        // Remove subscription
         manager.remove_subscription("btcusdt@ticker").await.unwrap();
         assert_eq!(manager.active_count(), 0);
         assert!(!manager.has_subscription("btcusdt@ticker").await);
@@ -3860,7 +3802,7 @@ mod tests {
         let (tx2, _rx2) = tokio::sync::mpsc::unbounded_channel();
         let (tx3, _rx3) = tokio::sync::mpsc::unbounded_channel();
 
-        // 添加多个订阅
+        // Add multiple subscriptions
         manager
             .add_subscription(
                 "btcusdt@ticker".to_string(),
@@ -3893,58 +3835,58 @@ mod tests {
 
         assert_eq!(manager.active_count(), 3);
 
-        // 测试按symbol查询
+        // Query by symbol
         let btc_subs = manager.get_subscriptions_by_symbol("BTCUSDT").await;
         assert_eq!(btc_subs.len(), 2);
 
         let eth_subs = manager.get_subscriptions_by_symbol("ETHUSDT").await;
         assert_eq!(eth_subs.len(), 1);
 
-        // 测试获取所有订阅
+        // Retrieve all subscriptions
         let all_subs = manager.get_all_subscriptions().await;
         assert_eq!(all_subs.len(), 3);
 
-        // 测试清除所有订阅
+        // Clear all subscriptions
         manager.clear().await;
         assert_eq!(manager.active_count(), 0);
     }
 
     #[tokio::test]
     async fn test_subscription_type_from_stream() {
-        // 测试ticker
+        // Ticker stream
         let sub_type = SubscriptionType::from_stream("btcusdt@ticker");
         assert_eq!(sub_type, Some(SubscriptionType::Ticker));
 
-        // 测试orderbook
+        // Order book streams
         let sub_type = SubscriptionType::from_stream("btcusdt@depth");
         assert_eq!(sub_type, Some(SubscriptionType::OrderBook));
 
         let sub_type = SubscriptionType::from_stream("btcusdt@depth@100ms");
         assert_eq!(sub_type, Some(SubscriptionType::OrderBook));
 
-        // 测试trades
+        // Trade streams
         let sub_type = SubscriptionType::from_stream("btcusdt@trade");
         assert_eq!(sub_type, Some(SubscriptionType::Trades));
 
         let sub_type = SubscriptionType::from_stream("btcusdt@aggTrade");
         assert_eq!(sub_type, Some(SubscriptionType::Trades));
 
-        // 测试kline
+        // Kline streams
         let sub_type = SubscriptionType::from_stream("btcusdt@kline_1m");
         assert_eq!(sub_type, Some(SubscriptionType::Kline("1m".to_string())));
 
         let sub_type = SubscriptionType::from_stream("btcusdt@kline_1h");
         assert_eq!(sub_type, Some(SubscriptionType::Kline("1h".to_string())));
 
-        // 测试markPrice
+        // Mark price stream
         let sub_type = SubscriptionType::from_stream("btcusdt@markPrice");
         assert_eq!(sub_type, Some(SubscriptionType::MarkPrice));
 
-        // 测试bookTicker
+        // Book ticker stream
         let sub_type = SubscriptionType::from_stream("btcusdt@bookTicker");
         assert_eq!(sub_type, Some(SubscriptionType::BookTicker));
 
-        // 测试未知类型
+        // Unknown stream
         let sub_type = SubscriptionType::from_stream("btcusdt@unknown");
         assert_eq!(sub_type, None);
     }
@@ -3954,7 +3896,7 @@ mod tests {
         let manager = SubscriptionManager::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // 添加订阅
+        // Add subscription
         manager
             .add_subscription(
                 "btcusdt@ticker".to_string(),
@@ -3965,7 +3907,7 @@ mod tests {
             .await
             .unwrap();
 
-        // 发送消息到stream
+        // Send message to stream
         let test_msg = serde_json::json!({
             "e": "24hrTicker",
             "s": "BTCUSDT",
@@ -3977,7 +3919,7 @@ mod tests {
             .await;
         assert!(sent);
 
-        // 接收消息
+        // Receive message
         let received = rx.recv().await;
         assert!(received.is_some());
         assert_eq!(received.unwrap(), test_msg);
@@ -3989,7 +3931,7 @@ mod tests {
         let (tx1, mut rx1) = tokio::sync::mpsc::unbounded_channel();
         let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
 
-        // 为同一个symbol添加两个订阅
+        // Add two subscriptions for the same symbol
         manager
             .add_subscription(
                 "btcusdt@ticker".to_string(),
@@ -4010,7 +3952,7 @@ mod tests {
             .await
             .unwrap();
 
-        // 发送消息到symbol的所有订阅
+        // Send a message to all subscriptions for the symbol
         let test_msg = serde_json::json!({
             "s": "BTCUSDT",
             "data": "test"
@@ -4019,7 +3961,7 @@ mod tests {
         let sent_count = manager.send_to_symbol("BTCUSDT", &test_msg).await;
         assert_eq!(sent_count, 2);
 
-        // 接收消息
+        // Receive messages
         let received1 = rx1.recv().await;
         assert!(received1.is_some());
         assert_eq!(received1.unwrap(), test_msg);
@@ -4036,7 +3978,7 @@ mod tests {
         assert_eq!(binance_symbol, "btcusdt");
     }
 
-    // ==================== MessageRouter 测试 ====================
+    // ==================== MessageRouter tests ====================
 
     #[test]
     fn test_reconnect_config_default() {
@@ -4046,33 +3988,33 @@ mod tests {
         assert_eq!(config.initial_delay_ms, 1000);
         assert_eq!(config.max_delay_ms, 30000);
         assert_eq!(config.backoff_multiplier, 2.0);
-        assert_eq!(config.max_attempts, 0); // 无限重连
+        assert_eq!(config.max_attempts, 0); // Unlimited retries
     }
 
     #[test]
     fn test_reconnect_config_calculate_delay() {
         let config = ReconnectConfig::default();
 
-        // 测试指数退避
+        // Exponential backoff tests
         assert_eq!(config.calculate_delay(0), 1000); // 1s
         assert_eq!(config.calculate_delay(1), 2000); // 2s
         assert_eq!(config.calculate_delay(2), 4000); // 4s
         assert_eq!(config.calculate_delay(3), 8000); // 8s
         assert_eq!(config.calculate_delay(4), 16000); // 16s
-        assert_eq!(config.calculate_delay(5), 30000); // 30s (达到最大值)
-        assert_eq!(config.calculate_delay(6), 30000); // 30s (保持最大值)
+        assert_eq!(config.calculate_delay(5), 30000); // 30s (capped at max)
+        assert_eq!(config.calculate_delay(6), 30000); // 30s (remains at max)
     }
 
     #[test]
     fn test_reconnect_config_should_retry() {
         let mut config = ReconnectConfig::default();
 
-        // 无限重连
+        // Unlimited retries
         assert!(config.should_retry(0));
         assert!(config.should_retry(10));
         assert!(config.should_retry(100));
 
-        // 有限重连
+        // Finite retries
         config.max_attempts = 3;
         assert!(config.should_retry(0));
         assert!(config.should_retry(1));
@@ -4080,7 +4022,7 @@ mod tests {
         assert!(!config.should_retry(3));
         assert!(!config.should_retry(4));
 
-        // 禁用重连
+        // Disabled retries
         config.enabled = false;
         assert!(!config.should_retry(0));
         assert!(!config.should_retry(1));
@@ -4088,7 +4030,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_combined() {
-        // 测试组合流格式
+        // Combined stream format
         let message = serde_json::json!({
             "stream": "btcusdt@ticker",
             "data": {
@@ -4103,7 +4045,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_ticker() {
-        // 测试ticker单流格式
+        // Ticker single stream format
         let message = serde_json::json!({
             "e": "24hrTicker",
             "s": "BTCUSDT",
@@ -4118,7 +4060,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_depth() {
-        // 测试深度单流格式
+        // Depth single stream format
         let message = serde_json::json!({
             "e": "depthUpdate",
             "s": "ETHUSDT",
@@ -4133,7 +4075,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_trade() {
-        // 测试交易单流格式
+        // Test trade single-stream format
         let message = serde_json::json!({
             "e": "trade",
             "s": "BNBUSDT",
@@ -4147,7 +4089,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_kline() {
-        // 测试K线单流格式
+        // Kline single stream format
         let message = serde_json::json!({
             "e": "kline",
             "s": "BTCUSDT",
@@ -4165,7 +4107,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_mark_price() {
-        // 测试标记价格单流格式
+        // Mark price single stream format
         let message = serde_json::json!({
             "e": "markPriceUpdate",
             "s": "BTCUSDT",
@@ -4179,7 +4121,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_book_ticker() {
-        // 测试最优挂单单流格式
+        // Book ticker single stream format
         let message = serde_json::json!({
             "e": "bookTicker",
             "s": "ETHUSDT",
@@ -4194,7 +4136,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_subscription_response() {
-        // 测试订阅响应（应该返回错误）
+        // Subscription response should yield an error
         let message = serde_json::json!({
             "result": null,
             "id": 1
@@ -4206,7 +4148,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_error_response() {
-        // 测试错误响应（应该返回错误）
+        // Error responses should yield an error
         let message = serde_json::json!({
             "error": {
                 "code": -1,
@@ -4221,7 +4163,7 @@ mod tests {
 
     #[test]
     fn test_message_router_extract_stream_name_invalid() {
-        // 测试无效消息格式
+        // Invalid message format
         let message = serde_json::json!({
             "unknown": "data"
         });
@@ -4237,7 +4179,7 @@ mod tests {
 
         let router = MessageRouter::new(ws_url.clone(), subscription_manager);
 
-        // 验证初始状态
+        // Validate initial state
         assert!(!router.is_connected());
         assert_eq!(router.ws_url, ws_url);
     }
@@ -4249,12 +4191,12 @@ mod tests {
 
         let router = MessageRouter::new(ws_url, subscription_manager);
 
-        // 测试默认配置
+        // Default configuration
         let config = router.get_reconnect_config().await;
         assert!(config.enabled);
         assert_eq!(config.initial_delay_ms, 1000);
 
-        // 测试设置新配置
+        // Setting new configuration
         let new_config = ReconnectConfig {
             enabled: false,
             initial_delay_ms: 2000,
