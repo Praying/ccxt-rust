@@ -62,7 +62,8 @@ pub use ccxt_core::{
 };
 
 // Re-export exchange implementations
-pub use ccxt_exchanges::{exchange::Exchange, prelude::*};
+pub use ccxt_core::Exchange;
+pub use ccxt_exchanges::prelude::*;
 
 // Test configuration module (only available in test builds)
 #[cfg(test)]
