@@ -29,14 +29,14 @@
 //! use ccxt_rust::prelude::*;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Error> {
+//! async fn main() -> Result<()> {
 //!     // Prefer testnet when experimenting to avoid hitting live balances.
 //!     let exchange = Binance::builder()
 //!         .sandbox(true)
 //!         .build()?;
 //!
 //!     if exchange.capabilities().fetch_ticker {
-//!         let ticker = exchange.fetch_ticker("BTC/USDT").await?;
+//!         let ticker = exchange.fetch_ticker("BTC/USDT", ()).await?;
 //!         println!("Last price: {:?}", ticker.last);
 //!     }
 //!
