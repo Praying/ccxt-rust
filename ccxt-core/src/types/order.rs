@@ -339,19 +339,19 @@ impl Order {
 #[derive(Debug, thiserror::Error)]
 pub enum OrderBuilderError {
     /// Missing required limit price.
-    #[error("限价单必须指定价格")]
+    #[error("Limit orders must specify a price")]
     MissingPrice,
 
     /// Missing required stop price.
-    #[error("止损单必须指定止损价格")]
+    #[error("Stop-loss orders must specify a stop price")]
     MissingStopPrice,
 
     /// Invalid order configuration.
-    #[error("无效的订单配置: {0}")]
+    #[error("Invalid order configuration: {0}")]
     InvalidConfiguration(String),
 
     /// Amount must be positive.
-    #[error("订单金额必须大于0")]
+    #[error("Order amount must be greater than zero")]
     InvalidAmount,
 }
 
@@ -618,14 +618,15 @@ impl OrderBuilder {
             OrderType::TakeProfit => {
                 if self.trigger_price.is_none() {
                     return Err(OrderBuilderError::InvalidConfiguration(
-                        "止盈单需要触发价格".to_string(),
+                        "Take-profit orders require a trigger price".to_string(),
                     ));
                 }
             }
             OrderType::TakeProfitLimit => {
                 if self.trigger_price.is_none() || self.price.is_none() {
                     return Err(OrderBuilderError::InvalidConfiguration(
-                        "止盈限价单需要触发价格和限价".to_string(),
+                        "Take-profit limit orders require both a trigger price and a limit price"
+                            .to_string(),
                     ));
                 }
             }
@@ -635,7 +636,7 @@ impl OrderBuilder {
                     && self.trailing_percent.is_none()
                 {
                     return Err(OrderBuilderError::InvalidConfiguration(
-                        "追踪止损单需要回调率、追踪增量或追踪百分比".to_string(),
+                        "Trailing-stop orders require a callback rate, trailing delta, or trailing percent".to_string(),
                     ));
                 }
             }

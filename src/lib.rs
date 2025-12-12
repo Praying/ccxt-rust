@@ -1,27 +1,53 @@
 //! # CCXT Rust
 //!
-//! A cryptocurrency exchange trading library in Rust, providing unified API
-//! access to 100+ cryptocurrency exchanges.
+//! CCXT Rust is a professional-grade trading toolkit that brings the CCXT
+//! unified exchange interface to native Rust projects. It wraps REST and
+//! WebSocket APIs for major cryptocurrency exchanges under a single, strongly
+//! typed abstraction.
 //!
 //! ## Features
 //!
-//! - **Async/Await**: Built on tokio for efficient async operations
-//! - **Type Safety**: Leverages Rust's type system for compile-time guarantees
-//! - **Performance**: Zero-cost abstractions and optimized for speed
-//! - **WebSocket Support**: Real-time market data streaming
-//! - **Comprehensive**: Support for REST APIs and WebSocket connections
+//! - **Async first**: Powered by `tokio` with ergonomic async/await APIs for every call
+//! - **Unified types**: Shared `Exchange` trait and strongly typed market/order models
+//! - **Performance oriented**: Zero-cost abstractions with `rust_decimal` for precise math
+//! - **Live data**: WebSocket clients with automatic reconnection and streamed order books
+//! - **Extensible**: Builder patterns and configuration hooks for custom environments
+//!
+//! ## Installation
+//!
+//! ```toml
+//! [dependencies]
+//! ccxt-rust = { version = "0.1", features = ["full"] }
+//! ```
+//!
+//! Alternatively depend on the workspace members directly when developing inside the repo.
 //!
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! // use ccxt_rust::prelude::*;
+//! use ccxt_exchanges::binance::Binance;
+//! use ccxt_rust::prelude::*;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Example usage will be available once exchanges are implemented
+//! async fn main() -> Result<(), Error> {
+//!     // Prefer testnet when experimenting to avoid hitting live balances.
+//!     let exchange = Binance::builder()
+//!         .sandbox(true)
+//!         .build()?;
+//!
+//!     if exchange.capabilities().fetch_ticker {
+//!         let ticker = exchange.fetch_ticker("BTC/USDT").await?;
+//!         println!("Last price: {:?}", ticker.last);
+//!     }
+//!
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Further Reading
+//!
+//! See the repository README and the `examples/` folder for advanced scenarios
+//! covering authenticated calls, streaming data, and multi-exchange orchestration.
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
