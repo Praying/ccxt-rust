@@ -2,8 +2,11 @@
 //!
 //! Supports spot trading, futures trading, and options trading with complete REST API and WebSocket support.
 
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::str::FromStr;
 
 pub mod auth;
 pub mod builder;
@@ -27,18 +30,78 @@ pub struct Binance {
 }
 
 /// Binance-specific options.
-#[derive(Debug, Clone)]
+///
+/// # Example
+///
+/// ```rust
+/// use ccxt_exchanges::binance::BinanceOptions;
+/// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+///
+/// let options = BinanceOptions {
+///     default_type: DefaultType::Swap,
+///     default_sub_type: Some(DefaultSubType::Linear),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceOptions {
     /// Enables time synchronization.
     pub adjust_for_time_difference: bool,
     /// Receive window in milliseconds.
     pub recv_window: u64,
-    /// Default trading type (spot/margin/future/delivery/option).
-    pub default_type: String,
+    /// Default trading type (spot/margin/swap/futures/option).
+    ///
+    /// This determines which API endpoints to use for operations.
+    /// Supports both `DefaultType` enum and string values for backward compatibility.
+    #[serde(deserialize_with = "deserialize_default_type")]
+    pub default_type: DefaultType,
+    /// Default sub-type for contract settlement (linear/inverse).
+    ///
+    /// - `Linear`: USDT-margined contracts (FAPI)
+    /// - `Inverse`: Coin-margined contracts (DAPI)
+    ///
+    /// Only applicable when `default_type` is `Swap`, `Futures`, or `Option`.
+    /// Ignored for `Spot` and `Margin` types.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_sub_type: Option<DefaultSubType>,
     /// Enables testnet mode.
     pub test: bool,
     /// Enables demo environment.
     pub demo: bool,
+}
+
+/// Custom deserializer for DefaultType that accepts both enum values and strings.
+///
+/// This provides backward compatibility with configurations that use string values
+/// like "spot", "future", "swap", etc.
+fn deserialize_default_type<'de, D>(deserializer: D) -> std::result::Result<DefaultType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    // First try to deserialize as a string (for backward compatibility)
+    // Then try as the enum directly
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrDefaultType {
+        String(String),
+        DefaultType(DefaultType),
+    }
+
+    match StringOrDefaultType::deserialize(deserializer)? {
+        StringOrDefaultType::String(s) => {
+            // Handle legacy "future" value (map to Swap for perpetuals)
+            let lowercase = s.to_lowercase();
+            let normalized = match lowercase.as_str() {
+                "future" => "swap",      // Legacy: "future" typically meant perpetual futures
+                "delivery" => "futures", // Legacy: "delivery" meant dated futures
+                _ => lowercase.as_str(),
+            };
+            DefaultType::from_str(normalized).map_err(|e| D::Error::custom(e.to_string()))
+        }
+        StringOrDefaultType::DefaultType(dt) => Ok(dt),
+    }
 }
 
 impl Default for BinanceOptions {
@@ -46,7 +109,8 @@ impl Default for BinanceOptions {
         Self {
             adjust_for_time_difference: false,
             recv_window: 5000,
-            default_type: "spot".to_string(),
+            default_type: DefaultType::default(), // Defaults to Spot
+            default_sub_type: None,
             test: false,
             demo: false,
         }
@@ -117,10 +181,11 @@ impl Binance {
     /// ```no_run
     /// use ccxt_exchanges::binance::{Binance, BinanceOptions};
     /// use ccxt_core::ExchangeConfig;
+    /// use ccxt_core::types::default_type::DefaultType;
     ///
     /// let config = ExchangeConfig::default();
     /// let options = BinanceOptions {
-    ///     default_type: "future".to_string(),
+    ///     default_type: DefaultType::Swap,
     ///     ..Default::default()
     /// };
     ///
@@ -149,7 +214,7 @@ impl Binance {
     pub fn new_futures(config: ExchangeConfig) -> Result<Self> {
         let base = BaseExchange::new(config)?;
         let mut options = BinanceOptions::default();
-        options.default_type = "future".to_string();
+        options.default_type = DefaultType::Swap; // Perpetual futures
 
         Ok(Self { base, options })
     }
@@ -255,13 +320,174 @@ impl Binance {
         if let Some(dapi_private_url) = self.base().config.url_overrides.get("dapiPrivate") {
             urls.dapi_private = dapi_private_url.clone();
         }
+        // WebSocket URL overrides
+        if let Some(ws_url) = self.base().config.url_overrides.get("ws") {
+            urls.ws = ws_url.clone();
+        }
+        if let Some(ws_fapi_url) = self.base().config.url_overrides.get("wsFapi") {
+            urls.ws_fapi = ws_fapi_url.clone();
+        }
+        if let Some(ws_dapi_url) = self.base().config.url_overrides.get("wsDapi") {
+            urls.ws_dapi = ws_dapi_url.clone();
+        }
+        if let Some(ws_eapi_url) = self.base().config.url_overrides.get("wsEapi") {
+            urls.ws_eapi = ws_eapi_url.clone();
+        }
 
         urls
+    }
+
+    /// Determines the WebSocket URL based on default_type and default_sub_type.
+    ///
+    /// This method implements the endpoint routing logic according to:
+    /// - Spot/Margin: Uses the standard WebSocket endpoint
+    /// - Swap/Futures with Linear sub-type: Uses FAPI WebSocket endpoint
+    /// - Swap/Futures with Inverse sub-type: Uses DAPI WebSocket endpoint
+    /// - Option: Uses EAPI WebSocket endpoint
+    ///
+    /// # Returns
+    ///
+    /// The appropriate WebSocket URL string.
+    fn get_ws_url(&self) -> String {
+        let urls = self.urls();
+        match self.options.default_type {
+            DefaultType::Swap | DefaultType::Futures => {
+                // Check sub-type for FAPI vs DAPI selection
+                match self.options.default_sub_type {
+                    Some(DefaultSubType::Inverse) => urls.ws_dapi,
+                    _ => urls.ws_fapi, // Default to FAPI (Linear) if not specified
+                }
+            }
+            DefaultType::Option => urls.ws_eapi,
+            _ => urls.ws, // Spot and Margin use standard WebSocket
+        }
+    }
+
+    /// Returns the public REST API base URL based on default_type and default_sub_type.
+    ///
+    /// This method implements the endpoint routing logic for public REST API calls:
+    /// - Spot: Uses the public API endpoint (api.binance.com)
+    /// - Margin: Uses the SAPI endpoint (api.binance.com/sapi)
+    /// - Swap/Futures with Linear sub-type: Uses FAPI endpoint (fapi.binance.com)
+    /// - Swap/Futures with Inverse sub-type: Uses DAPI endpoint (dapi.binance.com)
+    /// - Option: Uses EAPI endpoint (eapi.binance.com)
+    ///
+    /// # Returns
+    ///
+    /// The appropriate REST API base URL string.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::{Binance, BinanceOptions};
+    /// use ccxt_core::ExchangeConfig;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+    ///
+    /// let options = BinanceOptions {
+    ///     default_type: DefaultType::Swap,
+    ///     default_sub_type: Some(DefaultSubType::Linear),
+    ///     ..Default::default()
+    /// };
+    /// let binance = Binance::new_with_options(ExchangeConfig::default(), options).unwrap();
+    /// let url = binance.get_rest_url_public();
+    /// assert!(url.contains("fapi.binance.com"));
+    /// ```
+    pub fn get_rest_url_public(&self) -> String {
+        let urls = self.urls();
+        match self.options.default_type {
+            DefaultType::Spot => urls.public.clone(),
+            DefaultType::Margin => urls.sapi.clone(),
+            DefaultType::Swap | DefaultType::Futures => {
+                match self.options.default_sub_type {
+                    Some(DefaultSubType::Inverse) => urls.dapi_public.clone(),
+                    _ => urls.fapi_public.clone(), // Default to FAPI (Linear)
+                }
+            }
+            DefaultType::Option => urls.eapi_public.clone(),
+        }
+    }
+
+    /// Returns the private REST API base URL based on default_type and default_sub_type.
+    ///
+    /// This method implements the endpoint routing logic for private REST API calls:
+    /// - Spot: Uses the private API endpoint (api.binance.com)
+    /// - Margin: Uses the SAPI endpoint (api.binance.com/sapi)
+    /// - Swap/Futures with Linear sub-type: Uses FAPI endpoint (fapi.binance.com)
+    /// - Swap/Futures with Inverse sub-type: Uses DAPI endpoint (dapi.binance.com)
+    /// - Option: Uses EAPI endpoint (eapi.binance.com)
+    ///
+    /// # Returns
+    ///
+    /// The appropriate REST API base URL string.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::{Binance, BinanceOptions};
+    /// use ccxt_core::ExchangeConfig;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+    ///
+    /// let options = BinanceOptions {
+    ///     default_type: DefaultType::Swap,
+    ///     default_sub_type: Some(DefaultSubType::Inverse),
+    ///     ..Default::default()
+    /// };
+    /// let binance = Binance::new_with_options(ExchangeConfig::default(), options).unwrap();
+    /// let url = binance.get_rest_url_private();
+    /// assert!(url.contains("dapi.binance.com"));
+    /// ```
+    pub fn get_rest_url_private(&self) -> String {
+        let urls = self.urls();
+        match self.options.default_type {
+            DefaultType::Spot => urls.private.clone(),
+            DefaultType::Margin => urls.sapi.clone(),
+            DefaultType::Swap | DefaultType::Futures => {
+                match self.options.default_sub_type {
+                    Some(DefaultSubType::Inverse) => urls.dapi_private.clone(),
+                    _ => urls.fapi_private.clone(), // Default to FAPI (Linear)
+                }
+            }
+            DefaultType::Option => urls.eapi_private.clone(),
+        }
+    }
+
+    /// Checks if the current default_type is a contract type (Swap, Futures, or Option).
+    ///
+    /// This is useful for determining whether contract-specific API endpoints should be used.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the default_type is Swap, Futures, or Option; `false` otherwise.
+    pub fn is_contract_type(&self) -> bool {
+        self.options.default_type.is_contract()
+    }
+
+    /// Checks if the current configuration uses inverse (coin-margined) contracts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if default_sub_type is Inverse; `false` otherwise.
+    pub fn is_inverse(&self) -> bool {
+        matches!(self.options.default_sub_type, Some(DefaultSubType::Inverse))
+    }
+
+    /// Checks if the current configuration uses linear (USDT-margined) contracts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if default_sub_type is Linear or not specified (defaults to Linear); `false` otherwise.
+    pub fn is_linear(&self) -> bool {
+        !self.is_inverse()
     }
 
     /// Creates a WebSocket client for public data streams.
     ///
     /// Used for subscribing to public data streams (ticker, orderbook, trades, etc.).
+    /// The WebSocket endpoint is automatically selected based on `default_type` and `default_sub_type`:
+    /// - Spot/Margin: `wss://stream.binance.com:9443/ws`
+    /// - Swap/Futures (Linear): `wss://fstream.binance.com/ws`
+    /// - Swap/Futures (Inverse): `wss://dstream.binance.com/ws`
+    /// - Option: `wss://nbstream.binance.com/eoptions/ws`
     ///
     /// # Returns
     ///
@@ -280,12 +506,7 @@ impl Binance {
     /// # }
     /// ```
     pub fn create_ws(&self) -> ws::BinanceWs {
-        let urls = self.urls();
-        let ws_url = if self.options.default_type == "future" {
-            urls.ws_fapi
-        } else {
-            urls.ws
-        };
+        let ws_url = self.get_ws_url();
         ws::BinanceWs::new(ws_url)
     }
 
@@ -293,6 +514,7 @@ impl Binance {
     ///
     /// Used for subscribing to private data streams (account balance, order updates, trade history, etc.).
     /// Requires API key configuration.
+    /// The WebSocket endpoint is automatically selected based on `default_type` and `default_sub_type`.
     ///
     /// # Returns
     ///
@@ -317,12 +539,7 @@ impl Binance {
     /// # }
     /// ```
     pub fn create_authenticated_ws(self: &std::sync::Arc<Self>) -> ws::BinanceWs {
-        let urls = self.urls();
-        let ws_url = if self.options.default_type == "future" {
-            urls.ws_fapi
-        } else {
-            urls.ws
-        };
+        let ws_url = self.get_ws_url();
         ws::BinanceWs::new_with_auth(ws_url, self.clone())
     }
 }
@@ -358,10 +575,14 @@ pub struct BinanceUrls {
     pub eapi_private: String,
     /// PAPI URL (Portfolio Margin API).
     pub papi: String,
-    /// WebSocket URL.
+    /// WebSocket URL (Spot).
     pub ws: String,
-    /// WebSocket Futures URL.
+    /// WebSocket Futures URL (USDT-margined perpetuals/futures).
     pub ws_fapi: String,
+    /// WebSocket Delivery URL (Coin-margined perpetuals/futures).
+    pub ws_dapi: String,
+    /// WebSocket Options URL.
+    pub ws_eapi: String,
 }
 
 impl BinanceUrls {
@@ -384,6 +605,8 @@ impl BinanceUrls {
             papi: "https://papi.binance.com/papi/v1".to_string(),
             ws: "wss://stream.binance.com:9443/ws".to_string(),
             ws_fapi: "wss://fstream.binance.com/ws".to_string(),
+            ws_dapi: "wss://dstream.binance.com/ws".to_string(),
+            ws_eapi: "wss://nbstream.binance.com/eoptions/ws".to_string(),
         }
     }
 
@@ -406,6 +629,8 @@ impl BinanceUrls {
             papi: "https://testnet.binance.vision/papi/v1".to_string(),
             ws: "wss://testnet.binance.vision/ws".to_string(),
             ws_fapi: "wss://stream.binancefuture.com/ws".to_string(),
+            ws_dapi: "wss://dstream.binancefuture.com/ws".to_string(),
+            ws_eapi: "wss://testnet.binanceops.com/ws-api/v3".to_string(),
         }
     }
 
@@ -428,6 +653,8 @@ impl BinanceUrls {
             papi: "https://demo-papi.binance.com/papi/v1".to_string(),
             ws: "wss://demo-stream.binance.com/ws".to_string(),
             ws_fapi: "wss://demo-fstream.binance.com/ws".to_string(),
+            ws_dapi: "wss://demo-dstream.binance.com/ws".to_string(),
+            ws_eapi: "wss://demo-nbstream.binance.com/eoptions/ws".to_string(),
         }
     }
 }
@@ -487,5 +714,454 @@ mod tests {
         let urls = binance.urls();
 
         assert!(urls.public.contains("testnet"));
+    }
+
+    #[test]
+    fn test_binance_options_default() {
+        let options = BinanceOptions::default();
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
+        assert!(!options.adjust_for_time_difference);
+        assert_eq!(options.recv_window, 5000);
+        assert!(!options.test);
+        assert!(!options.demo);
+    }
+
+    #[test]
+    fn test_binance_options_with_default_type() {
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        assert_eq!(options.default_type, DefaultType::Swap);
+        assert_eq!(options.default_sub_type, Some(DefaultSubType::Linear));
+    }
+
+    #[test]
+    fn test_binance_options_serialization() {
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&options).unwrap();
+        assert!(json.contains("\"default_type\":\"swap\""));
+        assert!(json.contains("\"default_sub_type\":\"linear\""));
+    }
+
+    #[test]
+    fn test_binance_options_deserialization_with_enum() {
+        let json = r#"{
+            "adjust_for_time_difference": false,
+            "recv_window": 5000,
+            "default_type": "swap",
+            "default_sub_type": "linear",
+            "test": false,
+            "demo": false
+        }"#;
+        let options: BinanceOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Swap);
+        assert_eq!(options.default_sub_type, Some(DefaultSubType::Linear));
+    }
+
+    #[test]
+    fn test_binance_options_deserialization_legacy_future() {
+        // Test backward compatibility with legacy "future" value
+        let json = r#"{
+            "adjust_for_time_difference": false,
+            "recv_window": 5000,
+            "default_type": "future",
+            "test": false,
+            "demo": false
+        }"#;
+        let options: BinanceOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_binance_options_deserialization_legacy_delivery() {
+        // Test backward compatibility with legacy "delivery" value
+        let json = r#"{
+            "adjust_for_time_difference": false,
+            "recv_window": 5000,
+            "default_type": "delivery",
+            "test": false,
+            "demo": false
+        }"#;
+        let options: BinanceOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Futures);
+    }
+
+    #[test]
+    fn test_binance_options_deserialization_without_sub_type() {
+        let json = r#"{
+            "adjust_for_time_difference": false,
+            "recv_window": 5000,
+            "default_type": "spot",
+            "test": false,
+            "demo": false
+        }"#;
+        let options: BinanceOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
+    }
+
+    #[test]
+    fn test_binance_options_deserialization_case_insensitive() {
+        // Test case-insensitive deserialization
+        let json = r#"{
+            "adjust_for_time_difference": false,
+            "recv_window": 5000,
+            "default_type": "SWAP",
+            "test": false,
+            "demo": false
+        }"#;
+        let options: BinanceOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Swap);
+
+        // Test mixed case
+        let json = r#"{
+            "adjust_for_time_difference": false,
+            "recv_window": 5000,
+            "default_type": "FuTuReS",
+            "test": false,
+            "demo": false
+        }"#;
+        let options: BinanceOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Futures);
+    }
+
+    #[test]
+    fn test_new_futures_uses_swap_type() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new_futures(config).unwrap();
+        assert_eq!(binance.options().default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_get_ws_url_spot() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("stream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_margin() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Margin,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        // Margin uses the same WebSocket as Spot
+        assert!(ws_url.contains("stream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_swap_linear() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("fstream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_swap_inverse() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("dstream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_swap_default_sub_type() {
+        // When sub_type is not specified, should default to Linear (FAPI)
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: None,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("fstream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_futures_linear() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("fstream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_futures_inverse() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("dstream.binance.com"));
+    }
+
+    #[test]
+    fn test_get_ws_url_option() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let ws_url = binance.get_ws_url();
+        assert!(ws_url.contains("nbstream.binance.com") || ws_url.contains("eoptions"));
+    }
+
+    #[test]
+    fn test_binance_urls_has_all_ws_endpoints() {
+        let urls = BinanceUrls::production();
+        assert!(!urls.ws.is_empty());
+        assert!(!urls.ws_fapi.is_empty());
+        assert!(!urls.ws_dapi.is_empty());
+        assert!(!urls.ws_eapi.is_empty());
+    }
+
+    #[test]
+    fn test_binance_urls_testnet_has_all_ws_endpoints() {
+        let urls = BinanceUrls::testnet();
+        assert!(!urls.ws.is_empty());
+        assert!(!urls.ws_fapi.is_empty());
+        assert!(!urls.ws_dapi.is_empty());
+        assert!(!urls.ws_eapi.is_empty());
+    }
+
+    #[test]
+    fn test_binance_urls_demo_has_all_ws_endpoints() {
+        let urls = BinanceUrls::demo();
+        assert!(!urls.ws.is_empty());
+        assert!(!urls.ws_fapi.is_empty());
+        assert!(!urls.ws_dapi.is_empty());
+        assert!(!urls.ws_eapi.is_empty());
+    }
+
+    #[test]
+    fn test_get_rest_url_public_spot() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("api.binance.com"));
+        assert!(url.contains("/api/v3"));
+    }
+
+    #[test]
+    fn test_get_rest_url_public_margin() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Margin,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("api.binance.com"));
+        assert!(url.contains("/sapi/"));
+    }
+
+    #[test]
+    fn test_get_rest_url_public_swap_linear() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("fapi.binance.com"));
+    }
+
+    #[test]
+    fn test_get_rest_url_public_swap_inverse() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("dapi.binance.com"));
+    }
+
+    #[test]
+    fn test_get_rest_url_public_futures_linear() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("fapi.binance.com"));
+    }
+
+    #[test]
+    fn test_get_rest_url_public_futures_inverse() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("dapi.binance.com"));
+    }
+
+    #[test]
+    fn test_get_rest_url_public_option() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_public();
+        assert!(url.contains("eapi.binance.com"));
+    }
+
+    #[test]
+    fn test_get_rest_url_private_swap_linear() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_private();
+        assert!(url.contains("fapi.binance.com"));
+    }
+
+    #[test]
+    fn test_get_rest_url_private_swap_inverse() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        let url = binance.get_rest_url_private();
+        assert!(url.contains("dapi.binance.com"));
+    }
+
+    #[test]
+    fn test_is_contract_type() {
+        let config = ExchangeConfig::default();
+
+        // Spot is not a contract type
+        let options = BinanceOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config.clone(), options).unwrap();
+        assert!(!binance.is_contract_type());
+
+        // Margin is not a contract type
+        let options = BinanceOptions {
+            default_type: DefaultType::Margin,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config.clone(), options).unwrap();
+        assert!(!binance.is_contract_type());
+
+        // Swap is a contract type
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config.clone(), options).unwrap();
+        assert!(binance.is_contract_type());
+
+        // Futures is a contract type
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config.clone(), options).unwrap();
+        assert!(binance.is_contract_type());
+
+        // Option is a contract type
+        let options = BinanceOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        assert!(binance.is_contract_type());
+    }
+
+    #[test]
+    fn test_is_linear_and_is_inverse() {
+        let config = ExchangeConfig::default();
+
+        // No sub-type specified defaults to linear
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: None,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config.clone(), options).unwrap();
+        assert!(binance.is_linear());
+        assert!(!binance.is_inverse());
+
+        // Explicit linear
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config.clone(), options).unwrap();
+        assert!(binance.is_linear());
+        assert!(!binance.is_inverse());
+
+        // Explicit inverse
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        assert!(!binance.is_linear());
+        assert!(binance.is_inverse());
     }
 }

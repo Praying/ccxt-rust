@@ -63,10 +63,27 @@ impl Okx {
     }
 
     /// Get the instrument type for API requests.
-    fn get_inst_type(&self) -> &str {
-        match self.options().account_mode.as_str() {
-            "cross" | "isolated" => "MARGIN",
-            _ => "SPOT",
+    ///
+    /// Maps the configured `default_type` to OKX's instrument type (instType) parameter.
+    /// OKX uses a unified V5 API, so this primarily affects market filtering.
+    ///
+    /// # Returns
+    ///
+    /// Returns the OKX instrument type string:
+    /// - "SPOT" for spot trading
+    /// - "MARGIN" for margin trading
+    /// - "SWAP" for perpetual contracts
+    /// - "FUTURES" for delivery contracts
+    /// - "OPTION" for options trading
+    pub fn get_inst_type(&self) -> &str {
+        use ccxt_core::types::default_type::DefaultType;
+
+        match self.options().default_type {
+            DefaultType::Spot => "SPOT",
+            DefaultType::Margin => "MARGIN",
+            DefaultType::Swap => "SWAP",
+            DefaultType::Futures => "FUTURES",
+            DefaultType::Option => "OPTION",
         }
     }
 
@@ -1013,9 +1030,46 @@ mod tests {
 
     #[test]
     fn test_get_inst_type_margin() {
-        let okx = Okx::builder().account_mode("cross").build().unwrap();
+        use ccxt_core::types::default_type::DefaultType;
+        let okx = Okx::builder()
+            .default_type(DefaultType::Margin)
+            .build()
+            .unwrap();
         let inst_type = okx.get_inst_type();
         assert_eq!(inst_type, "MARGIN");
+    }
+
+    #[test]
+    fn test_get_inst_type_swap() {
+        use ccxt_core::types::default_type::DefaultType;
+        let okx = Okx::builder()
+            .default_type(DefaultType::Swap)
+            .build()
+            .unwrap();
+        let inst_type = okx.get_inst_type();
+        assert_eq!(inst_type, "SWAP");
+    }
+
+    #[test]
+    fn test_get_inst_type_futures() {
+        use ccxt_core::types::default_type::DefaultType;
+        let okx = Okx::builder()
+            .default_type(DefaultType::Futures)
+            .build()
+            .unwrap();
+        let inst_type = okx.get_inst_type();
+        assert_eq!(inst_type, "FUTURES");
+    }
+
+    #[test]
+    fn test_get_inst_type_option() {
+        use ccxt_core::types::default_type::DefaultType;
+        let okx = Okx::builder()
+            .default_type(DefaultType::Option)
+            .build()
+            .unwrap();
+        let inst_type = okx.get_inst_type();
+        assert_eq!(inst_type, "OPTION");
     }
 
     #[test]
