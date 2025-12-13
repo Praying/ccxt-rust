@@ -3,6 +3,7 @@
 //! Demonstrates how to use `watch_orders` to monitor real-time order updates.
 
 use ccxt_core::ExchangeConfig;
+use ccxt_core::types::default_type::DefaultType;
 use ccxt_exchanges::binance::{Binance, BinanceOptions};
 use std::sync::Arc;
 
@@ -22,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut binance = Binance::new(config)?;
 
     let options = BinanceOptions {
-        default_type: "spot".to_string(),
+        default_type: DefaultType::Spot,
         ..Default::default()
     };
     binance.set_options(options);

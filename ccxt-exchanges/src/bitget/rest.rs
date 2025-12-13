@@ -56,9 +56,15 @@ impl Bitget {
     }
 
     /// Build the API path with product type prefix.
+    ///
+    /// Uses the effective product type derived from `default_type` and `default_sub_type`
+    /// to determine the correct API endpoint:
+    /// - "spot" -> /api/v2/spot
+    /// - "umcbl" (USDT-M) -> /api/v2/mix
+    /// - "dmcbl" (Coin-M) -> /api/v2/mix
     fn build_api_path(&self, endpoint: &str) -> String {
-        let product_type = &self.options().product_type;
-        match product_type.as_str() {
+        let product_type = self.options().effective_product_type();
+        match product_type {
             "spot" => format!("/api/v2/spot{}", endpoint),
             "umcbl" | "usdt-futures" => format!("/api/v2/mix{}", endpoint),
             "dmcbl" | "coin-futures" => format!("/api/v2/mix{}", endpoint),
@@ -1177,6 +1183,7 @@ impl Bitget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 
     #[test]
     fn test_build_api_path_spot() {
@@ -1186,10 +1193,72 @@ mod tests {
     }
 
     #[test]
-    fn test_build_api_path_futures() {
-        let bitget = Bitget::builder().product_type("umcbl").build().unwrap();
+    fn test_build_api_path_futures_legacy() {
+        // Legacy test using product_type directly
+        // Note: product_type is kept for backward compatibility but
+        // effective_product_type() now derives from default_type/default_sub_type
+        // This test verifies that using default_type achieves the same result
+        let bitget = Bitget::builder()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear)
+            .build()
+            .unwrap();
         let path = bitget.build_api_path("/public/symbols");
         assert_eq!(path, "/api/v2/mix/public/symbols");
+    }
+
+    #[test]
+    fn test_build_api_path_with_default_type_spot() {
+        let bitget = Bitget::builder()
+            .default_type(DefaultType::Spot)
+            .build()
+            .unwrap();
+        let path = bitget.build_api_path("/public/symbols");
+        assert_eq!(path, "/api/v2/spot/public/symbols");
+    }
+
+    #[test]
+    fn test_build_api_path_with_default_type_swap_linear() {
+        let bitget = Bitget::builder()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear)
+            .build()
+            .unwrap();
+        let path = bitget.build_api_path("/public/symbols");
+        assert_eq!(path, "/api/v2/mix/public/symbols");
+    }
+
+    #[test]
+    fn test_build_api_path_with_default_type_swap_inverse() {
+        let bitget = Bitget::builder()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Inverse)
+            .build()
+            .unwrap();
+        let path = bitget.build_api_path("/public/symbols");
+        assert_eq!(path, "/api/v2/mix/public/symbols");
+    }
+
+    #[test]
+    fn test_build_api_path_with_default_type_futures() {
+        let bitget = Bitget::builder()
+            .default_type(DefaultType::Futures)
+            .build()
+            .unwrap();
+        let path = bitget.build_api_path("/public/symbols");
+        // Futures defaults to Linear (umcbl) which uses mix API
+        assert_eq!(path, "/api/v2/mix/public/symbols");
+    }
+
+    #[test]
+    fn test_build_api_path_with_default_type_margin() {
+        let bitget = Bitget::builder()
+            .default_type(DefaultType::Margin)
+            .build()
+            .unwrap();
+        let path = bitget.build_api_path("/public/symbols");
+        // Margin uses spot API
+        assert_eq!(path, "/api/v2/spot/public/symbols");
     }
 
     #[test]

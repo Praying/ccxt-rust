@@ -4,6 +4,7 @@
 //! type-safe configuration options.
 
 use super::{Binance, BinanceOptions};
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{ExchangeConfig, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -165,22 +166,56 @@ impl BinanceBuilder {
 
     /// Sets the default trading type.
     ///
-    /// Valid values: "spot", "margin", "future", "delivery", "option".
+    /// Accepts both `DefaultType` enum values and string values for backward compatibility.
+    /// Valid string values: "spot", "margin", "swap", "futures", "option".
+    /// Legacy values "future" and "delivery" are also supported.
     ///
     /// # Arguments
     ///
-    /// * `trading_type` - The default trading type.
+    /// * `trading_type` - The default trading type (DefaultType or string).
     ///
     /// # Example
     ///
     /// ```no_run
     /// use ccxt_exchanges::binance::BinanceBuilder;
+    /// use ccxt_core::types::default_type::DefaultType;
+    ///
+    /// // Using DefaultType enum (recommended)
+    /// let builder = BinanceBuilder::new()
+    ///     .default_type(DefaultType::Swap);
+    ///
+    /// // Using string (backward compatible)
+    /// let builder = BinanceBuilder::new()
+    ///     .default_type("swap");
+    /// ```
+    pub fn default_type(mut self, trading_type: impl Into<DefaultType>) -> Self {
+        self.options.default_type = trading_type.into();
+        self
+    }
+
+    /// Sets the default sub-type for contract settlement.
+    ///
+    /// - `Linear`: USDT-margined contracts (FAPI)
+    /// - `Inverse`: Coin-margined contracts (DAPI)
+    ///
+    /// Only applicable when `default_type` is `Swap`, `Futures`, or `Option`.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_type` - The default sub-type for contract settlement.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::BinanceBuilder;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
     ///
     /// let builder = BinanceBuilder::new()
-    ///     .default_type("future");
+    ///     .default_type(DefaultType::Swap)
+    ///     .default_sub_type(DefaultSubType::Linear);
     /// ```
-    pub fn default_type(mut self, trading_type: impl Into<String>) -> Self {
-        self.options.default_type = trading_type.into();
+    pub fn default_sub_type(mut self, sub_type: DefaultSubType) -> Self {
+        self.options.default_sub_type = Some(sub_type);
         self
     }
 
@@ -364,7 +399,7 @@ mod tests {
         assert_eq!(builder.config.id, "binance");
         assert_eq!(builder.config.name, "Binance");
         assert!(!builder.config.sandbox);
-        assert_eq!(builder.options.default_type, "spot");
+        assert_eq!(builder.options.default_type, DefaultType::Spot);
     }
 
     #[test]
@@ -399,9 +434,35 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_default_type() {
+    fn test_builder_default_type_with_enum() {
+        let builder = BinanceBuilder::new().default_type(DefaultType::Swap);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_builder_default_type_with_string() {
+        // Test backward compatibility with string values
+        let builder = BinanceBuilder::new().default_type("swap");
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_builder_default_type_legacy_future() {
+        // Test backward compatibility with legacy "future" value
         let builder = BinanceBuilder::new().default_type("future");
-        assert_eq!(builder.options.default_type, "future");
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_builder_default_sub_type() {
+        let builder = BinanceBuilder::new()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Linear)
+        );
     }
 
     #[test]
@@ -412,14 +473,14 @@ mod tests {
             .sandbox(true)
             .timeout(30)
             .recv_window(5000)
-            .default_type("spot");
+            .default_type(DefaultType::Spot);
 
         assert_eq!(builder.config.api_key, Some("key".to_string()));
         assert_eq!(builder.config.secret, Some("secret".to_string()));
         assert!(builder.config.sandbox);
         assert_eq!(builder.config.timeout, 30);
         assert_eq!(builder.options.recv_window, 5000);
-        assert_eq!(builder.options.default_type, "spot");
+        assert_eq!(builder.options.default_type, DefaultType::Spot);
     }
 
     #[test]

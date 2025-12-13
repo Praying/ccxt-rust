@@ -2,7 +2,9 @@
 //!
 //! Supports spot trading and futures trading (USDT-M and Coin-M) with REST API and WebSocket support.
 
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod auth;
@@ -32,10 +34,47 @@ pub struct Bitget {
 }
 
 /// Bitget-specific options.
-#[derive(Debug, Clone)]
+///
+/// # Example
+///
+/// ```rust
+/// use ccxt_exchanges::bitget::BitgetOptions;
+/// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+///
+/// let options = BitgetOptions {
+///     default_type: DefaultType::Swap,
+///     default_sub_type: Some(DefaultSubType::Linear),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BitgetOptions {
     /// Product type: spot, umcbl (USDT-M), dmcbl (Coin-M).
+    ///
+    /// This is kept for backward compatibility with existing configurations.
+    /// When using `default_type` and `default_sub_type`, this field is automatically
+    /// derived from those values.
     pub product_type: String,
+    /// Default trading type (spot/swap/futures/option).
+    ///
+    /// This determines which product type to use for API calls.
+    /// Bitget uses product_type-based filtering:
+    /// - `Spot` -> product_type=spot
+    /// - `Swap` + Linear -> product_type=umcbl (USDT-M)
+    /// - `Swap` + Inverse -> product_type=dmcbl (Coin-M)
+    /// - `Futures` + Linear -> product_type=umcbl (USDT-M futures)
+    /// - `Futures` + Inverse -> product_type=dmcbl (Coin-M futures)
+    #[serde(default)]
+    pub default_type: DefaultType,
+    /// Default sub-type for contract settlement (linear/inverse).
+    ///
+    /// - `Linear`: USDT-margined contracts (product_type=umcbl)
+    /// - `Inverse`: Coin-margined contracts (product_type=dmcbl)
+    ///
+    /// Only applicable when `default_type` is `Swap` or `Futures`.
+    /// Ignored for `Spot` type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_sub_type: Option<DefaultSubType>,
     /// Receive window in milliseconds.
     pub recv_window: u64,
     /// Enables demo environment.
@@ -46,8 +85,51 @@ impl Default for BitgetOptions {
     fn default() -> Self {
         Self {
             product_type: "spot".to_string(),
+            default_type: DefaultType::default(), // Defaults to Spot
+            default_sub_type: None,
             recv_window: 5000,
             demo: false,
+        }
+    }
+}
+
+impl BitgetOptions {
+    /// Returns the effective product_type based on default_type and default_sub_type.
+    ///
+    /// This method maps the DefaultType and DefaultSubType to Bitget's product_type:
+    /// - `Spot` -> "spot"
+    /// - `Swap` + Linear (or None) -> "umcbl" (USDT-M perpetuals)
+    /// - `Swap` + Inverse -> "dmcbl" (Coin-M perpetuals)
+    /// - `Futures` + Linear (or None) -> "umcbl" (USDT-M futures)
+    /// - `Futures` + Inverse -> "dmcbl" (Coin-M futures)
+    /// - `Margin` -> "spot" (margin uses spot markets)
+    /// - `Option` -> "spot" (options not fully supported, fallback to spot)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_exchanges::bitget::BitgetOptions;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+    ///
+    /// let mut options = BitgetOptions::default();
+    /// options.default_type = DefaultType::Swap;
+    /// options.default_sub_type = Some(DefaultSubType::Linear);
+    /// assert_eq!(options.effective_product_type(), "umcbl");
+    ///
+    /// options.default_sub_type = Some(DefaultSubType::Inverse);
+    /// assert_eq!(options.effective_product_type(), "dmcbl");
+    /// ```
+    pub fn effective_product_type(&self) -> &str {
+        match self.default_type {
+            DefaultType::Spot => "spot",
+            DefaultType::Margin => "spot", // Margin uses spot markets
+            DefaultType::Swap | DefaultType::Futures => {
+                match self.default_sub_type.unwrap_or(DefaultSubType::Linear) {
+                    DefaultSubType::Linear => "umcbl",  // USDT-M
+                    DefaultSubType::Inverse => "dmcbl", // Coin-M
+                }
+            }
+            DefaultType::Option => "spot", // Options not fully supported, fallback to spot
         }
     }
 }
@@ -292,7 +374,70 @@ mod tests {
     fn test_default_options() {
         let options = BitgetOptions::default();
         assert_eq!(options.product_type, "spot");
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
         assert_eq!(options.recv_window, 5000);
         assert!(!options.demo);
+    }
+
+    #[test]
+    fn test_effective_product_type_spot() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Spot;
+        assert_eq!(options.effective_product_type(), "spot");
+    }
+
+    #[test]
+    fn test_effective_product_type_swap_linear() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Swap;
+        options.default_sub_type = Some(DefaultSubType::Linear);
+        assert_eq!(options.effective_product_type(), "umcbl");
+    }
+
+    #[test]
+    fn test_effective_product_type_swap_inverse() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Swap;
+        options.default_sub_type = Some(DefaultSubType::Inverse);
+        assert_eq!(options.effective_product_type(), "dmcbl");
+    }
+
+    #[test]
+    fn test_effective_product_type_swap_default_sub_type() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Swap;
+        // No sub_type specified, should default to Linear (umcbl)
+        assert_eq!(options.effective_product_type(), "umcbl");
+    }
+
+    #[test]
+    fn test_effective_product_type_futures_linear() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Futures;
+        options.default_sub_type = Some(DefaultSubType::Linear);
+        assert_eq!(options.effective_product_type(), "umcbl");
+    }
+
+    #[test]
+    fn test_effective_product_type_futures_inverse() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Futures;
+        options.default_sub_type = Some(DefaultSubType::Inverse);
+        assert_eq!(options.effective_product_type(), "dmcbl");
+    }
+
+    #[test]
+    fn test_effective_product_type_margin() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Margin;
+        assert_eq!(options.effective_product_type(), "spot");
+    }
+
+    #[test]
+    fn test_effective_product_type_option() {
+        let mut options = BitgetOptions::default();
+        options.default_type = DefaultType::Option;
+        assert_eq!(options.effective_product_type(), "spot");
     }
 }

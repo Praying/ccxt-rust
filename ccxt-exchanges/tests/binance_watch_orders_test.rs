@@ -1,6 +1,7 @@
 //! Binance order update WebSocket integration tests
 
 use ccxt_core::ExchangeConfig;
+use ccxt_core::types::default_type::DefaultType;
 use ccxt_exchanges::binance::{Binance, BinanceOptions};
 use std::sync::Arc;
 
@@ -17,7 +18,7 @@ async fn test_watch_orders_all() {
     };
 
     let options = BinanceOptions {
-        default_type: "spot".to_string(),
+        default_type: DefaultType::Spot,
         ..Default::default()
     };
 
@@ -55,7 +56,7 @@ async fn test_watch_orders_by_symbol() {
     };
 
     let options = BinanceOptions {
-        default_type: "spot".to_string(),
+        default_type: DefaultType::Spot,
         ..Default::default()
     };
 
@@ -91,7 +92,7 @@ async fn test_watch_orders_with_limit() {
     };
 
     let options = BinanceOptions {
-        default_type: "spot".to_string(),
+        default_type: DefaultType::Spot,
         ..Default::default()
     };
 
@@ -128,7 +129,7 @@ async fn test_watch_orders_with_since() {
     };
 
     let options = BinanceOptions {
-        default_type: "spot".to_string(),
+        default_type: DefaultType::Spot,
         ..Default::default()
     };
 
@@ -169,7 +170,7 @@ async fn test_watch_orders_futures() {
     };
 
     let options = BinanceOptions {
-        default_type: "future".to_string(),
+        default_type: DefaultType::Swap, // "future" maps to Swap (perpetual futures)
         ..Default::default()
     };
 
@@ -254,11 +255,11 @@ mod tests {
     #[tokio::test]
     async fn test_binance_options() {
         let options = BinanceOptions {
-            default_type: "future".to_string(),
+            default_type: DefaultType::Swap, // "future" maps to Swap (perpetual futures)
             ..Default::default()
         };
 
-        assert_eq!(options.default_type, "future");
+        assert_eq!(options.default_type, DefaultType::Swap);
         println!("✓ Binance options validation");
     }
 }
