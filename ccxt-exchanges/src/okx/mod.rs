@@ -3,7 +3,9 @@
 //! Supports spot trading and futures trading (USDT-M and Coin-M) with REST API and WebSocket support.
 //! OKX uses V5 unified API with HMAC-SHA256 + Base64 authentication.
 
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod auth;
@@ -30,10 +32,41 @@ pub struct Okx {
 }
 
 /// OKX-specific options.
-#[derive(Debug, Clone)]
+///
+/// # Example
+///
+/// ```rust
+/// use ccxt_exchanges::okx::OkxOptions;
+/// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+///
+/// let options = OkxOptions {
+///     default_type: DefaultType::Swap,
+///     default_sub_type: Some(DefaultSubType::Linear),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OkxOptions {
     /// Account mode: cash (spot), cross (cross margin), isolated (isolated margin).
+    ///
+    /// This is kept for backward compatibility with existing configurations.
     pub account_mode: String,
+    /// Default trading type (spot/margin/swap/futures/option).
+    ///
+    /// This determines which instrument type (instType) to use for API calls.
+    /// OKX uses a unified V5 API, so this primarily affects market filtering
+    /// rather than endpoint selection.
+    #[serde(default)]
+    pub default_type: DefaultType,
+    /// Default sub-type for contract settlement (linear/inverse).
+    ///
+    /// - `Linear`: USDT-margined contracts
+    /// - `Inverse`: Coin-margined contracts
+    ///
+    /// Only applicable when `default_type` is `Swap`, `Futures`, or `Option`.
+    /// Ignored for `Spot` and `Margin` types.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_sub_type: Option<DefaultSubType>,
     /// Enables demo trading environment.
     pub demo: bool,
 }
@@ -42,6 +75,8 @@ impl Default for OkxOptions {
     fn default() -> Self {
         Self {
             account_mode: "cash".to_string(),
+            default_type: DefaultType::default(), // Defaults to Spot
+            default_sub_type: None,
             demo: false,
         }
     }
@@ -172,6 +207,45 @@ impl Okx {
         }
     }
 
+    /// Returns the default type configuration.
+    pub fn default_type(&self) -> DefaultType {
+        self.options.default_type
+    }
+
+    /// Returns the default sub-type configuration.
+    pub fn default_sub_type(&self) -> Option<DefaultSubType> {
+        self.options.default_sub_type
+    }
+
+    /// Checks if the current default_type is a contract type (Swap, Futures, or Option).
+    ///
+    /// This is useful for determining whether contract-specific API parameters should be used.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the default_type is Swap, Futures, or Option; `false` otherwise.
+    pub fn is_contract_type(&self) -> bool {
+        self.options.default_type.is_contract()
+    }
+
+    /// Checks if the current configuration uses inverse (coin-margined) contracts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if default_sub_type is Inverse; `false` otherwise.
+    pub fn is_inverse(&self) -> bool {
+        matches!(self.options.default_sub_type, Some(DefaultSubType::Inverse))
+    }
+
+    /// Checks if the current configuration uses linear (USDT-margined) contracts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if default_sub_type is Linear or not specified (defaults to Linear); `false` otherwise.
+    pub fn is_linear(&self) -> bool {
+        !self.is_inverse()
+    }
+
     /// Creates a new WebSocket client for OKX.
     ///
     /// Returns an `OkxWs` instance configured with the appropriate WebSocket URL
@@ -292,6 +366,58 @@ mod tests {
     fn test_default_options() {
         let options = OkxOptions::default();
         assert_eq!(options.account_mode, "cash");
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
         assert!(!options.demo);
+    }
+
+    #[test]
+    fn test_okx_options_with_default_type() {
+        let options = OkxOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        assert_eq!(options.default_type, DefaultType::Swap);
+        assert_eq!(options.default_sub_type, Some(DefaultSubType::Linear));
+    }
+
+    #[test]
+    fn test_okx_options_serialization() {
+        let options = OkxOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&options).unwrap();
+        assert!(json.contains("\"default_type\":\"swap\""));
+        assert!(json.contains("\"default_sub_type\":\"linear\""));
+    }
+
+    #[test]
+    fn test_okx_options_deserialization() {
+        let json = r#"{
+            "account_mode": "cross",
+            "default_type": "swap",
+            "default_sub_type": "inverse",
+            "demo": true
+        }"#;
+        let options: OkxOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.account_mode, "cross");
+        assert_eq!(options.default_type, DefaultType::Swap);
+        assert_eq!(options.default_sub_type, Some(DefaultSubType::Inverse));
+        assert!(options.demo);
+    }
+
+    #[test]
+    fn test_okx_options_deserialization_without_default_type() {
+        // Test backward compatibility - default_type should default to Spot
+        let json = r#"{
+            "account_mode": "cash",
+            "demo": false
+        }"#;
+        let options: OkxOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
     }
 }

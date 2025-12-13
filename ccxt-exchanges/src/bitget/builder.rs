@@ -4,6 +4,7 @@
 //! type-safe configuration options.
 
 use super::{Bitget, BitgetOptions};
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{ExchangeConfig, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -112,11 +113,73 @@ impl BitgetBuilder {
     ///
     /// Valid values: "spot", "umcbl" (USDT-M futures), "dmcbl" (Coin-M futures).
     ///
+    /// Note: Consider using `default_type()` and `default_sub_type()` instead
+    /// for a more type-safe configuration.
+    ///
     /// # Arguments
     ///
     /// * `product_type` - The product type string.
     pub fn product_type(mut self, product_type: impl Into<String>) -> Self {
         self.options.product_type = product_type.into();
+        self
+    }
+
+    /// Sets the default market type for trading.
+    ///
+    /// This determines which product type to use for API calls.
+    /// Bitget uses product_type-based filtering:
+    /// - `Spot` -> product_type=spot
+    /// - `Swap` + Linear -> product_type=umcbl (USDT-M)
+    /// - `Swap` + Inverse -> product_type=dmcbl (Coin-M)
+    /// - `Futures` + Linear -> product_type=umcbl (USDT-M futures)
+    /// - `Futures` + Inverse -> product_type=dmcbl (Coin-M futures)
+    ///
+    /// # Arguments
+    ///
+    /// * `default_type` - The default market type (spot, swap, futures, margin, option).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bitget::BitgetBuilder;
+    /// use ccxt_core::types::default_type::DefaultType;
+    ///
+    /// let bitget = BitgetBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn default_type(mut self, default_type: impl Into<DefaultType>) -> Self {
+        self.options.default_type = default_type.into();
+        self
+    }
+
+    /// Sets the default sub-type for contract settlement.
+    ///
+    /// - `Linear`: USDT-margined contracts (product_type=umcbl)
+    /// - `Inverse`: Coin-margined contracts (product_type=dmcbl)
+    ///
+    /// Only applicable when `default_type` is `Swap` or `Futures`.
+    /// Ignored for `Spot` and `Option` types.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_type` - The contract settlement type (linear or inverse).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bitget::BitgetBuilder;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+    ///
+    /// let bitget = BitgetBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .default_sub_type(DefaultSubType::Linear)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn default_sub_type(mut self, sub_type: DefaultSubType) -> Self {
+        self.options.default_sub_type = Some(sub_type);
         self
     }
 
@@ -265,6 +328,39 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_default_type() {
+        let builder = BitgetBuilder::new().default_type(DefaultType::Swap);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_builder_default_type_from_string() {
+        let builder = BitgetBuilder::new().default_type("futures");
+        assert_eq!(builder.options.default_type, DefaultType::Futures);
+    }
+
+    #[test]
+    fn test_builder_default_sub_type() {
+        let builder = BitgetBuilder::new().default_sub_type(DefaultSubType::Inverse);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Inverse)
+        );
+    }
+
+    #[test]
+    fn test_builder_default_type_and_sub_type() {
+        let builder = BitgetBuilder::new()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Linear)
+        );
+    }
+
+    #[test]
     fn test_builder_timeout() {
         let builder = BitgetBuilder::new().timeout(60);
         assert_eq!(builder.config.timeout, 60);
@@ -285,7 +381,9 @@ mod tests {
             .sandbox(true)
             .timeout(30)
             .recv_window(5000)
-            .product_type("spot");
+            .product_type("spot")
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear);
 
         assert_eq!(builder.config.api_key, Some("key".to_string()));
         assert_eq!(builder.config.secret, Some("secret".to_string()));
@@ -294,6 +392,11 @@ mod tests {
         assert_eq!(builder.config.timeout, 30);
         assert_eq!(builder.options.recv_window, 5000);
         assert_eq!(builder.options.product_type, "spot");
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Linear)
+        );
     }
 
     #[test]

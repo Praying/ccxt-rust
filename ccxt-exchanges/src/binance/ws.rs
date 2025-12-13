@@ -3168,9 +3168,9 @@ impl Binance {
         let account_type = if let Some(p) = &params {
             p.get("type")
                 .and_then(|v| v.as_str())
-                .unwrap_or(&self.options.default_type)
+                .unwrap_or_else(|| self.options.default_type.as_str())
         } else {
-            &self.options.default_type
+            self.options.default_type.as_str()
         };
 
         // Determine configuration flags

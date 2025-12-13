@@ -4,6 +4,7 @@
 //! type-safe configuration options.
 
 use super::{Bybit, BybitOptions};
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{ExchangeConfig, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -104,6 +105,64 @@ impl BybitBuilder {
     /// * `account_type` - The account type string.
     pub fn account_type(mut self, account_type: impl Into<String>) -> Self {
         self.options.account_type = account_type.into();
+        self
+    }
+
+    /// Sets the default market type for trading.
+    ///
+    /// This determines which category to use for API calls.
+    /// Bybit uses a unified V5 API with category-based filtering:
+    /// - `Spot` -> category=spot
+    /// - `Swap` + Linear -> category=linear
+    /// - `Swap` + Inverse -> category=inverse
+    /// - `Option` -> category=option
+    ///
+    /// # Arguments
+    ///
+    /// * `default_type` - The default market type (spot, swap, futures, option).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bybit::BybitBuilder;
+    /// use ccxt_core::types::default_type::DefaultType;
+    ///
+    /// let bybit = BybitBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn default_type(mut self, default_type: impl Into<DefaultType>) -> Self {
+        self.options.default_type = default_type.into();
+        self
+    }
+
+    /// Sets the default sub-type for contract settlement.
+    ///
+    /// - `Linear`: USDT-margined contracts (category=linear)
+    /// - `Inverse`: Coin-margined contracts (category=inverse)
+    ///
+    /// Only applicable when `default_type` is `Swap` or `Futures`.
+    /// Ignored for `Spot` and `Option` types.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_type` - The contract settlement type (linear or inverse).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bybit::BybitBuilder;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+    ///
+    /// let bybit = BybitBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .default_sub_type(DefaultSubType::Linear)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn default_sub_type(mut self, sub_type: DefaultSubType) -> Self {
+        self.options.default_sub_type = Some(sub_type);
         self
     }
 
@@ -247,6 +306,39 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_default_type() {
+        let builder = BybitBuilder::new().default_type(DefaultType::Swap);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_builder_default_type_from_string() {
+        let builder = BybitBuilder::new().default_type("futures");
+        assert_eq!(builder.options.default_type, DefaultType::Futures);
+    }
+
+    #[test]
+    fn test_builder_default_sub_type() {
+        let builder = BybitBuilder::new().default_sub_type(DefaultSubType::Inverse);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Inverse)
+        );
+    }
+
+    #[test]
+    fn test_builder_default_type_and_sub_type() {
+        let builder = BybitBuilder::new()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Linear)
+        );
+    }
+
+    #[test]
     fn test_builder_recv_window() {
         let builder = BybitBuilder::new().recv_window(10000);
         assert_eq!(builder.options.recv_window, 10000);
@@ -266,7 +358,9 @@ mod tests {
             .testnet(true)
             .timeout(30)
             .recv_window(10000)
-            .account_type("SPOT");
+            .account_type("SPOT")
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear);
 
         assert_eq!(builder.config.api_key, Some("key".to_string()));
         assert_eq!(builder.config.secret, Some("secret".to_string()));
@@ -274,6 +368,11 @@ mod tests {
         assert_eq!(builder.config.timeout, 30);
         assert_eq!(builder.options.recv_window, 10000);
         assert_eq!(builder.options.account_type, "SPOT");
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Linear)
+        );
     }
 
     #[test]

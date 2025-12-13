@@ -3,7 +3,9 @@
 //! Supports spot trading and futures trading (USDT-M and Coin-M) with REST API and WebSocket support.
 //! Bybit uses V5 unified account API with HMAC-SHA256 authentication.
 
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod auth;
@@ -29,10 +31,44 @@ pub struct Bybit {
 }
 
 /// Bybit-specific options.
-#[derive(Debug, Clone)]
+///
+/// # Example
+///
+/// ```rust
+/// use ccxt_exchanges::bybit::BybitOptions;
+/// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+///
+/// let options = BybitOptions {
+///     default_type: DefaultType::Swap,
+///     default_sub_type: Some(DefaultSubType::Linear),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitOptions {
     /// Account type: UNIFIED, CONTRACT, SPOT.
+    ///
+    /// This is kept for backward compatibility with existing configurations.
     pub account_type: String,
+    /// Default trading type (spot/swap/futures/option).
+    ///
+    /// This determines which category to use for API calls.
+    /// Bybit uses a unified V5 API with category-based filtering:
+    /// - `Spot` -> category=spot
+    /// - `Swap` + Linear -> category=linear
+    /// - `Swap` + Inverse -> category=inverse
+    /// - `Option` -> category=option
+    #[serde(default)]
+    pub default_type: DefaultType,
+    /// Default sub-type for contract settlement (linear/inverse).
+    ///
+    /// - `Linear`: USDT-margined contracts (category=linear)
+    /// - `Inverse`: Coin-margined contracts (category=inverse)
+    ///
+    /// Only applicable when `default_type` is `Swap` or `Futures`.
+    /// Ignored for `Spot` and `Option` types.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_sub_type: Option<DefaultSubType>,
     /// Enables testnet environment.
     pub testnet: bool,
     /// Receive window in milliseconds.
@@ -43,6 +79,8 @@ impl Default for BybitOptions {
     fn default() -> Self {
         Self {
             account_type: "UNIFIED".to_string(),
+            default_type: DefaultType::default(), // Defaults to Spot
+            default_sub_type: None,
             testnet: false,
             recv_window: 5000,
         }
@@ -173,7 +211,80 @@ impl Bybit {
         }
     }
 
+    /// Returns the default type configuration.
+    pub fn default_type(&self) -> DefaultType {
+        self.options.default_type
+    }
+
+    /// Returns the default sub-type configuration.
+    pub fn default_sub_type(&self) -> Option<DefaultSubType> {
+        self.options.default_sub_type
+    }
+
+    /// Checks if the current default_type is a contract type (Swap, Futures, or Option).
+    ///
+    /// This is useful for determining whether contract-specific API parameters should be used.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the default_type is Swap, Futures, or Option; `false` otherwise.
+    pub fn is_contract_type(&self) -> bool {
+        self.options.default_type.is_contract()
+    }
+
+    /// Checks if the current configuration uses inverse (coin-margined) contracts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if default_sub_type is Inverse; `false` otherwise.
+    pub fn is_inverse(&self) -> bool {
+        matches!(self.options.default_sub_type, Some(DefaultSubType::Inverse))
+    }
+
+    /// Checks if the current configuration uses linear (USDT-margined) contracts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if default_sub_type is Linear or not specified (defaults to Linear); `false` otherwise.
+    pub fn is_linear(&self) -> bool {
+        !self.is_inverse()
+    }
+
+    /// Returns the Bybit category string based on the current default_type and default_sub_type.
+    ///
+    /// Bybit V5 API uses category parameter for filtering:
+    /// - `Spot` -> "spot"
+    /// - `Swap` + Linear -> "linear"
+    /// - `Swap` + Inverse -> "inverse"
+    /// - `Futures` + Linear -> "linear"
+    /// - `Futures` + Inverse -> "inverse"
+    /// - `Option` -> "option"
+    /// - `Margin` -> "spot" (margin trading uses spot category)
+    ///
+    /// # Returns
+    ///
+    /// The category string to use for Bybit API calls.
+    pub fn category(&self) -> &'static str {
+        match self.options.default_type {
+            DefaultType::Spot | DefaultType::Margin => "spot",
+            DefaultType::Swap | DefaultType::Futures => {
+                if self.is_inverse() {
+                    "inverse"
+                } else {
+                    "linear"
+                }
+            }
+            DefaultType::Option => "option",
+        }
+    }
+
     /// Creates a public WebSocket client.
+    ///
+    /// The WebSocket URL is selected based on the configured `default_type`:
+    /// - `Spot` -> spot public stream
+    /// - `Swap`/`Futures` + Linear -> linear public stream
+    /// - `Swap`/`Futures` + Inverse -> inverse public stream
+    /// - `Option` -> option public stream
     ///
     /// # Returns
     ///
@@ -193,7 +304,9 @@ impl Bybit {
     /// ```
     pub fn create_ws(&self) -> ws::BybitWs {
         let urls = self.urls();
-        ws::BybitWs::new(urls.ws_public)
+        let category = self.category();
+        let ws_url = urls.ws_public_for_category(category);
+        ws::BybitWs::new(ws_url)
     }
 }
 
@@ -202,7 +315,9 @@ impl Bybit {
 pub struct BybitUrls {
     /// REST API base URL.
     pub rest: String,
-    /// Public WebSocket URL.
+    /// Public WebSocket base URL (without category suffix).
+    pub ws_public_base: String,
+    /// Public WebSocket URL (default: spot).
     pub ws_public: String,
     /// Private WebSocket URL.
     pub ws_private: String,
@@ -213,6 +328,7 @@ impl BybitUrls {
     pub fn production() -> Self {
         Self {
             rest: "https://api.bybit.com".to_string(),
+            ws_public_base: "wss://stream.bybit.com/v5/public".to_string(),
             ws_public: "wss://stream.bybit.com/v5/public/spot".to_string(),
             ws_private: "wss://stream.bybit.com/v5/private".to_string(),
         }
@@ -222,9 +338,29 @@ impl BybitUrls {
     pub fn testnet() -> Self {
         Self {
             rest: "https://api-testnet.bybit.com".to_string(),
+            ws_public_base: "wss://stream-testnet.bybit.com/v5/public".to_string(),
             ws_public: "wss://stream-testnet.bybit.com/v5/public/spot".to_string(),
             ws_private: "wss://stream-testnet.bybit.com/v5/private".to_string(),
         }
+    }
+
+    /// Returns the public WebSocket URL for a specific category.
+    ///
+    /// Bybit V5 API uses different WebSocket endpoints for different categories:
+    /// - spot: /v5/public/spot
+    /// - linear: /v5/public/linear
+    /// - inverse: /v5/public/inverse
+    /// - option: /v5/public/option
+    ///
+    /// # Arguments
+    ///
+    /// * `category` - The category string (spot, linear, inverse, option)
+    ///
+    /// # Returns
+    ///
+    /// The full WebSocket URL for the specified category.
+    pub fn ws_public_for_category(&self, category: &str) -> String {
+        format!("{}/{}", self.ws_public_base, category)
     }
 }
 
@@ -271,6 +407,7 @@ mod tests {
 
         assert!(urls.rest.contains("api.bybit.com"));
         assert!(urls.ws_public.contains("stream.bybit.com"));
+        assert!(urls.ws_public_base.contains("stream.bybit.com"));
     }
 
     #[test]
@@ -284,13 +421,188 @@ mod tests {
 
         assert!(urls.rest.contains("api-testnet.bybit.com"));
         assert!(urls.ws_public.contains("stream-testnet.bybit.com"));
+        assert!(urls.ws_public_base.contains("stream-testnet.bybit.com"));
+    }
+
+    #[test]
+    fn test_ws_public_for_category() {
+        let urls = BybitUrls::production();
+
+        assert_eq!(
+            urls.ws_public_for_category("spot"),
+            "wss://stream.bybit.com/v5/public/spot"
+        );
+        assert_eq!(
+            urls.ws_public_for_category("linear"),
+            "wss://stream.bybit.com/v5/public/linear"
+        );
+        assert_eq!(
+            urls.ws_public_for_category("inverse"),
+            "wss://stream.bybit.com/v5/public/inverse"
+        );
+        assert_eq!(
+            urls.ws_public_for_category("option"),
+            "wss://stream.bybit.com/v5/public/option"
+        );
+    }
+
+    #[test]
+    fn test_ws_public_for_category_testnet() {
+        let urls = BybitUrls::testnet();
+
+        assert_eq!(
+            urls.ws_public_for_category("spot"),
+            "wss://stream-testnet.bybit.com/v5/public/spot"
+        );
+        assert_eq!(
+            urls.ws_public_for_category("linear"),
+            "wss://stream-testnet.bybit.com/v5/public/linear"
+        );
     }
 
     #[test]
     fn test_default_options() {
         let options = BybitOptions::default();
         assert_eq!(options.account_type, "UNIFIED");
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
         assert!(!options.testnet);
         assert_eq!(options.recv_window, 5000);
+    }
+
+    #[test]
+    fn test_bybit_options_with_default_type() {
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        assert_eq!(options.default_type, DefaultType::Swap);
+        assert_eq!(options.default_sub_type, Some(DefaultSubType::Linear));
+    }
+
+    #[test]
+    fn test_bybit_options_serialization() {
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&options).unwrap();
+        assert!(json.contains("\"default_type\":\"swap\""));
+        assert!(json.contains("\"default_sub_type\":\"linear\""));
+    }
+
+    #[test]
+    fn test_bybit_options_deserialization() {
+        let json = r#"{
+            "account_type": "CONTRACT",
+            "default_type": "swap",
+            "default_sub_type": "inverse",
+            "testnet": true,
+            "recv_window": 10000
+        }"#;
+        let options: BybitOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.account_type, "CONTRACT");
+        assert_eq!(options.default_type, DefaultType::Swap);
+        assert_eq!(options.default_sub_type, Some(DefaultSubType::Inverse));
+        assert!(options.testnet);
+        assert_eq!(options.recv_window, 10000);
+    }
+
+    #[test]
+    fn test_bybit_options_deserialization_without_default_type() {
+        // Test backward compatibility - default_type should default to Spot
+        let json = r#"{
+            "account_type": "UNIFIED",
+            "testnet": false,
+            "recv_window": 5000
+        }"#;
+        let options: BybitOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(options.default_type, DefaultType::Spot);
+        assert_eq!(options.default_sub_type, None);
+    }
+
+    #[test]
+    fn test_bybit_category_spot() {
+        let config = ExchangeConfig::default();
+        let options = BybitOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+        assert_eq!(bybit.category(), "spot");
+    }
+
+    #[test]
+    fn test_bybit_category_linear() {
+        let config = ExchangeConfig::default();
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+        assert_eq!(bybit.category(), "linear");
+    }
+
+    #[test]
+    fn test_bybit_category_inverse() {
+        let config = ExchangeConfig::default();
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+        assert_eq!(bybit.category(), "inverse");
+    }
+
+    #[test]
+    fn test_bybit_category_option() {
+        let config = ExchangeConfig::default();
+        let options = BybitOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+        assert_eq!(bybit.category(), "option");
+    }
+
+    #[test]
+    fn test_bybit_is_contract_type() {
+        let config = ExchangeConfig::default();
+
+        // Spot is not a contract type
+        let options = BybitOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config.clone(), options).unwrap();
+        assert!(!bybit.is_contract_type());
+
+        // Swap is a contract type
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config.clone(), options).unwrap();
+        assert!(bybit.is_contract_type());
+
+        // Futures is a contract type
+        let options = BybitOptions {
+            default_type: DefaultType::Futures,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config.clone(), options).unwrap();
+        assert!(bybit.is_contract_type());
+
+        // Option is a contract type
+        let options = BybitOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+        assert!(bybit.is_contract_type());
     }
 }

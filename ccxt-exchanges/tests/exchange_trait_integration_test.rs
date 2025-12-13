@@ -10,6 +10,7 @@
 
 use ccxt_core::ExchangeConfig;
 use ccxt_core::exchange::{ArcExchange, BoxedExchange, Exchange};
+use ccxt_core::types::default_type::DefaultType;
 use ccxt_exchanges::binance::{Binance, BinanceBuilder};
 use std::sync::Arc;
 
@@ -235,12 +236,12 @@ fn test_multiple_exchanges_unified_interface() {
     // Create multiple Binance instances with different configurations
     // (In a real scenario, these would be different exchanges like Coinbase, Kraken, etc.)
     let binance_spot = BinanceBuilder::new()
-        .default_type("spot")
+        .default_type(DefaultType::Spot)
         .build()
         .expect("Should create spot Binance");
 
     let binance_futures = BinanceBuilder::new()
-        .default_type("future")
+        .default_type(DefaultType::Swap) // Swap is used for perpetual futures
         .build()
         .expect("Should create futures Binance");
 

@@ -12,6 +12,8 @@ pub mod account;
 pub mod balance;
 pub mod bid_ask;
 pub mod currency;
+/// Default type configuration for exchange operations
+pub mod default_type;
 pub mod fee;
 /// Financial types with enhanced type safety (Price, Amount, Cost)
 pub mod financial;
@@ -42,6 +44,7 @@ pub use account::{AccountConfig, CommissionRate};
 pub use balance::{Balance, BalanceEntry, MaxBorrowable, MaxTransferable};
 pub use bid_ask::BidAsk;
 pub use currency::{Currency, CurrencyNetwork, MinMax, PrecisionMode};
+pub use default_type::{DefaultSubType, DefaultType, DefaultTypeError, resolve_market_type};
 pub use fee::{
     FundingRate as FeeFundingRate, FundingRateHistory as FeeFundingRateHistory, LeverageTier,
     TradingFee as FeeTradingFee,

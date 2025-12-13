@@ -2,11 +2,18 @@
 //!
 //! Provides a builder pattern for creating HyperLiquid exchange instances.
 
-use ccxt_core::{ExchangeConfig, Result};
+use ccxt_core::types::default_type::DefaultType;
+use ccxt_core::{Error, ExchangeConfig, Result};
 
 use super::{HyperLiquid, HyperLiquidAuth, HyperLiquidOptions};
 
 /// Builder for creating HyperLiquid exchange instances.
+///
+/// # Note on Market Types
+///
+/// HyperLiquid only supports perpetual futures (Swap). Attempting to set
+/// `default_type` to any other value (Spot, Futures, Margin, Option) will
+/// result in a validation error when calling `build()`.
 ///
 /// # Example
 ///
@@ -26,6 +33,7 @@ pub struct HyperLiquidBuilder {
     testnet: bool,
     vault_address: Option<String>,
     default_leverage: u32,
+    default_type: Option<DefaultType>,
 }
 
 impl HyperLiquidBuilder {
@@ -36,6 +44,7 @@ impl HyperLiquidBuilder {
             testnet: false,
             vault_address: None,
             default_leverage: 1,
+            default_type: None, // Will default to Swap in build()
         }
     }
 
@@ -98,6 +107,39 @@ impl HyperLiquidBuilder {
         self
     }
 
+    /// Sets the default market type for trading.
+    ///
+    /// **Important**: HyperLiquid only supports perpetual futures (Swap).
+    /// Attempting to set any other value (Spot, Futures, Margin, Option)
+    /// will result in a validation error when calling `build()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `default_type` - The default market type. Must be `Swap` for HyperLiquid.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::hyperliquid::HyperLiquidBuilder;
+    /// use ccxt_core::types::default_type::DefaultType;
+    ///
+    /// // This works - HyperLiquid supports Swap (perpetuals)
+    /// let exchange = HyperLiquidBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// // This will fail - HyperLiquid does not support Spot
+    /// let result = HyperLiquidBuilder::new()
+    ///     .default_type(DefaultType::Spot)
+    ///     .build();
+    /// assert!(result.is_err());
+    /// ```
+    pub fn default_type(mut self, default_type: impl Into<DefaultType>) -> Self {
+        self.default_type = Some(default_type.into());
+        self
+    }
+
     /// Builds the HyperLiquid exchange instance.
     ///
     /// # Returns
@@ -109,7 +151,12 @@ impl HyperLiquidBuilder {
     /// Returns an error if:
     /// - The private key format is invalid
     /// - The exchange configuration fails
+    /// - The `default_type` is set to a value other than `Swap` (HyperLiquid only supports perpetuals)
     pub fn build(self) -> Result<HyperLiquid> {
+        // Validate default_type - HyperLiquid only supports perpetual futures (Swap)
+        let default_type = self.default_type.unwrap_or(DefaultType::Swap);
+        validate_default_type(default_type)?;
+
         // Create authentication if private key is provided
         let auth = if let Some(ref key) = self.private_key {
             Some(HyperLiquidAuth::from_private_key(key)?)
@@ -122,6 +169,7 @@ impl HyperLiquidBuilder {
             testnet: self.testnet,
             vault_address: self.vault_address,
             default_leverage: self.default_leverage,
+            default_type,
         };
 
         // Create exchange config
@@ -136,6 +184,36 @@ impl HyperLiquidBuilder {
     }
 }
 
+/// Validates that the default_type is supported by HyperLiquid.
+///
+/// HyperLiquid only supports perpetual futures (Swap). This function returns
+/// an error if any other market type is specified.
+///
+/// # Arguments
+///
+/// * `default_type` - The default market type to validate.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the type is `Swap`, otherwise returns an error.
+pub fn validate_default_type(default_type: DefaultType) -> Result<()> {
+    match default_type {
+        DefaultType::Swap => Ok(()),
+        DefaultType::Spot => Err(Error::invalid_request(
+            "HyperLiquid does not support spot trading. Only perpetual futures (Swap) are available.",
+        )),
+        DefaultType::Futures => Err(Error::invalid_request(
+            "HyperLiquid does not support delivery futures. Only perpetual futures (Swap) are available.",
+        )),
+        DefaultType::Margin => Err(Error::invalid_request(
+            "HyperLiquid does not support margin trading. Only perpetual futures (Swap) are available.",
+        )),
+        DefaultType::Option => Err(Error::invalid_request(
+            "HyperLiquid does not support options trading. Only perpetual futures (Swap) are available.",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +225,7 @@ mod tests {
         assert!(!builder.testnet);
         assert!(builder.vault_address.is_none());
         assert_eq!(builder.default_leverage, 1);
+        assert!(builder.default_type.is_none()); // Will default to Swap in build()
     }
 
     #[test]
@@ -172,6 +251,18 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_default_type_swap() {
+        let builder = HyperLiquidBuilder::new().default_type(DefaultType::Swap);
+        assert_eq!(builder.default_type, Some(DefaultType::Swap));
+    }
+
+    #[test]
+    fn test_builder_default_type_from_string() {
+        let builder = HyperLiquidBuilder::new().default_type("swap");
+        assert_eq!(builder.default_type, Some(DefaultType::Swap));
+    }
+
+    #[test]
     fn test_build_without_auth() {
         let exchange = HyperLiquidBuilder::new().testnet(true).build();
 
@@ -180,5 +271,96 @@ mod tests {
         assert_eq!(exchange.id(), "hyperliquid");
         assert!(exchange.options().testnet);
         assert!(exchange.auth().is_none());
+        // Default type should be Swap
+        assert_eq!(exchange.options().default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_build_with_swap_type() {
+        let exchange = HyperLiquidBuilder::new()
+            .testnet(true)
+            .default_type(DefaultType::Swap)
+            .build();
+
+        assert!(exchange.is_ok());
+        let exchange = exchange.unwrap();
+        assert_eq!(exchange.options().default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_build_with_spot_type_fails() {
+        let result = HyperLiquidBuilder::new()
+            .testnet(true)
+            .default_type(DefaultType::Spot)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("spot"));
+    }
+
+    #[test]
+    fn test_build_with_futures_type_fails() {
+        let result = HyperLiquidBuilder::new()
+            .testnet(true)
+            .default_type(DefaultType::Futures)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("delivery futures"));
+    }
+
+    #[test]
+    fn test_build_with_margin_type_fails() {
+        let result = HyperLiquidBuilder::new()
+            .testnet(true)
+            .default_type(DefaultType::Margin)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("margin"));
+    }
+
+    #[test]
+    fn test_build_with_option_type_fails() {
+        let result = HyperLiquidBuilder::new()
+            .testnet(true)
+            .default_type(DefaultType::Option)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("options"));
+    }
+
+    #[test]
+    fn test_validate_default_type_swap() {
+        assert!(validate_default_type(DefaultType::Swap).is_ok());
+    }
+
+    #[test]
+    fn test_validate_default_type_spot() {
+        let result = validate_default_type(DefaultType::Spot);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_default_type_futures() {
+        let result = validate_default_type(DefaultType::Futures);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_default_type_margin() {
+        let result = validate_default_type(DefaultType::Margin);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_default_type_option() {
+        let result = validate_default_type(DefaultType::Option);
+        assert!(result.is_err());
     }
 }

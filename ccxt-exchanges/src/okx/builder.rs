@@ -4,6 +4,7 @@
 //! type-safe configuration options.
 
 use super::{Okx, OkxOptions};
+use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{ExchangeConfig, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -117,6 +118,60 @@ impl OkxBuilder {
     /// * `mode` - The account mode string.
     pub fn account_mode(mut self, mode: impl Into<String>) -> Self {
         self.options.account_mode = mode.into();
+        self
+    }
+
+    /// Sets the default market type for trading.
+    ///
+    /// This determines which instrument type (instType) to use for API calls.
+    /// OKX uses a unified V5 API, so this primarily affects market filtering.
+    ///
+    /// # Arguments
+    ///
+    /// * `default_type` - The default market type (spot, swap, futures, margin, option).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::okx::OkxBuilder;
+    /// use ccxt_core::types::default_type::DefaultType;
+    ///
+    /// let okx = OkxBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn default_type(mut self, default_type: impl Into<DefaultType>) -> Self {
+        self.options.default_type = default_type.into();
+        self
+    }
+
+    /// Sets the default sub-type for contract settlement.
+    ///
+    /// - `Linear`: USDT-margined contracts
+    /// - `Inverse`: Coin-margined contracts
+    ///
+    /// Only applicable when `default_type` is `Swap`, `Futures`, or `Option`.
+    /// Ignored for `Spot` and `Margin` types.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_type` - The contract settlement type (linear or inverse).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::okx::OkxBuilder;
+    /// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
+    ///
+    /// let okx = OkxBuilder::new()
+    ///     .default_type(DefaultType::Swap)
+    ///     .default_sub_type(DefaultSubType::Linear)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn default_sub_type(mut self, sub_type: DefaultSubType) -> Self {
+        self.options.default_sub_type = Some(sub_type);
         self
     }
 
@@ -249,6 +304,39 @@ mod tests {
     fn test_builder_account_mode() {
         let builder = OkxBuilder::new().account_mode("cross");
         assert_eq!(builder.options.account_mode, "cross");
+    }
+
+    #[test]
+    fn test_builder_default_type() {
+        let builder = OkxBuilder::new().default_type(DefaultType::Swap);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+    }
+
+    #[test]
+    fn test_builder_default_type_from_string() {
+        let builder = OkxBuilder::new().default_type("futures");
+        assert_eq!(builder.options.default_type, DefaultType::Futures);
+    }
+
+    #[test]
+    fn test_builder_default_sub_type() {
+        let builder = OkxBuilder::new().default_sub_type(DefaultSubType::Inverse);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Inverse)
+        );
+    }
+
+    #[test]
+    fn test_builder_default_type_and_sub_type() {
+        let builder = OkxBuilder::new()
+            .default_type(DefaultType::Swap)
+            .default_sub_type(DefaultSubType::Linear);
+        assert_eq!(builder.options.default_type, DefaultType::Swap);
+        assert_eq!(
+            builder.options.default_sub_type,
+            Some(DefaultSubType::Linear)
+        );
     }
 
     #[test]

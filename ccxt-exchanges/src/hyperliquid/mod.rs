@@ -13,6 +13,11 @@
 //! - Real-time WebSocket data streaming
 //! - EIP-712 compliant transaction signing
 //!
+//! # Note on Market Types
+//!
+//! HyperLiquid only supports perpetual futures (Swap). Attempting to configure
+//! other market types (Spot, Futures, Margin, Option) will result in an error.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -40,6 +45,7 @@
 //! # }
 //! ```
 
+use ccxt_core::types::default_type::DefaultType;
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
 
 pub mod auth;
@@ -52,7 +58,7 @@ pub mod ws;
 mod ws_exchange_impl;
 
 pub use auth::HyperLiquidAuth;
-pub use builder::HyperLiquidBuilder;
+pub use builder::{HyperLiquidBuilder, validate_default_type};
 pub use error::{HyperLiquidErrorCode, is_error_response, parse_error};
 
 /// HyperLiquid exchange structure.
@@ -67,6 +73,10 @@ pub struct HyperLiquid {
 }
 
 /// HyperLiquid-specific options.
+///
+/// Note: HyperLiquid only supports perpetual futures (Swap). The `default_type`
+/// field defaults to `Swap` and attempting to set it to any other value will
+/// result in a validation error.
 #[derive(Debug, Clone)]
 pub struct HyperLiquidOptions {
     /// Whether to use testnet.
@@ -75,6 +85,11 @@ pub struct HyperLiquidOptions {
     pub vault_address: Option<String>,
     /// Default leverage multiplier.
     pub default_leverage: u32,
+    /// Default market type for trading.
+    ///
+    /// HyperLiquid only supports perpetual futures, so this must be `Swap`.
+    /// Attempting to set any other value will result in a validation error.
+    pub default_type: DefaultType,
 }
 
 impl Default for HyperLiquidOptions {
@@ -83,6 +98,8 @@ impl Default for HyperLiquidOptions {
             testnet: false,
             vault_address: None,
             default_leverage: 1,
+            // HyperLiquid only supports perpetual futures (Swap)
+            default_type: DefaultType::Swap,
         }
     }
 }
@@ -239,6 +256,8 @@ mod tests {
         assert!(!options.testnet);
         assert!(options.vault_address.is_none());
         assert_eq!(options.default_leverage, 1);
+        // HyperLiquid only supports perpetual futures, so default_type must be Swap
+        assert_eq!(options.default_type, DefaultType::Swap);
     }
 
     #[test]
