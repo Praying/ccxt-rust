@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
 
     // Initialize Binance Futures exchange
     let futures_config = ExchangeConfig::default();
-    let futures_exchange = Binance::new_futures(futures_config)
+    let futures_exchange = Binance::new_swap(futures_config)
         .context("Failed to initialize Binance Futures exchange")?;
 
     // Fetch all futures markets

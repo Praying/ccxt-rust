@@ -23,7 +23,7 @@ mod margin_tests {
             sandbox: false,
             ..Default::default()
         };
-        Binance::new_futures(config).unwrap()
+        Binance::new_swap(config).unwrap()
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod integration_tests {
             ..Default::default()
         };
 
-        let binance = Binance::new_futures(config).unwrap();
+        let binance = Binance::new_swap(config).unwrap();
 
         let result = binance
             .modify_isolated_position_margin("BTC/USDT", Decimal::from_str("10.0").unwrap(), None)
@@ -156,7 +156,7 @@ mod integration_tests {
             ..Default::default()
         };
 
-        let binance = Binance::new_futures(config).unwrap();
+        let binance = Binance::new_swap(config).unwrap();
 
         let result = binance.fetch_position_risk(None, None).await;
 
@@ -185,7 +185,7 @@ mod integration_tests {
             ..Default::default()
         };
 
-        let binance = Binance::new_futures(config).unwrap();
+        let binance = Binance::new_swap(config).unwrap();
 
         let result = binance.fetch_leverage_bracket(Some("BTC/USDT"), None).await;
 
@@ -222,7 +222,7 @@ mod integration_tests {
             ..Default::default()
         };
 
-        let binance = Binance::new_futures(config).unwrap();
+        let binance = Binance::new_swap(config).unwrap();
         let symbol = "BTC/USDT";
 
         println!("=== Margin Management Workflow Test ===");

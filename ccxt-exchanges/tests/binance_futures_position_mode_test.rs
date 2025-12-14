@@ -16,7 +16,7 @@ async fn test_set_position_mode_dual() -> Result<()> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
 
     let result = binance.set_position_mode(true, None).await?;
     println!("Set dual position mode result: {:?}", result);
@@ -36,7 +36,7 @@ async fn test_set_position_mode_single() -> Result<()> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
 
     let result = binance.set_position_mode(false, None).await?;
     println!("Set single position mode result: {:?}", result);
@@ -56,7 +56,7 @@ async fn test_fetch_position_mode() -> Result<()> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
 
     let dual_side = binance.fetch_position_mode(None).await?;
     println!(
@@ -83,7 +83,7 @@ async fn test_position_mode_toggle() -> Result<()> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
 
     let initial_mode = binance.fetch_position_mode(None).await?;
     println!(
@@ -138,7 +138,7 @@ async fn test_set_position_mode_with_params() -> Result<()> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
 
     let params = json!({
         "recvWindow": 10000
@@ -154,7 +154,7 @@ async fn test_set_position_mode_with_params() -> Result<()> {
 #[tokio::test]
 async fn test_position_mode_without_credentials() {
     let config = ExchangeConfig::default();
-    let binance = Binance::new_futures(config).unwrap();
+    let binance = Binance::new_swap(config).unwrap();
 
     let result = binance.fetch_position_mode(None).await;
     assert!(result.is_err());
@@ -173,7 +173,7 @@ async fn test_position_mode_params_format() {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config).unwrap();
+    let binance = Binance::new_swap(config).unwrap();
 
     assert!(binance.base().config.api_key.is_some());
     assert!(binance.base().config.secret.is_some());
@@ -196,7 +196,7 @@ mod position_mode_integration_tests {
             ..Default::default()
         };
 
-        let binance = Binance::new_futures(config)?;
+        let binance = Binance::new_swap(config)?;
 
         println!("=== Complete Position Mode Management Workflow Test ===");
 

@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
     println!("✓ Binance Futures API connected successfully\n");
 
     example_1_fetch_leverage_bracket(&binance).await?;

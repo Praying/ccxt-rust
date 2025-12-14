@@ -209,9 +209,9 @@ impl Binance {
     /// use ccxt_core::ExchangeConfig;
     ///
     /// let config = ExchangeConfig::default();
-    /// let futures = Binance::new_futures(config).unwrap();
+    /// let futures = Binance::new_swap(config).unwrap();
     /// ```
-    pub fn new_futures(config: ExchangeConfig) -> Result<Self> {
+    pub fn new_swap(config: ExchangeConfig) -> Result<Self> {
         let base = BaseExchange::new(config)?;
         let mut options = BinanceOptions::default();
         options.default_type = DefaultType::Swap; // Perpetual futures
@@ -890,7 +890,7 @@ mod tests {
     #[test]
     fn test_new_futures_uses_swap_type() {
         let config = ExchangeConfig::default();
-        let binance = Binance::new_futures(config).unwrap();
+        let binance = Binance::new_swap(config).unwrap();
         assert_eq!(binance.options().default_type, DefaultType::Swap);
     }
 

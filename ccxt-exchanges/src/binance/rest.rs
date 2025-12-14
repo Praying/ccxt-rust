@@ -1815,7 +1815,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let funding_rate = binance.fetch_funding_rate("BTC/USDT:USDT", None).await?;
     /// # Ok(())
     /// # }
@@ -1841,7 +1841,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let funding_rates = binance.fetch_funding_rates(None, None).await?;
     /// # Ok(())
     /// # }
@@ -1869,7 +1869,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let history = binance.fetch_funding_rate_history(
     ///     Some("BTC/USDT:USDT"),
     ///     None,
@@ -1903,7 +1903,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let position = binance.fetch_position("BTC/USDT:USDT", None).await?;
     /// # Ok(())
     /// # }
@@ -2001,7 +2001,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let positions = binance.fetch_positions(None, None).await?;
     /// # Ok(())
     /// # }
@@ -2327,7 +2327,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let result = binance.set_leverage("BTC/USDT:USDT", 10, None).await?;
     /// # Ok(())
     /// # }
@@ -2437,7 +2437,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let result = binance.set_margin_mode("BTC/USDT:USDT", "isolated", None).await?;
     /// # Ok(())
     /// # }
@@ -2761,7 +2761,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let rate = binance.fetch_funding_rate("BTC/USDT:USDT", None).await?;
     /// println!("Funding rate: {:?}", rate.funding_rate);
     /// # Ok(())
@@ -2846,7 +2846,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let history = binance.fetch_funding_rate_history("BTC/USDT:USDT", None, Some(10), None).await?;
     /// println!("Found {} records", history.len());
     /// # Ok(())
@@ -2939,7 +2939,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let rates = binance.fetch_funding_rates(None, None).await?;
     /// println!("Found {} funding rates", rates.len());
     /// # Ok(())
@@ -3033,7 +3033,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let tiers = binance.fetch_leverage_tiers(None, None).await?;
     /// # Ok(())
     /// # }
@@ -3179,7 +3179,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let history = binance.fetch_funding_history(
     ///     Some("BTC/USDT:USDT"),
     ///     None,
@@ -3302,7 +3302,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let fees = binance.fetch_my_funding_history(Some("BTC/USDT:USDT"), None, None, Some(50)).await?;
     /// # Ok(())
     /// # }
@@ -3407,7 +3407,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let next_rate = binance.fetch_next_funding_rate("BTC/USDT:USDT").await?;
     /// # Ok(())
     /// # }
@@ -3469,7 +3469,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Enable hedge mode
     /// let result = binance.set_position_mode(true, None).await?;
@@ -3547,7 +3547,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// let dual_side = binance.fetch_position_mode(None).await?;
     /// println!("Hedge mode enabled: {}", dual_side);
@@ -3631,7 +3631,7 @@ impl Binance {
     /// # use rust_decimal_macros::dec;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Add 100 USDT to isolated margin
     /// binance.modify_isolated_position_margin("BTC/USDT", dec!(100.0), None).await?;
@@ -3730,7 +3730,7 @@ impl Binance {
     /// # use ccxt_core::ExchangeConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Fetch all position risks
     /// let risks = binance.fetch_position_risk(None, None).await?;
@@ -3810,7 +3810,7 @@ impl Binance {
     /// # use ccxt_core::ExchangeConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Fetch all leverage brackets
     /// let brackets = binance.fetch_leverage_bracket(None, None).await?;
@@ -5560,7 +5560,7 @@ impl Binance {
     /// # use ccxt_core::types::order::BatchOrderRequest;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Batch create orders
     /// let orders = vec![
@@ -5684,7 +5684,7 @@ impl Binance {
     /// # use ccxt_core::types::order::BatchOrderUpdate;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Batch modify orders
     /// let updates = vec![
@@ -5795,7 +5795,7 @@ impl Binance {
     /// # use ccxt_core::ExchangeConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Batch cancel orders
     /// let order_ids = vec![12345, 12346, 12347];
@@ -5905,7 +5905,7 @@ impl Binance {
     /// # use ccxt_core::ExchangeConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
     /// // Cancel all open orders for BTC/USDT
     /// let result = binance.cancel_all_orders("BTC/USDT", None).await?;
@@ -5996,7 +5996,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let account_config = binance.fetch_account_configuration().await?;
     /// println!("Multi-asset mode: {}", account_config.multi_assets_margin);
     /// println!("Fee tier: {}", account_config.fee_tier);
@@ -6051,7 +6051,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// binance.set_multi_assets_mode(true).await?;
     /// # Ok(())
     /// # }
@@ -6109,7 +6109,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let rate = binance.fetch_commission_rate("BTC/USDT:USDT").await?;
     /// println!("Maker rate: {}", rate.maker_commission_rate);
     /// println!("Taker rate: {}", rate.taker_commission_rate);
@@ -6168,7 +6168,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let open_interest = binance.fetch_open_interest("BTC/USDT:USDT").await?;
     /// println!("Open interest: {}", open_interest.open_interest);
     /// # Ok(())
@@ -6213,7 +6213,7 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_futures(ExchangeConfig::default())?;
+    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     /// let history = binance.fetch_open_interest_history(
     ///     "BTC/USDT:USDT",
     ///     "1h",
@@ -6281,7 +6281,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your-api-key".to_string());
     /// config.secret = Some("your-secret".to_string());
-    /// let binance = Binance::new_futures(config)?;
+    /// let binance = Binance::new_swap(config)?;
     /// let max_leverage = binance.fetch_max_leverage("BTC/USDT:USDT").await?;
     /// println!("Maximum leverage: {}x", max_leverage.max_leverage);
     /// # Ok(())

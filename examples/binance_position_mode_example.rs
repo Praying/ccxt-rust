@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
-    let binance = Binance::new_futures(config)?;
+    let binance = Binance::new_swap(config)?;
     println!("=== Binance Futures Position Mode Management ===\n");
 
     example_fetch_position_mode(&binance).await?;
