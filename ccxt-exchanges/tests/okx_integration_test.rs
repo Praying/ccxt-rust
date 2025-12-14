@@ -47,7 +47,7 @@ fn test_okx_builder() {
 
     assert_eq!(exchange.id(), "okx");
     assert_eq!(exchange.name(), "OKX");
-    assert!(!exchange.options().demo);
+    assert!(!exchange.options().testnet);
 }
 
 /// Test creating OKX instance with sandbox mode.
@@ -58,7 +58,7 @@ fn test_okx_sandbox_mode() {
         .build()
         .expect("Failed to build OKX");
 
-    assert!(exchange.options().demo);
+    assert!(exchange.options().testnet);
     let urls = exchange.urls();
     assert!(urls.ws_public.contains("wspap.okx.com"));
 }

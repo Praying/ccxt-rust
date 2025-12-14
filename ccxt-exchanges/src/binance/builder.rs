@@ -241,25 +241,6 @@ impl BinanceBuilder {
         self
     }
 
-    /// Enables or disables demo environment.
-    ///
-    /// # Arguments
-    ///
-    /// * `enabled` - Whether to enable demo mode.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use ccxt_exchanges::binance::BinanceBuilder;
-    ///
-    /// let builder = BinanceBuilder::new()
-    ///     .demo(true);
-    /// ```
-    pub fn demo(mut self, enabled: bool) -> Self {
-        self.options.demo = enabled;
-        self
-    }
-
     /// Enables or disables rate limiting.
     ///
     /// # Arguments
