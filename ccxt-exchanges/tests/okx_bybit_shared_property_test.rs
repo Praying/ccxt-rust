@@ -109,7 +109,7 @@ mod okx_builder_configuration_preservation {
             // Verify demo mode is preserved in options
             let options = okx.options();
             prop_assert_eq!(
-                options.demo, sandbox,
+                options.testnet, sandbox,
                 "OKX builder should preserve demo mode in options after build"
             );
         }
@@ -212,7 +212,7 @@ mod okx_builder_configuration_preservation {
                 "OKX options should preserve account_mode after build"
             );
             prop_assert_eq!(
-                options.demo, sandbox,
+                options.testnet, sandbox,
                 "OKX options should preserve demo mode after build"
             );
         }
@@ -290,7 +290,7 @@ mod okx_builder_configuration_preservation {
             // Verify default options
             let options = okx.options();
             prop_assert_eq!(&options.account_mode, "cash");
-            prop_assert!(!options.demo);
+            prop_assert!(!options.testnet);
 
             // Verify default config
             let base = okx.base();

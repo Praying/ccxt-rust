@@ -68,7 +68,7 @@ pub struct OkxOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_sub_type: Option<DefaultSubType>,
     /// Enables demo trading environment.
-    pub demo: bool,
+    pub testnet: bool,
 }
 
 impl Default for OkxOptions {
@@ -77,7 +77,7 @@ impl Default for OkxOptions {
             account_mode: "cash".to_string(),
             default_type: DefaultType::default(), // Defaults to Spot
             default_sub_type: None,
-            demo: false,
+            testnet: false,
         }
     }
 }
@@ -203,7 +203,7 @@ impl Okx {
     /// assert!(okx.is_sandbox());
     /// ```
     pub fn is_sandbox(&self) -> bool {
-        self.base().config.sandbox || self.options.demo
+        self.base().config.sandbox || self.options.testnet
     }
 
     /// Returns `true` if demo trading mode is enabled.
@@ -233,10 +233,10 @@ impl Okx {
     ///     ..Default::default()
     /// };
     /// let okx = Okx::new(config).unwrap();
-    /// assert!(okx.is_demo_trading());
+    /// assert!(okx.is_testnet_trading());
     /// ```
-    pub fn is_demo_trading(&self) -> bool {
-        self.base().config.sandbox || self.options.demo
+    pub fn is_testnet_trading(&self) -> bool {
+        self.base().config.sandbox || self.options.testnet
     }
 
     /// Returns the supported timeframes.
@@ -260,7 +260,7 @@ impl Okx {
 
     /// Returns the API URLs.
     pub fn urls(&self) -> OkxUrls {
-        if self.base().config.sandbox || self.options.demo {
+        if self.base().config.sandbox || self.options.testnet {
             OkxUrls::demo()
         } else {
             OkxUrls::production()
@@ -467,7 +467,7 @@ mod tests {
     fn test_is_sandbox_with_options_demo() {
         let config = ExchangeConfig::default();
         let options = OkxOptions {
-            demo: true,
+            testnet: true,
             ..Default::default()
         };
         let okx = Okx::new_with_options(config, options).unwrap();
@@ -488,25 +488,25 @@ mod tests {
             ..Default::default()
         };
         let okx = Okx::new(config).unwrap();
-        assert!(okx.is_demo_trading());
+        assert!(okx.is_testnet_trading());
     }
 
     #[test]
     fn test_is_demo_trading_with_options_demo() {
         let config = ExchangeConfig::default();
         let options = OkxOptions {
-            demo: true,
+            testnet: true,
             ..Default::default()
         };
         let okx = Okx::new_with_options(config, options).unwrap();
-        assert!(okx.is_demo_trading());
+        assert!(okx.is_testnet_trading());
     }
 
     #[test]
     fn test_is_demo_trading_false_by_default() {
         let config = ExchangeConfig::default();
         let okx = Okx::new(config).unwrap();
-        assert!(!okx.is_demo_trading());
+        assert!(!okx.is_testnet_trading());
     }
 
     #[test]
@@ -514,14 +514,14 @@ mod tests {
         // Test that is_demo_trading() and is_sandbox() return the same value
         let config = ExchangeConfig::default();
         let okx = Okx::new(config).unwrap();
-        assert_eq!(okx.is_demo_trading(), okx.is_sandbox());
+        assert_eq!(okx.is_testnet_trading(), okx.is_sandbox());
 
         let config_sandbox = ExchangeConfig {
             sandbox: true,
             ..Default::default()
         };
         let okx_sandbox = Okx::new(config_sandbox).unwrap();
-        assert_eq!(okx_sandbox.is_demo_trading(), okx_sandbox.is_sandbox());
+        assert_eq!(okx_sandbox.is_testnet_trading(), okx_sandbox.is_sandbox());
     }
 
     #[test]
@@ -530,7 +530,7 @@ mod tests {
         assert_eq!(options.account_mode, "cash");
         assert_eq!(options.default_type, DefaultType::Spot);
         assert_eq!(options.default_sub_type, None);
-        assert!(!options.demo);
+        assert!(!options.testnet);
     }
 
     #[test]
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(options.account_mode, "cross");
         assert_eq!(options.default_type, DefaultType::Swap);
         assert_eq!(options.default_sub_type, Some(DefaultSubType::Inverse));
-        assert!(options.demo);
+        assert!(options.testnet);
     }
 
     #[test]

@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Exchange: {} ({})", exchange.name(), exchange.id());
     println!("Version: {}", exchange.version());
-    println!("Demo Mode: {}", exchange.options().demo);
+    println!("Demo Mode: {}", exchange.options().testnet);
     println!();
 
     // Fetch and display markets

@@ -77,8 +77,8 @@ pub struct BitgetOptions {
     pub default_sub_type: Option<DefaultSubType>,
     /// Receive window in milliseconds.
     pub recv_window: u64,
-    /// Enables demo environment.
-    pub demo: bool,
+    /// Enables testnet environment.
+    pub testnet: bool,
 }
 
 impl Default for BitgetOptions {
@@ -88,7 +88,7 @@ impl Default for BitgetOptions {
             default_type: DefaultType::default(), // Defaults to Spot
             default_sub_type: None,
             recv_window: 5000,
-            demo: false,
+            testnet: false,
         }
     }
 }
@@ -231,11 +231,11 @@ impl Bitget {
         20.0
     }
 
-    /// Returns `true` if sandbox/demo mode is enabled.
+    /// Returns `true` if sandbox/testnet mode is enabled.
     ///
     /// Sandbox mode is enabled when either:
     /// - `config.sandbox` is set to `true`
-    /// - `options.demo` is set to `true`
+    /// - `options.testnet` is set to `true`
     ///
     /// # Returns
     ///
@@ -255,7 +255,7 @@ impl Bitget {
     /// assert!(bitget.is_sandbox());
     /// ```
     pub fn is_sandbox(&self) -> bool {
-        self.base().config.sandbox || self.options.demo
+        self.base().config.sandbox || self.options.testnet
     }
 
     /// Returns the supported timeframes.
@@ -278,7 +278,7 @@ impl Bitget {
 
     /// Returns the API URLs.
     ///
-    /// Returns testnet URLs when sandbox mode is enabled (via `config.sandbox` or `options.demo`),
+    /// Returns testnet URLs when sandbox mode is enabled (via `config.sandbox` or `options.testnet`),
     /// otherwise returns production URLs.
     ///
     /// # Returns
@@ -286,7 +286,7 @@ impl Bitget {
     /// - `BitgetUrls::testnet()` when sandbox mode is enabled
     /// - `BitgetUrls::production()` when sandbox mode is disabled
     pub fn urls(&self) -> BitgetUrls {
-        if self.base().config.sandbox || self.options.demo {
+        if self.base().config.sandbox || self.options.testnet {
             BitgetUrls::testnet()
         } else {
             BitgetUrls::production()
@@ -335,18 +335,6 @@ impl BitgetUrls {
             rest: "https://api.bitget.com".to_string(),
             ws_public: "wss://ws.bitget.com/v2/ws/public".to_string(),
             ws_private: "wss://ws.bitget.com/v2/ws/private".to_string(),
-        }
-    }
-
-    /// Returns demo environment URLs.
-    ///
-    /// Demo mode uses the same REST domain as production but with
-    /// different WebSocket endpoints that include `/demo` suffix.
-    pub fn demo() -> Self {
-        Self {
-            rest: "https://api.bitget.com".to_string(),
-            ws_public: "wss://ws.bitget.com/v2/ws/public/demo".to_string(),
-            ws_private: "wss://ws.bitget.com/v2/ws/private/demo".to_string(),
         }
     }
 
@@ -438,16 +426,16 @@ mod tests {
     }
 
     #[test]
-    fn test_sandbox_urls_with_demo_option() {
+    fn test_sandbox_urls_with_testnet_option() {
         let config = ExchangeConfig::default();
         let options = BitgetOptions {
-            demo: true,
+            testnet: true,
             ..Default::default()
         };
         let bitget = Bitget::new_with_options(config, options).unwrap();
         let urls = bitget.urls();
 
-        // Demo option should also use testnet URLs
+        // Testnet option should also use testnet URLs
         assert_eq!(urls.rest, "https://api-testnet.bitget.com");
         assert_eq!(urls.ws_public, "wss://ws-testnet.bitget.com/v2/ws/public");
         assert_eq!(urls.ws_private, "wss://ws-testnet.bitget.com/v2/ws/private");
@@ -464,10 +452,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_sandbox_with_options_demo() {
+    fn test_is_sandbox_with_options_testnet() {
         let config = ExchangeConfig::default();
         let options = BitgetOptions {
-            demo: true,
+            testnet: true,
             ..Default::default()
         };
         let bitget = Bitget::new_with_options(config, options).unwrap();
@@ -488,7 +476,7 @@ mod tests {
         assert_eq!(options.default_type, DefaultType::Spot);
         assert_eq!(options.default_sub_type, None);
         assert_eq!(options.recv_window, 5000);
-        assert!(!options.demo);
+        assert!(!options.testnet);
     }
 
     #[test]

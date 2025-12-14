@@ -105,7 +105,7 @@ impl BitgetBuilder {
     /// * `enabled` - Whether to enable sandbox mode.
     pub fn sandbox(mut self, enabled: bool) -> Self {
         self.config.sandbox = enabled;
-        self.options.demo = enabled;
+        self.options.testnet = enabled;
         self
     }
 
@@ -318,7 +318,7 @@ mod tests {
     fn test_builder_sandbox() {
         let builder = BitgetBuilder::new().sandbox(true);
         assert!(builder.config.sandbox);
-        assert!(builder.options.demo);
+        assert!(builder.options.testnet);
     }
 
     #[test]

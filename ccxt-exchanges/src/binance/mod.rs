@@ -66,8 +66,6 @@ pub struct BinanceOptions {
     pub default_sub_type: Option<DefaultSubType>,
     /// Enables testnet mode.
     pub test: bool,
-    /// Enables demo environment.
-    pub demo: bool,
 }
 
 /// Custom deserializer for DefaultType that accepts both enum values and strings.
@@ -112,7 +110,6 @@ impl Default for BinanceOptions {
             default_type: DefaultType::default(), // Defaults to Spot
             default_sub_type: None,
             test: false,
-            demo: false,
         }
     }
 }
@@ -322,8 +319,6 @@ impl Binance {
     pub fn urls(&self) -> BinanceUrls {
         let mut urls = if self.base().config.sandbox {
             BinanceUrls::testnet()
-        } else if self.options.demo {
-            BinanceUrls::demo()
         } else {
             BinanceUrls::production()
         };
@@ -779,7 +774,6 @@ mod tests {
         assert!(!options.adjust_for_time_difference);
         assert_eq!(options.recv_window, 5000);
         assert!(!options.test);
-        assert!(!options.demo);
     }
 
     #[test]
@@ -870,7 +864,6 @@ mod tests {
             "recv_window": 5000,
             "default_type": "SWAP",
             "test": false,
-            "demo": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Swap);
@@ -881,7 +874,6 @@ mod tests {
             "recv_window": 5000,
             "default_type": "FuTuReS",
             "test": false,
-            "demo": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Futures);
