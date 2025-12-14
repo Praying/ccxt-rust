@@ -197,9 +197,37 @@ impl HyperLiquid {
         100.0
     }
 
+    /// Returns `true` if sandbox/testnet mode is enabled.
+    ///
+    /// Sandbox mode is enabled when either:
+    /// - `config.sandbox` is set to `true`
+    /// - `options.testnet` is set to `true`
+    ///
+    /// # Returns
+    ///
+    /// `true` if sandbox mode is enabled, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::hyperliquid::HyperLiquid;
+    ///
+    /// let exchange = HyperLiquid::builder()
+    ///     .testnet(true)
+    ///     .build()
+    ///     .unwrap();
+    /// assert!(exchange.is_sandbox());
+    /// ```
+    pub fn is_sandbox(&self) -> bool {
+        self.base().config.sandbox || self.options.testnet
+    }
+
     /// Returns the API URLs.
+    ///
+    /// Returns testnet URLs when sandbox mode is enabled (either via
+    /// `config.sandbox` or `options.testnet`), otherwise returns mainnet URLs.
     pub fn urls(&self) -> HyperLiquidUrls {
-        if self.options.testnet {
+        if self.is_sandbox() {
             HyperLiquidUrls::testnet()
         } else {
             HyperLiquidUrls::mainnet()
@@ -270,6 +298,72 @@ mod tests {
     #[test]
     fn test_testnet_urls() {
         let urls = HyperLiquidUrls::testnet();
+        assert_eq!(urls.rest, "https://api.hyperliquid-testnet.xyz");
+        assert_eq!(urls.ws, "wss://api.hyperliquid-testnet.xyz/ws");
+    }
+
+    #[test]
+    fn test_is_sandbox_with_options_testnet() {
+        let config = ExchangeConfig::default();
+        let options = HyperLiquidOptions {
+            testnet: true,
+            ..Default::default()
+        };
+        let exchange = HyperLiquid::new_with_options(config, options, None).unwrap();
+        assert!(exchange.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_with_config_sandbox() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = HyperLiquidOptions::default();
+        let exchange = HyperLiquid::new_with_options(config, options, None).unwrap();
+        assert!(exchange.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_false_by_default() {
+        let config = ExchangeConfig::default();
+        let options = HyperLiquidOptions::default();
+        let exchange = HyperLiquid::new_with_options(config, options, None).unwrap();
+        assert!(!exchange.is_sandbox());
+    }
+
+    #[test]
+    fn test_urls_returns_mainnet_by_default() {
+        let config = ExchangeConfig::default();
+        let options = HyperLiquidOptions::default();
+        let exchange = HyperLiquid::new_with_options(config, options, None).unwrap();
+        let urls = exchange.urls();
+        assert_eq!(urls.rest, "https://api.hyperliquid.xyz");
+        assert_eq!(urls.ws, "wss://api.hyperliquid.xyz/ws");
+    }
+
+    #[test]
+    fn test_urls_returns_testnet_with_options_testnet() {
+        let config = ExchangeConfig::default();
+        let options = HyperLiquidOptions {
+            testnet: true,
+            ..Default::default()
+        };
+        let exchange = HyperLiquid::new_with_options(config, options, None).unwrap();
+        let urls = exchange.urls();
+        assert_eq!(urls.rest, "https://api.hyperliquid-testnet.xyz");
+        assert_eq!(urls.ws, "wss://api.hyperliquid-testnet.xyz/ws");
+    }
+
+    #[test]
+    fn test_urls_returns_testnet_with_config_sandbox() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = HyperLiquidOptions::default();
+        let exchange = HyperLiquid::new_with_options(config, options, None).unwrap();
+        let urls = exchange.urls();
         assert_eq!(urls.rest, "https://api.hyperliquid-testnet.xyz");
         assert_eq!(urls.ws, "wss://api.hyperliquid-testnet.xyz/ws");
     }

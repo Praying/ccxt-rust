@@ -111,7 +111,7 @@ impl Okx {
 
         // Add demo trading header if in sandbox mode
         let mut headers = HeaderMap::new();
-        if self.options().demo || self.base().config.sandbox {
+        if self.is_demo_trading() {
             headers.insert("x-simulated-trading", HeaderValue::from_static("1"));
         }
 
@@ -193,7 +193,7 @@ impl Okx {
         headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
         // Add demo trading header if in sandbox mode
-        if self.options().demo || self.base().config.sandbox {
+        if self.is_demo_trading() {
             headers.insert("x-simulated-trading", HeaderValue::from_static("1"));
         }
 

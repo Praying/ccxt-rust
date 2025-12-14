@@ -959,10 +959,6 @@ mod tests {
     }
 }
 
-// ============================================================================
-// Property-Based Tests
-// ============================================================================
-
 #[cfg(test)]
 mod property_tests {
     use super::*;
@@ -1049,8 +1045,6 @@ mod property_tests {
         ///
         /// *For any* exchange trait object, it should be possible to send it across
         /// thread boundaries (`Send`) and share references across threads (`Sync`).
-        ///
-        /// **Validates: Requirements 5.3**
         #[test]
         fn prop_exchange_capabilities_send_sync(caps in arb_capabilities()) {
             // Compile-time assertion: ExchangeCapabilities must be Send + Sync
@@ -1067,12 +1061,6 @@ mod property_tests {
             prop_assert_eq!(result, caps.fetch_ticker);
         }
 
-        /// **Feature: unified-exchange-trait, Property 3: Thread Safety (Arc sharing)**
-        ///
-        /// *For any* ExchangeCapabilities, wrapping in Arc should allow safe sharing
-        /// across multiple threads simultaneously.
-        ///
-        /// **Validates: Requirements 5.3**
         #[test]
         fn prop_exchange_capabilities_arc_sharing(caps in arb_capabilities()) {
             use std::sync::Arc;
@@ -1108,8 +1096,6 @@ mod property_tests {
         ///
         /// Verifies that the BoxedExchange type alias (Box<dyn Exchange>) satisfies
         /// Send + Sync bounds required for async runtime usage.
-        ///
-        /// **Validates: Requirements 5.3**
         #[test]
         fn prop_boxed_exchange_type_is_send_sync(_dummy in Just(())) {
             // Compile-time assertion: BoxedExchange must be Send
@@ -1125,8 +1111,6 @@ mod property_tests {
         ///
         /// Verifies that the ArcExchange type alias (Arc<dyn Exchange>) satisfies
         /// Send + Sync bounds required for shared ownership across threads.
-        ///
-        /// **Validates: Requirements 5.3**
         #[test]
         fn prop_arc_exchange_type_is_send_sync(_dummy in Just(())) {
             // Compile-time assertion: ArcExchange must be Send + Sync
@@ -1147,8 +1131,6 @@ mod property_tests {
         ///
         /// *For any* async method call that fails, the error should be properly
         /// propagated through the `Result` type without panicking.
-        ///
-        /// **Validates: Requirements 5.4**
         #[test]
         fn prop_error_propagation_through_result(error in arb_error()) {
             // Store the error string before moving
@@ -1174,8 +1156,6 @@ mod property_tests {
         ///
         /// *For any* error with context attached, the context should be preserved
         /// and the error chain should be traversable.
-        ///
-        /// **Validates: Requirements 5.4**
         #[test]
         fn prop_error_propagation_with_context(
             base_error in arb_error(),
@@ -1202,8 +1182,6 @@ mod property_tests {
         ///
         /// *For any* error, it should be possible to send it across thread boundaries,
         /// which is essential for async error propagation.
-        ///
-        /// **Validates: Requirements 5.4**
         #[test]
         fn prop_error_send_across_threads(error in arb_error()) {
             // Compile-time assertion: Error must be Send + Sync
@@ -1224,8 +1202,6 @@ mod property_tests {
         ///
         /// *For any* sequence of operations that may fail, errors should propagate
         /// correctly through the ? operator pattern.
-        ///
-        /// **Validates: Requirements 5.4**
         #[test]
         fn prop_error_propagation_chain(
             error_msg in arb_error_message(),
@@ -1274,8 +1250,6 @@ mod property_tests {
         ///
         /// *For any* error, it should be compatible with async/await patterns,
         /// meaning it can be returned from async functions.
-        ///
-        /// **Validates: Requirements 5.4**
         #[test]
         fn prop_error_async_compatible(error in arb_error()) {
             // Verify error implements required traits for async usage

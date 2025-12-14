@@ -269,6 +269,33 @@ impl Binance {
         50.0
     }
 
+    /// Returns `true` if sandbox/testnet mode is enabled.
+    ///
+    /// Sandbox mode is enabled when either:
+    /// - `config.sandbox` is set to `true`
+    /// - `options.test` is set to `true`
+    ///
+    /// # Returns
+    ///
+    /// `true` if sandbox mode is enabled, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// let config = ExchangeConfig {
+    ///     sandbox: true,
+    ///     ..Default::default()
+    /// };
+    /// let binance = Binance::new(config).unwrap();
+    /// assert!(binance.is_sandbox());
+    /// ```
+    pub fn is_sandbox(&self) -> bool {
+        self.base().config.sandbox || self.options.test
+    }
+
     /// Returns the supported timeframes.
     pub fn timeframes(&self) -> HashMap<String, String> {
         let mut timeframes = HashMap::new();
@@ -714,6 +741,34 @@ mod tests {
         let urls = binance.urls();
 
         assert!(urls.public.contains("testnet"));
+    }
+
+    #[test]
+    fn test_is_sandbox_with_config_sandbox() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let binance = Binance::new(config).unwrap();
+        assert!(binance.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_with_options_test() {
+        let config = ExchangeConfig::default();
+        let options = BinanceOptions {
+            test: true,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+        assert!(binance.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_false_by_default() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+        assert!(!binance.is_sandbox());
     }
 
     #[test]
@@ -1163,5 +1218,255 @@ mod tests {
         let binance = Binance::new_with_options(config, options).unwrap();
         assert!(!binance.is_linear());
         assert!(binance.is_inverse());
+    }
+
+    // ============================================================
+    // Sandbox Mode Market Type URL Selection Tests
+    // ============================================================
+
+    #[test]
+    fn test_sandbox_market_type_spot() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        assert!(binance.is_sandbox());
+        let url = binance.get_rest_url_public();
+        assert!(
+            url.contains("testnet.binance.vision"),
+            "Spot sandbox URL should contain testnet.binance.vision, got: {}",
+            url
+        );
+        assert!(
+            url.contains("/api/v3"),
+            "Spot sandbox URL should contain /api/v3, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_swap_linear() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        assert!(binance.is_sandbox());
+        let url = binance.get_rest_url_public();
+        assert!(
+            url.contains("testnet.binancefuture.com"),
+            "Linear sandbox URL should contain testnet.binancefuture.com, got: {}",
+            url
+        );
+        assert!(
+            url.contains("/fapi/"),
+            "Linear sandbox URL should contain /fapi/, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_swap_inverse() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        assert!(binance.is_sandbox());
+        let url = binance.get_rest_url_public();
+        assert!(
+            url.contains("testnet.binancefuture.com"),
+            "Inverse sandbox URL should contain testnet.binancefuture.com, got: {}",
+            url
+        );
+        assert!(
+            url.contains("/dapi/"),
+            "Inverse sandbox URL should contain /dapi/, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_option() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        assert!(binance.is_sandbox());
+        let url = binance.get_rest_url_public();
+        assert!(
+            url.contains("testnet.binanceops.com"),
+            "Option sandbox URL should contain testnet.binanceops.com, got: {}",
+            url
+        );
+        assert!(
+            url.contains("/eapi/"),
+            "Option sandbox URL should contain /eapi/, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_futures_linear() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        assert!(binance.is_sandbox());
+        let url = binance.get_rest_url_public();
+        assert!(
+            url.contains("testnet.binancefuture.com"),
+            "Futures Linear sandbox URL should contain testnet.binancefuture.com, got: {}",
+            url
+        );
+        assert!(
+            url.contains("/fapi/"),
+            "Futures Linear sandbox URL should contain /fapi/, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_futures_inverse() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        assert!(binance.is_sandbox());
+        let url = binance.get_rest_url_public();
+        assert!(
+            url.contains("testnet.binancefuture.com"),
+            "Futures Inverse sandbox URL should contain testnet.binancefuture.com, got: {}",
+            url
+        );
+        assert!(
+            url.contains("/dapi/"),
+            "Futures Inverse sandbox URL should contain /dapi/, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_websocket_url_spot() {
+        // Verify WebSocket URL selection in sandbox mode for Spot
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        let urls = binance.urls();
+        assert!(
+            urls.ws.contains("testnet.binance.vision"),
+            "Spot WS sandbox URL should contain testnet.binance.vision, got: {}",
+            urls.ws
+        );
+    }
+
+    #[test]
+    fn test_sandbox_websocket_url_fapi() {
+        // Verify WebSocket URL selection in sandbox mode for FAPI (Linear)
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        let urls = binance.urls();
+        assert!(
+            urls.ws_fapi.contains("binancefuture.com"),
+            "FAPI WS sandbox URL should contain binancefuture.com, got: {}",
+            urls.ws_fapi
+        );
+    }
+
+    #[test]
+    fn test_sandbox_websocket_url_dapi() {
+        // Verify WebSocket URL selection in sandbox mode for DAPI (Inverse)
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        let urls = binance.urls();
+        assert!(
+            urls.ws_dapi.contains("dstream.binancefuture.com"),
+            "DAPI WS sandbox URL should contain dstream.binancefuture.com, got: {}",
+            urls.ws_dapi
+        );
+    }
+
+    #[test]
+    fn test_sandbox_websocket_url_eapi() {
+        // Verify WebSocket URL selection in sandbox mode for EAPI (Options)
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BinanceOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let binance = Binance::new_with_options(config, options).unwrap();
+
+        let urls = binance.urls();
+        assert!(
+            urls.ws_eapi.contains("testnet.binanceops.com"),
+            "EAPI WS sandbox URL should contain testnet.binanceops.com, got: {}",
+            urls.ws_eapi
+        );
     }
 }
