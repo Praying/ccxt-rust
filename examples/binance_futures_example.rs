@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
 
     // Initialize Binance Futures exchange
     let futures_config = ExchangeConfig::default();
-    let futures_exchange = Binance::new_futures(futures_config)?;
+    let futures_exchange = Binance::new_swap(futures_config)?;
 
     // Example 1: Fetch all futures markets
     println!("1. Fetching futures markets...");
