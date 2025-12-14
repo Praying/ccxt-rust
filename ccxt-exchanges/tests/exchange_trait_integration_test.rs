@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 /// Test creating a `Box<dyn Exchange>` from Binance instance.
 ///
-/// Requirements: 1.2 - Allow instance to be used as `dyn Exchange` trait object
+///  Allow instance to be used as `dyn Exchange` trait object
 #[test]
 fn test_binance_as_boxed_exchange() {
     let config = ExchangeConfig::default();
@@ -39,7 +39,7 @@ fn test_binance_as_boxed_exchange() {
 
 /// Test creating an `Arc<dyn Exchange>` from Binance for shared ownership.
 ///
-/// Requirements: 1.2 - Allow instance to be used as `dyn Exchange` trait object
+/// Allow instance to be used as `dyn Exchange` trait object
 #[test]
 fn test_binance_as_arc_exchange() {
     let binance = BinanceBuilder::new()
@@ -62,7 +62,7 @@ fn test_binance_as_arc_exchange() {
 
 /// Test calling metadata methods through trait object.
 ///
-/// Requirements: 1.3 - Execute exchange-specific implementation transparently
+/// Execute exchange-specific implementation transparently
 #[test]
 fn test_trait_object_metadata_methods() {
     let binance = Binance::new(ExchangeConfig::default()).expect("Should create Binance instance");
@@ -84,7 +84,7 @@ fn test_trait_object_metadata_methods() {
 
 /// Test calling capabilities() through trait object.
 ///
-/// Requirements: 1.3 - Execute exchange-specific implementation transparently
+///  Execute exchange-specific implementation transparently
 #[test]
 fn test_trait_object_capabilities() {
     let binance = Binance::new(ExchangeConfig::default()).expect("Should create Binance instance");
@@ -110,7 +110,7 @@ fn test_trait_object_capabilities() {
 
 /// Test that trait object can be passed to generic functions.
 ///
-/// Requirements: 1.2, 1.3 - Unified interface usage
+/// Unified interface usage
 #[test]
 fn test_trait_object_in_generic_function() {
     fn get_exchange_info(exchange: &dyn Exchange) -> String {
@@ -134,7 +134,7 @@ fn test_trait_object_in_generic_function() {
 
 /// Test that boxed trait object can be stored in collections.
 ///
-/// Requirements: 1.2 - Trait object usage
+/// Trait object usage
 #[test]
 fn test_boxed_exchange_in_collection() {
     let binance = Binance::new(ExchangeConfig::default()).expect("Should create Binance instance");
@@ -148,7 +148,7 @@ fn test_boxed_exchange_in_collection() {
 
 /// Test that Arc trait object can be shared across threads.
 ///
-/// Requirements: 1.2 - Trait object usage with thread safety
+/// Trait object usage with thread safety
 #[test]
 fn test_arc_exchange_thread_safety() {
     let binance = Binance::new(ExchangeConfig::default()).expect("Should create Binance instance");
@@ -176,7 +176,7 @@ fn test_arc_exchange_thread_safety() {
 
 /// Test helper method `is_symbol_active` through trait object.
 ///
-/// Requirements: 1.3 - Execute exchange-specific implementation transparently
+/// Execute exchange-specific implementation transparently
 #[tokio::test]
 async fn test_trait_object_helper_methods() {
     let binance = Binance::new(ExchangeConfig::default()).expect("Should create Binance instance");
@@ -192,7 +192,7 @@ async fn test_trait_object_helper_methods() {
 
 /// Test that capabilities can be checked before calling methods.
 ///
-/// Requirements: 1.3 - Execute exchange-specific implementation transparently
+/// Execute exchange-specific implementation transparently
 #[test]
 fn test_capability_check_before_method_call() {
     fn check_and_describe_capabilities(exchange: &dyn Exchange) -> Vec<String> {
@@ -230,7 +230,7 @@ fn test_capability_check_before_method_call() {
 
 /// Test using multiple exchanges through unified interface.
 ///
-/// Requirements: 1.1 - Use different exchanges through unified interface
+/// Use different exchanges through unified interface
 #[test]
 fn test_multiple_exchanges_unified_interface() {
     // Create multiple Binance instances with different configurations
@@ -260,7 +260,7 @@ fn test_multiple_exchanges_unified_interface() {
 
 /// Test exchange-agnostic function that works with any Exchange implementation.
 ///
-/// Requirements: 1.1 - Write exchange-agnostic trading code
+/// Write exchange-agnostic trading code
 #[test]
 fn test_exchange_agnostic_function() {
     /// An exchange-agnostic function that summarizes exchange capabilities
@@ -305,7 +305,7 @@ fn test_exchange_agnostic_function() {
 
 /// Test managing multiple exchanges in a registry pattern.
 ///
-/// Requirements: 1.1 - Use different exchanges through unified interface
+/// Use different exchanges through unified interface
 #[test]
 fn test_exchange_registry_pattern() {
     use std::collections::HashMap;
@@ -357,7 +357,7 @@ fn test_exchange_registry_pattern() {
 
 /// Test comparing capabilities across multiple exchanges.
 ///
-/// Requirements: 1.1 - Use different exchanges through unified interface
+/// Use different exchanges through unified interface
 #[test]
 fn test_compare_exchange_capabilities() {
     fn compare_capabilities(exchanges: &[&dyn Exchange]) -> CapabilityComparison {
@@ -400,7 +400,7 @@ fn test_compare_exchange_capabilities() {
 
 /// Test async operations through trait object (compile-time verification).
 ///
-/// Requirements: 1.3 - Execute exchange-specific implementation transparently
+/// Execute exchange-specific implementation transparently
 #[tokio::test]
 async fn test_async_trait_object_compilation() {
     // This test verifies that async methods can be called through trait objects

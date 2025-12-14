@@ -183,6 +183,33 @@ impl Bybit {
         20.0
     }
 
+    /// Returns `true` if sandbox/testnet mode is enabled.
+    ///
+    /// Sandbox mode is enabled when either:
+    /// - `config.sandbox` is set to `true`
+    /// - `options.testnet` is set to `true`
+    ///
+    /// # Returns
+    ///
+    /// `true` if sandbox mode is enabled, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bybit::Bybit;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// let config = ExchangeConfig {
+    ///     sandbox: true,
+    ///     ..Default::default()
+    /// };
+    /// let bybit = Bybit::new(config).unwrap();
+    /// assert!(bybit.is_sandbox());
+    /// ```
+    pub fn is_sandbox(&self) -> bool {
+        self.base().config.sandbox || self.options.testnet
+    }
+
     /// Returns the supported timeframes.
     pub fn timeframes(&self) -> HashMap<String, String> {
         let mut timeframes = HashMap::new();
@@ -425,6 +452,34 @@ mod tests {
     }
 
     #[test]
+    fn test_is_sandbox_with_config_sandbox() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let bybit = Bybit::new(config).unwrap();
+        assert!(bybit.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_with_options_testnet() {
+        let config = ExchangeConfig::default();
+        let options = BybitOptions {
+            testnet: true,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+        assert!(bybit.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_false_by_default() {
+        let config = ExchangeConfig::default();
+        let bybit = Bybit::new(config).unwrap();
+        assert!(!bybit.is_sandbox());
+    }
+
+    #[test]
     fn test_ws_public_for_category() {
         let urls = BybitUrls::production();
 
@@ -604,5 +659,227 @@ mod tests {
         };
         let bybit = Bybit::new_with_options(config, options).unwrap();
         assert!(bybit.is_contract_type());
+    }
+
+    // ============================================================
+    // Sandbox Mode Market Type URL Selection Tests
+    // ============================================================
+
+    #[test]
+    fn test_sandbox_market_type_spot() {
+        // Sandbox mode with Spot type should use spot testnet endpoints
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BybitOptions {
+            default_type: DefaultType::Spot,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+
+        assert!(bybit.is_sandbox());
+        assert_eq!(bybit.category(), "spot");
+
+        let urls = bybit.urls();
+        assert!(
+            urls.rest.contains("api-testnet.bybit.com"),
+            "Spot sandbox REST URL should contain api-testnet.bybit.com, got: {}",
+            urls.rest
+        );
+
+        let ws_url = urls.ws_public_for_category("spot");
+        assert!(
+            ws_url.contains("stream-testnet.bybit.com"),
+            "Spot sandbox WS URL should contain stream-testnet.bybit.com, got: {}",
+            ws_url
+        );
+        assert!(
+            ws_url.contains("/v5/public/spot"),
+            "Spot sandbox WS URL should contain /v5/public/spot, got: {}",
+            ws_url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_linear() {
+        // Sandbox mode with Swap/Linear should use linear testnet endpoints
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+
+        assert!(bybit.is_sandbox());
+        assert_eq!(bybit.category(), "linear");
+
+        let urls = bybit.urls();
+        assert!(
+            urls.rest.contains("api-testnet.bybit.com"),
+            "Linear sandbox REST URL should contain api-testnet.bybit.com, got: {}",
+            urls.rest
+        );
+
+        let ws_url = urls.ws_public_for_category("linear");
+        assert!(
+            ws_url.contains("stream-testnet.bybit.com"),
+            "Linear sandbox WS URL should contain stream-testnet.bybit.com, got: {}",
+            ws_url
+        );
+        assert!(
+            ws_url.contains("/v5/public/linear"),
+            "Linear sandbox WS URL should contain /v5/public/linear, got: {}",
+            ws_url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_inverse() {
+        // Sandbox mode with Swap/Inverse should use inverse testnet endpoints
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BybitOptions {
+            default_type: DefaultType::Swap,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+
+        assert!(bybit.is_sandbox());
+        assert_eq!(bybit.category(), "inverse");
+
+        let urls = bybit.urls();
+        assert!(
+            urls.rest.contains("api-testnet.bybit.com"),
+            "Inverse sandbox REST URL should contain api-testnet.bybit.com, got: {}",
+            urls.rest
+        );
+
+        let ws_url = urls.ws_public_for_category("inverse");
+        assert!(
+            ws_url.contains("stream-testnet.bybit.com"),
+            "Inverse sandbox WS URL should contain stream-testnet.bybit.com, got: {}",
+            ws_url
+        );
+        assert!(
+            ws_url.contains("/v5/public/inverse"),
+            "Inverse sandbox WS URL should contain /v5/public/inverse, got: {}",
+            ws_url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_market_type_option() {
+        // Sandbox mode with Option type should use option testnet endpoints
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BybitOptions {
+            default_type: DefaultType::Option,
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+
+        assert!(bybit.is_sandbox());
+        assert_eq!(bybit.category(), "option");
+
+        let urls = bybit.urls();
+        assert!(
+            urls.rest.contains("api-testnet.bybit.com"),
+            "Option sandbox REST URL should contain api-testnet.bybit.com, got: {}",
+            urls.rest
+        );
+
+        let ws_url = urls.ws_public_for_category("option");
+        assert!(
+            ws_url.contains("stream-testnet.bybit.com"),
+            "Option sandbox WS URL should contain stream-testnet.bybit.com, got: {}",
+            ws_url
+        );
+        assert!(
+            ws_url.contains("/v5/public/option"),
+            "Option sandbox WS URL should contain /v5/public/option, got: {}",
+            ws_url
+        );
+    }
+
+    #[test]
+    fn test_sandbox_private_websocket_url() {
+        // Verify private WebSocket URL in sandbox mode
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let bybit = Bybit::new(config).unwrap();
+
+        assert!(bybit.is_sandbox());
+        let urls = bybit.urls();
+        assert!(
+            urls.ws_private.contains("stream-testnet.bybit.com"),
+            "Private WS sandbox URL should contain stream-testnet.bybit.com, got: {}",
+            urls.ws_private
+        );
+        assert!(
+            urls.ws_private.contains("/v5/private"),
+            "Private WS sandbox URL should contain /v5/private, got: {}",
+            urls.ws_private
+        );
+    }
+
+    #[test]
+    fn test_sandbox_futures_linear() {
+        // Sandbox mode with Futures/Linear should use linear testnet endpoints
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BybitOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Linear),
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+
+        assert!(bybit.is_sandbox());
+        assert_eq!(bybit.category(), "linear");
+
+        let urls = bybit.urls();
+        assert!(
+            urls.rest.contains("api-testnet.bybit.com"),
+            "Futures Linear sandbox REST URL should contain api-testnet.bybit.com, got: {}",
+            urls.rest
+        );
+    }
+
+    #[test]
+    fn test_sandbox_futures_inverse() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let options = BybitOptions {
+            default_type: DefaultType::Futures,
+            default_sub_type: Some(DefaultSubType::Inverse),
+            ..Default::default()
+        };
+        let bybit = Bybit::new_with_options(config, options).unwrap();
+
+        assert!(bybit.is_sandbox());
+        assert_eq!(bybit.category(), "inverse");
+
+        let urls = bybit.urls();
+        assert!(
+            urls.rest.contains("api-testnet.bybit.com"),
+            "Futures Inverse sandbox REST URL should contain api-testnet.bybit.com, got: {}",
+            urls.rest
+        );
     }
 }

@@ -70,10 +70,29 @@ impl HyperLiquidBuilder {
         self
     }
 
+    /// Enables or disables sandbox/testnet mode.
+    ///
+    /// When enabled, the exchange will connect to HyperLiquid testnet
+    /// instead of mainnet.
+    ///
+    /// This method is equivalent to `testnet()` and is provided for
+    /// consistency with other exchanges.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to use sandbox mode.
+    pub fn sandbox(mut self, enabled: bool) -> Self {
+        self.testnet = enabled;
+        self
+    }
+
     /// Enables or disables testnet mode.
     ///
     /// When enabled, the exchange will connect to HyperLiquid testnet
     /// instead of mainnet.
+    ///
+    /// This method is equivalent to `sandbox()` and is provided for
+    /// backward compatibility.
     ///
     /// # Arguments
     ///
@@ -229,9 +248,24 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_sandbox() {
+        let builder = HyperLiquidBuilder::new().sandbox(true);
+        assert!(builder.testnet);
+    }
+
+    #[test]
     fn test_builder_testnet() {
         let builder = HyperLiquidBuilder::new().testnet(true);
         assert!(builder.testnet);
+    }
+
+    #[test]
+    fn test_builder_sandbox_testnet_equivalence() {
+        // Verify that sandbox() and testnet() produce equivalent results
+        let sandbox_builder = HyperLiquidBuilder::new().sandbox(true);
+        let testnet_builder = HyperLiquidBuilder::new().testnet(true);
+
+        assert_eq!(sandbox_builder.testnet, testnet_builder.testnet);
     }
 
     #[test]

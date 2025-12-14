@@ -179,6 +179,66 @@ impl Okx {
         20.0
     }
 
+    /// Returns `true` if sandbox/demo mode is enabled.
+    ///
+    /// Sandbox mode is enabled when either:
+    /// - `config.sandbox` is set to `true`
+    /// - `options.demo` is set to `true`
+    ///
+    /// # Returns
+    ///
+    /// `true` if sandbox mode is enabled, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::okx::Okx;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// let config = ExchangeConfig {
+    ///     sandbox: true,
+    ///     ..Default::default()
+    /// };
+    /// let okx = Okx::new(config).unwrap();
+    /// assert!(okx.is_sandbox());
+    /// ```
+    pub fn is_sandbox(&self) -> bool {
+        self.base().config.sandbox || self.options.demo
+    }
+
+    /// Returns `true` if demo trading mode is enabled.
+    ///
+    /// This is an OKX-specific alias for `is_sandbox()`. Demo trading mode
+    /// is enabled when either:
+    /// - `config.sandbox` is set to `true`
+    /// - `options.demo` is set to `true`
+    ///
+    /// When demo trading is enabled, the client will:
+    /// - Add the `x-simulated-trading: 1` header to all REST API requests
+    /// - Use demo WebSocket URLs (`wss://wspap.okx.com:8443/ws/v5/*?brokerId=9999`)
+    /// - Continue using the production REST domain (`https://www.okx.com`)
+    ///
+    /// # Returns
+    ///
+    /// `true` if demo trading mode is enabled, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::okx::Okx;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// let config = ExchangeConfig {
+    ///     sandbox: true,
+    ///     ..Default::default()
+    /// };
+    /// let okx = Okx::new(config).unwrap();
+    /// assert!(okx.is_demo_trading());
+    /// ```
+    pub fn is_demo_trading(&self) -> bool {
+        self.base().config.sandbox || self.options.demo
+    }
+
     /// Returns the supported timeframes.
     pub fn timeframes(&self) -> HashMap<String, String> {
         let mut timeframes = HashMap::new();
@@ -360,6 +420,108 @@ mod tests {
 
         assert!(urls.ws_public.contains("wspap.okx.com"));
         assert!(urls.ws_public.contains("brokerId=9999"));
+    }
+
+    #[test]
+    fn test_demo_rest_url_uses_production_domain() {
+        // Verify that OKX demo mode uses the production REST domain
+        // OKX uses the same REST domain for demo trading, but adds a special header
+        let demo_urls = OkxUrls::demo();
+        let production_urls = OkxUrls::production();
+
+        // REST URL should be the same (production domain)
+        assert_eq!(demo_urls.rest, production_urls.rest);
+        assert_eq!(demo_urls.rest, "https://www.okx.com");
+
+        // WebSocket URLs should be different (demo uses wspap.okx.com)
+        assert_ne!(demo_urls.ws_public, production_urls.ws_public);
+        assert!(demo_urls.ws_public.contains("wspap.okx.com"));
+        assert!(demo_urls.ws_public.contains("brokerId=9999"));
+    }
+
+    #[test]
+    fn test_sandbox_mode_rest_url_is_production() {
+        // When sandbox mode is enabled, REST URL should still be production domain
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let okx = Okx::new(config).unwrap();
+        let urls = okx.urls();
+
+        // REST URL should be production domain
+        assert_eq!(urls.rest, "https://www.okx.com");
+    }
+
+    #[test]
+    fn test_is_sandbox_with_config_sandbox() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let okx = Okx::new(config).unwrap();
+        assert!(okx.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_with_options_demo() {
+        let config = ExchangeConfig::default();
+        let options = OkxOptions {
+            demo: true,
+            ..Default::default()
+        };
+        let okx = Okx::new_with_options(config, options).unwrap();
+        assert!(okx.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_sandbox_false_by_default() {
+        let config = ExchangeConfig::default();
+        let okx = Okx::new(config).unwrap();
+        assert!(!okx.is_sandbox());
+    }
+
+    #[test]
+    fn test_is_demo_trading_with_config_sandbox() {
+        let config = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let okx = Okx::new(config).unwrap();
+        assert!(okx.is_demo_trading());
+    }
+
+    #[test]
+    fn test_is_demo_trading_with_options_demo() {
+        let config = ExchangeConfig::default();
+        let options = OkxOptions {
+            demo: true,
+            ..Default::default()
+        };
+        let okx = Okx::new_with_options(config, options).unwrap();
+        assert!(okx.is_demo_trading());
+    }
+
+    #[test]
+    fn test_is_demo_trading_false_by_default() {
+        let config = ExchangeConfig::default();
+        let okx = Okx::new(config).unwrap();
+        assert!(!okx.is_demo_trading());
+    }
+
+    #[test]
+    fn test_is_demo_trading_equals_is_sandbox() {
+        // Test that is_demo_trading() and is_sandbox() return the same value
+        let config = ExchangeConfig::default();
+        let okx = Okx::new(config).unwrap();
+        assert_eq!(okx.is_demo_trading(), okx.is_sandbox());
+
+        let config_sandbox = ExchangeConfig {
+            sandbox: true,
+            ..Default::default()
+        };
+        let okx_sandbox = Okx::new(config_sandbox).unwrap();
+        assert_eq!(okx_sandbox.is_demo_trading(), okx_sandbox.is_sandbox());
     }
 
     #[test]

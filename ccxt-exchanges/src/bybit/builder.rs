@@ -82,10 +82,30 @@ impl BybitBuilder {
         self
     }
 
+    /// Enables or disables sandbox/testnet mode.
+    ///
+    /// When enabled, the exchange will connect to Bybit's testnet
+    /// environment instead of the production environment.
+    ///
+    /// This method is equivalent to `testnet()` and is provided for
+    /// consistency with other exchanges.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to enable sandbox mode.
+    pub fn sandbox(mut self, enabled: bool) -> Self {
+        self.config.sandbox = enabled;
+        self.options.testnet = enabled;
+        self
+    }
+
     /// Enables or disables testnet mode.
     ///
     /// When enabled, the exchange will connect to Bybit's testnet
     /// environment instead of the production environment.
+    ///
+    /// This method is equivalent to `sandbox()` and is provided for
+    /// backward compatibility.
     ///
     /// # Arguments
     ///
@@ -293,10 +313,33 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_sandbox() {
+        let builder = BybitBuilder::new().sandbox(true);
+        assert!(builder.config.sandbox);
+        assert!(builder.options.testnet);
+    }
+
+    #[test]
     fn test_builder_testnet() {
         let builder = BybitBuilder::new().testnet(true);
         assert!(builder.config.sandbox);
         assert!(builder.options.testnet);
+    }
+
+    #[test]
+    fn test_builder_sandbox_testnet_equivalence() {
+        // Verify that sandbox() and testnet() produce equivalent results
+        let sandbox_builder = BybitBuilder::new().sandbox(true);
+        let testnet_builder = BybitBuilder::new().testnet(true);
+
+        assert_eq!(
+            sandbox_builder.config.sandbox,
+            testnet_builder.config.sandbox
+        );
+        assert_eq!(
+            sandbox_builder.options.testnet,
+            testnet_builder.options.testnet
+        );
     }
 
     #[test]

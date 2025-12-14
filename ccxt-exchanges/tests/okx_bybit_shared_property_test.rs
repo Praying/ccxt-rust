@@ -8,13 +8,6 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::FromStr;
 use serde_json::json;
 
-// ============================================================================
-// Property 1: OKX Builder Configuration Preservation
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 1: OKX Builder Configuration Preservation**
-/// **Validates: Requirements 1.2, 1.4**
-///
 /// For any set of configuration values (api_key, secret, passphrase), when passed
 /// to the OkxBuilder methods and then built, the resulting Okx instance SHALL
 /// contain those exact configuration values accessible through the base exchange config.
@@ -309,13 +302,6 @@ mod okx_builder_configuration_preservation {
     }
 }
 
-// ============================================================================
-// Property 2: Bybit Builder Configuration Preservation
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 2: Bybit Builder Configuration Preservation**
-/// **Validates: Requirements 2.2, 2.4**
-///
 /// For any set of configuration values (api_key, secret), when passed to the BybitBuilder
 /// methods and then built, the resulting Bybit instance SHALL contain those exact
 /// configuration values accessible through the base exchange config.
@@ -606,13 +592,6 @@ mod bybit_builder_configuration_preservation {
     }
 }
 
-// ============================================================================
-// Property 3: Exchange Metadata Consistency (OKX)
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 3: Exchange Metadata Consistency (OKX)**
-/// **Validates: Requirements 3.3**
-///
 /// For any Okx instance created with any valid configuration, `id()` SHALL return "okx"
 /// and `name()` SHALL return "OKX".
 mod okx_exchange_metadata_consistency {
@@ -796,13 +775,6 @@ mod okx_exchange_metadata_consistency {
     }
 }
 
-// ============================================================================
-// Property 8: OrderBook Sorting Invariant
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 8: OrderBook Sorting Invariant**
-/// **Validates: Requirements 5.1**
-///
 /// For any parsed OrderBook from either OKX or Bybit, bids SHALL be sorted in
 /// descending order by price, and asks SHALL be sorted in ascending order by price.
 mod orderbook_sorting_invariant {
@@ -1021,13 +993,6 @@ mod orderbook_sorting_invariant {
     }
 }
 
-// ============================================================================
-// Property 10: Error Response Parsing
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 10: Error Response Parsing**
-/// **Validates: Requirements 11.1**
-///
 /// For any valid error response JSON from OKX or Bybit, the parser SHALL extract
 /// the error code and message into a structured Error type without panicking.
 mod error_response_parsing {
@@ -1296,13 +1261,6 @@ mod error_response_parsing {
     }
 }
 
-// ============================================================================
-// Property 14: Decimal Precision Preservation
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 14: Decimal Precision Preservation**
-/// **Validates: Requirements 12.2**
-///
 /// For any price or amount string from exchange API, parsing to Decimal and
 /// converting back to string SHALL preserve the original precision (no floating-point errors).
 mod decimal_precision_preservation {
@@ -1367,13 +1325,6 @@ mod decimal_precision_preservation {
     }
 }
 
-// ============================================================================
-// Property 15: Timestamp Conversion Consistency
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 15: Timestamp Conversion Consistency**
-/// **Validates: Requirements 12.4**
-///
 /// For any millisecond timestamp, converting to datetime string and back to timestamp
 /// SHALL produce the same value (within millisecond precision).
 mod timestamp_conversion_consistency {
@@ -1435,13 +1386,6 @@ mod timestamp_conversion_consistency {
     }
 }
 
-// ============================================================================
-// Property 16: Order Status Mapping Completeness
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 16: Order Status Mapping Completeness**
-/// **Validates: Requirements 12.3**
-///
 /// For any valid OKX or Bybit order status string, the parser SHALL map it to
 /// a valid OrderStatus enum variant without panicking.
 mod order_status_mapping {
@@ -1582,13 +1526,6 @@ mod order_status_mapping {
     }
 }
 
-// ============================================================================
-// Property 11, 12, 13: Data Round-Trip Tests
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 11: Market Data Round-Trip**
-/// **Validates: Requirements 12.5**
-///
 /// For any valid Market struct, serializing to JSON and deserializing back
 /// SHALL produce an equivalent Market struct.
 mod market_data_roundtrip {
@@ -1688,9 +1625,6 @@ mod market_data_roundtrip {
     }
 }
 
-/// **Feature: okx-bybit-exchanges, Property 12: Ticker Data Round-Trip**
-/// **Validates: Requirements 12.5**
-///
 /// For any valid Ticker struct, serializing to JSON and deserializing back
 /// SHALL produce an equivalent Ticker struct.
 mod ticker_data_roundtrip {
@@ -1768,9 +1702,6 @@ mod ticker_data_roundtrip {
     }
 }
 
-/// **Feature: okx-bybit-exchanges, Property 13: Order Data Round-Trip**
-/// **Validates: Requirements 12.5**
-///
 /// For any valid Order struct, serializing to JSON and deserializing back
 /// SHALL produce an equivalent Order struct.
 mod order_data_roundtrip {
@@ -1876,13 +1807,6 @@ mod order_data_roundtrip {
     }
 }
 
-// ============================================================================
-// Property 9: Limit Parameter Capping
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 9: Limit Parameter Capping**
-/// **Validates: Requirements 5.4**
-///
 /// For any limit parameter value exceeding the exchange's maximum, the system
 /// SHALL cap the limit to the exchange's maximum allowed value without error.
 mod limit_parameter_capping {
@@ -1952,13 +1876,6 @@ mod limit_parameter_capping {
     }
 }
 
-// ============================================================================
-// Property 4: OKX Signature Determinism
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 4: OKX Signature Determinism**
-/// **Validates: Requirements 6.1**
-///
 /// For any valid request parameters (timestamp, method, path, body), the OkxAuth
 /// `sign()` method SHALL produce a deterministic HMAC-SHA256 signature that is
 /// identical when called multiple times with the same inputs.
@@ -2176,13 +2093,6 @@ mod okx_signature_determinism {
     }
 }
 
-// ============================================================================
-// Property 5: Bybit Signature Determinism
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 5: Bybit Signature Determinism**
-/// **Validates: Requirements 7.1**
-///
 /// For any valid request parameters (timestamp, recv_window, params), the BybitAuth
 /// `sign()` method SHALL produce a deterministic HMAC-SHA256 signature that is
 /// identical when called multiple times with the same inputs.
@@ -2480,13 +2390,6 @@ mod bybit_signature_determinism {
     }
 }
 
-// ============================================================================
-// Property 6: OKX Auth Headers Completeness
-// ============================================================================
-
-/// **Feature: okx-bybit-exchanges, Property 6: OKX Auth Headers Completeness**
-/// **Validates: Requirements 6.2**
-///
 /// For any signed OKX request, the authentication headers SHALL include all
 /// required fields: OK-ACCESS-KEY, OK-ACCESS-SIGN, OK-ACCESS-TIMESTAMP, and
 /// OK-ACCESS-PASSPHRASE.
@@ -2722,17 +2625,3 @@ mod okx_auth_headers_completeness {
         }
     }
 }
-
-// ============================================================================
-// Property 17: Market Cache Consistency (placeholder - requires async testing)
-// ============================================================================
-
-// Note: Property 17 (Market Cache Consistency) requires async testing with actual
-// exchange instances, which is better suited for integration tests rather than
-// property-based unit tests. The property states:
-//
-// "For any sequence of `load_markets(false)` calls on the same exchange instance,
-// the returned HashMap SHALL be identical (same keys and values) unless
-// `load_markets(true)` is called in between."
-//
-// This is tested in integration tests where we can create actual exchange instances.

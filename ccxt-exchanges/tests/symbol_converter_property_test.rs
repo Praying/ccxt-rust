@@ -52,18 +52,8 @@ fn arb_inverse_futures_symbol() -> impl Strategy<Value = ParsedSymbol> {
         .prop_map(|(base, quote, expiry)| ParsedSymbol::futures(base.clone(), quote, base, expiry))
 }
 
-// ============================================================================
-// Property 9: Binance Format Conversion
-// **Feature: unified-symbol-format, Property 9: Binance Format Conversion**
-// **Validates: Requirements 6.1**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 9: Binance Spot Symbol Conversion**
-    /// **Validates: Requirements 6.1**
-    ///
     /// *For any* valid spot ParsedSymbol:
     /// - Converting to Binance format SHALL produce `BASEQUOTE`
     /// - Converting back (with metadata) SHALL preserve the original symbol
@@ -323,20 +313,11 @@ mod binance_conversion_tests {
     }
 }
 
-// ============================================================================
-// Property 10: OKX Format Conversion
-// **Feature: unified-symbol-format, Property 10: OKX Format Conversion**
-// **Validates: Requirements 6.2**
-// ============================================================================
-
 use ccxt_exchanges::okx::symbol::OkxSymbolConverter;
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    /// **Feature: unified-symbol-format, Property 10: OKX Spot Symbol Conversion**
-    /// **Validates: Requirements 6.2**
-    ///
     /// *For any* valid spot ParsedSymbol:
     /// - Converting to OKX format SHALL produce `BASE-QUOTE`
     /// - Converting back (with metadata) SHALL preserve the original symbol
@@ -582,20 +563,11 @@ mod okx_conversion_tests {
     }
 }
 
-// ============================================================================
-// Property 11: Bybit Format Conversion
-// **Feature: unified-symbol-format, Property 11: Bybit Format Conversion**
-// **Validates: Requirements 6.3**
-// ============================================================================
-
 use ccxt_exchanges::bybit::symbol::BybitSymbolConverter;
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    /// **Feature: unified-symbol-format, Property 11: Bybit Spot Symbol Conversion**
-    /// **Validates: Requirements 6.3**
-    ///
     /// *For any* valid spot ParsedSymbol:
     /// - Converting to Bybit format SHALL produce `BASEQUOTE`
     /// - Converting back (with metadata) SHALL preserve the original symbol

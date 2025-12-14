@@ -56,18 +56,8 @@ fn arb_parsed_symbol() -> impl Strategy<Value = ParsedSymbol> {
     ]
 }
 
-// ============================================================================
-// Property 1: Spot Symbol Format Validation
-// **Feature: unified-symbol-format, Property 1: Spot Symbol Format Validation**
-// **Validates: Requirements 1.1, 1.3**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 1: Spot Symbol Format Validation**
-    /// **Validates: Requirements 1.1, 1.3**
-    ///
     /// *For any* valid base and quote currency pair, creating a spot symbol
     /// SHALL produce a ParsedSymbol with:
     /// - Correct base and quote fields (normalized to uppercase)
@@ -224,18 +214,8 @@ mod spot_symbol_tests {
     }
 }
 
-// ============================================================================
-// Property 2: Swap Symbol Format Validation
-// **Feature: unified-symbol-format, Property 2: Swap Symbol Format Validation**
-// **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 2: Swap Symbol Format Validation**
-    /// **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
-    ///
     /// *For any* valid base, quote, and settle currency combination:
     /// - Parsing a swap symbol `{BASE}/{QUOTE}:{SETTLE}` SHALL produce a ParsedSymbol
     ///   with correct base, quote, and settle fields, and no expiry field
@@ -385,18 +365,8 @@ mod swap_symbol_tests {
     }
 }
 
-// ============================================================================
-// Property 3: Futures Symbol Format Validation (parsing)
-// **Feature: unified-symbol-format, Property 3: Futures Symbol Format Validation**
-// **Validates: Requirements 3.1, 3.3, 3.4**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 3: Futures Symbol Parsing**
-    /// **Validates: Requirements 3.1, 3.3, 3.4**
-    ///
     /// *For any* valid base, quote, settle currency and valid expiry date:
     /// - Parsing a futures symbol `{BASE}/{QUOTE}:{SETTLE}-{YYMMDD}` SHALL produce
     ///   a ParsedSymbol with all fields correctly populated
@@ -540,18 +510,8 @@ mod futures_symbol_tests {
     }
 }
 
-// ============================================================================
-// Property 4: Symbol Parsing Correctness
-// **Feature: unified-symbol-format, Property 4: Symbol Parsing Correctness**
-// **Validates: Requirements 4.1, 4.3, 4.4**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 4: Symbol Parsing Correctness**
-    /// **Validates: Requirements 4.1, 4.3, 4.4**
-    ///
     /// *For any* valid unified symbol string:
     /// - The parser SHALL extract all components (base, quote, settle, expiry) correctly
     /// - The parser SHALL normalize currency codes to uppercase
@@ -699,18 +659,8 @@ mod parsing_correctness_tests {
     }
 }
 
-// ============================================================================
-// Property 5: Invalid Symbol Rejection
-// **Feature: unified-symbol-format, Property 5: Invalid Symbol Rejection**
-// **Validates: Requirements 4.2**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 5: Empty Symbol Rejection**
-    /// **Validates: Requirements 4.2**
-    ///
     /// *For any* empty or whitespace-only string:
     /// - The parser SHALL return an error
     #[test]
@@ -721,10 +671,6 @@ proptest! {
         let result = SymbolParser::parse(&symbol_str);
         prop_assert!(result.is_err(), "Empty/whitespace symbol should be rejected");
     }
-
-    /// **Feature: unified-symbol-format, Property 5: Missing Slash Rejection**
-    /// **Validates: Requirements 4.2**
-    ///
     /// *For any* symbol without a forward slash:
     /// - The parser SHALL return an error
     #[test]
@@ -892,18 +838,9 @@ mod invalid_symbol_tests {
     }
 }
 
-// ============================================================================
-// Property 3: Futures Symbol Format Validation (date component)
-// **Feature: unified-symbol-format, Property 3: Futures Symbol Format Validation**
-// **Validates: Requirements 3.3, 3.4**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    /// **Feature: unified-symbol-format, Property 3: Futures Symbol Format Validation (date component)**
-    /// **Validates: Requirements 3.3, 3.4**
-    ///
     /// *For any* valid year, month, and day values:
     /// - ExpiryDate::new() SHALL create a valid expiry date
     /// - The date SHALL format to YYMMDD format
@@ -942,9 +879,6 @@ proptest! {
         prop_assert_eq!(parsed, expiry, "Round-trip should produce equivalent ExpiryDate");
     }
 
-    /// **Feature: unified-symbol-format, Property 3: Invalid Date Rejection**
-    /// **Validates: Requirements 3.4**
-    ///
     /// *For any* invalid month (0 or >12) or day (0 or >31):
     /// - ExpiryDate::new() SHALL return an error
     #[test]
@@ -975,9 +909,6 @@ proptest! {
         );
     }
 
-    /// **Feature: unified-symbol-format, Property 3: Futures Symbol with Expiry**
-    /// **Validates: Requirements 3.1, 3.3, 3.4**
-    ///
     /// *For any* valid base, quote, settle currency and valid expiry date:
     /// - Creating a futures symbol SHALL include the expiry in YYMMDD format
     /// - The symbol SHALL have market type Futures
@@ -1072,18 +1003,8 @@ mod expiry_date_tests {
     }
 }
 
-// ============================================================================
-// Property 6: Round-Trip Consistency
-// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency**
-// **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
-
-    /// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency for Spot Symbols**
-    /// **Validates: Requirements 5.1, 5.4**
-    ///
     /// *For any* valid spot ParsedSymbol:
     /// - Formatting it to a string and parsing it back SHALL produce an equivalent ParsedSymbol
     /// - parse(format(symbol)) == symbol
@@ -1112,10 +1033,6 @@ proptest! {
         // Verify the parsed symbol equals the original
         prop_assert!(parsed == original, "Round-trip should produce equivalent symbol");
     }
-
-    /// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency for Linear Swap Symbols**
-    /// **Validates: Requirements 5.2, 5.4**
-    ///
     /// *For any* valid linear swap ParsedSymbol:
     /// - Formatting it to a string and parsing it back SHALL produce an equivalent ParsedSymbol
     #[test]
@@ -1144,10 +1061,6 @@ proptest! {
         // Verify the parsed symbol equals the original
         prop_assert!(parsed == original, "Round-trip should produce equivalent symbol");
     }
-
-    /// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency for Inverse Swap Symbols**
-    /// **Validates: Requirements 5.2, 5.4**
-    ///
     /// *For any* valid inverse swap ParsedSymbol:
     /// - Formatting it to a string and parsing it back SHALL produce an equivalent ParsedSymbol
     #[test]
@@ -1176,10 +1089,6 @@ proptest! {
         // Verify the parsed symbol equals the original
         prop_assert!(parsed == original, "Round-trip should produce equivalent symbol");
     }
-
-    /// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency for Futures Symbols**
-    /// **Validates: Requirements 5.3, 5.4**
-    ///
     /// *For any* valid futures ParsedSymbol:
     /// - Formatting it to a string and parsing it back SHALL produce an equivalent ParsedSymbol
     #[test]
@@ -1224,10 +1133,6 @@ proptest! {
         // Verify the parsed symbol equals the original
         prop_assert!(parsed == original, "Round-trip should produce equivalent symbol");
     }
-
-    /// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency for Inverse Futures Symbols**
-    /// **Validates: Requirements 5.3, 5.4**
-    ///
     /// *For any* valid inverse futures ParsedSymbol:
     /// - Formatting it to a string and parsing it back SHALL produce an equivalent ParsedSymbol
     #[test]
@@ -1264,10 +1169,6 @@ proptest! {
         // Verify the parsed symbol equals the original
         prop_assert!(parsed == original, "Round-trip should produce equivalent symbol");
     }
-
-    /// **Feature: unified-symbol-format, Property 6: Round-Trip Consistency for Any Valid Symbol**
-    /// **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
-    ///
     /// *For any* valid ParsedSymbol (spot, swap, or futures):
     /// - Formatting it to a string and parsing it back SHALL produce an equivalent ParsedSymbol
     /// - This is the comprehensive round-trip test covering all symbol types
@@ -1399,18 +1300,9 @@ mod round_trip_tests {
     }
 }
 
-// ============================================================================
-// Property 7: Market Type Detection
-// **Feature: unified-symbol-format, Property 7: Market Type Detection**
-// **Validates: Requirements 7.1, 7.2, 7.3**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    /// **Feature: unified-symbol-format, Property 7: Market Type Detection - Spot**
-    /// **Validates: Requirements 7.1**
-    ///
     /// *For any* valid unified symbol without a colon (spot symbol):
     /// - The analyzer SHALL correctly identify the market type as Spot
     /// - is_spot() SHALL return true
@@ -1450,9 +1342,6 @@ proptest! {
         );
     }
 
-    /// **Feature: unified-symbol-format, Property 7: Market Type Detection - Swap**
-    /// **Validates: Requirements 7.2**
-    ///
     /// *For any* valid unified symbol with a colon but no date suffix (swap symbol):
     /// - The analyzer SHALL correctly identify the market type as Swap (Perpetual)
     /// - is_swap() SHALL return true
@@ -1493,9 +1382,6 @@ proptest! {
         );
     }
 
-    /// **Feature: unified-symbol-format, Property 7: Market Type Detection - Swap (Inverse)**
-    /// **Validates: Requirements 7.2**
-    ///
     /// *For any* valid inverse swap symbol:
     /// - The analyzer SHALL correctly identify the market type as Swap
     #[test]
@@ -1517,9 +1403,6 @@ proptest! {
         prop_assert!(symbol.is_derivative(), "is_derivative() should return true for inverse swap");
     }
 
-    /// **Feature: unified-symbol-format, Property 7: Market Type Detection - Futures**
-    /// **Validates: Requirements 7.3**
-    ///
     /// *For any* valid unified symbol with a colon and date suffix (futures symbol):
     /// - The analyzer SHALL correctly identify the market type as Futures
     /// - is_futures() SHALL return true
@@ -1570,9 +1453,6 @@ proptest! {
         );
     }
 
-    /// **Feature: unified-symbol-format, Property 7: Market Type Detection - Inverse Futures**
-    /// **Validates: Requirements 7.3**
-    ///
     /// *For any* valid inverse futures symbol:
     /// - The analyzer SHALL correctly identify the market type as Futures
     #[test]
@@ -1604,9 +1484,6 @@ proptest! {
         prop_assert!(symbol.is_derivative(), "is_derivative() should return true for inverse futures");
     }
 
-    /// **Feature: unified-symbol-format, Property 7: Market Type Detection - Comprehensive**
-    /// **Validates: Requirements 7.1, 7.2, 7.3**
-    ///
     /// *For any* valid ParsedSymbol:
     /// - The market type SHALL be correctly determined based on symbol structure
     /// - Exactly one of is_spot(), is_swap(), is_futures() SHALL return true
@@ -1720,18 +1597,9 @@ mod market_type_detection_tests {
     }
 }
 
-// ============================================================================
-// Property 8: Contract Type Detection
-// **Feature: unified-symbol-format, Property 8: Contract Type Detection**
-// **Validates: Requirements 7.4**
-// ============================================================================
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Spot Returns None**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid spot symbol:
     /// - contract_type() SHALL return None (spot symbols have no contract type)
     /// - is_linear() and is_inverse() SHALL return false
@@ -1753,9 +1621,6 @@ proptest! {
         prop_assert!(!symbol.is_inverse(), "is_inverse() should return false for spot symbol");
     }
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Linear Swap**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid linear swap symbol (settle == quote):
     /// - contract_type() SHALL return Some(ContractType::Linear)
     /// - is_linear() SHALL return true
@@ -1787,9 +1652,6 @@ proptest! {
         prop_assert!(!symbol.is_inverse(), "is_inverse() should return false for linear swap");
     }
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Inverse Swap**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid inverse swap symbol (settle == base):
     /// - contract_type() SHALL return Some(ContractType::Inverse)
     /// - is_inverse() SHALL return true
@@ -1821,9 +1683,6 @@ proptest! {
         prop_assert!(symbol.is_inverse(), "is_inverse() should return true for inverse swap");
     }
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Linear Futures**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid linear futures symbol (settle == quote):
     /// - contract_type() SHALL return Some(ContractType::Linear)
     #[test]
@@ -1863,9 +1722,6 @@ proptest! {
         prop_assert!(!symbol.is_inverse(), "is_inverse() should return false for linear futures");
     }
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Inverse Futures**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid inverse futures symbol (settle == base):
     /// - contract_type() SHALL return Some(ContractType::Inverse)
     #[test]
@@ -1905,9 +1761,6 @@ proptest! {
         prop_assert!(symbol.is_inverse(), "is_inverse() should return true for inverse futures");
     }
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Comprehensive**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid derivative symbol (swap or futures):
     /// - contract_type() SHALL return Some(Linear) if settle == quote
     /// - contract_type() SHALL return Some(Inverse) if settle == base
@@ -1969,9 +1822,6 @@ proptest! {
         }
     }
 
-    /// **Feature: unified-symbol-format, Property 8: Contract Type Detection - Round Trip**
-    /// **Validates: Requirements 7.4**
-    ///
     /// *For any* valid derivative symbol:
     /// - Formatting and parsing back SHALL preserve the contract type
     #[test]
