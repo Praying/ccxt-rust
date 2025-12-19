@@ -1148,7 +1148,7 @@ mod order_parsing_correctness {
             match status {
                 "open" | "resting" => prop_assert_eq!(parsed, OrderStatus::Open),
                 "filled" => prop_assert_eq!(parsed, OrderStatus::Closed),
-                "canceled" | "cancelled" => prop_assert_eq!(parsed, OrderStatus::Canceled),
+                "canceled" | "cancelled" => prop_assert_eq!(parsed, OrderStatus::Cancelled),
                 "rejected" => prop_assert_eq!(parsed, OrderStatus::Rejected),
                 _ => {}
             }

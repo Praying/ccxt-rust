@@ -695,7 +695,7 @@ mod parser_tests {
             ("NEW", OrderStatus::Open),
             ("PARTIALLY_FILLED", OrderStatus::Open),
             ("FILLED", OrderStatus::Closed),
-            ("CANCELED", OrderStatus::Canceled),
+            ("CANCELED", OrderStatus::Cancelled),
             ("REJECTED", OrderStatus::Rejected),
             ("EXPIRED", OrderStatus::Expired),
         ];

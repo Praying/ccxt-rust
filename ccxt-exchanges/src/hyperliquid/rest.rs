@@ -142,6 +142,11 @@ impl HyperLiquid {
 
     /// Load and cache market data.
     pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
+        // Acquire the loading lock to serialize concurrent load_markets calls
+        // This prevents multiple tasks from making duplicate API calls
+        let _loading_guard = self.base().market_loading_lock.lock().await;
+
+        // Check cache status while holding the lock
         {
             let cache = self.base().market_cache.read().await;
             if cache.loaded && !reload {
@@ -651,7 +656,7 @@ impl HyperLiquid {
             OrderSide::Buy, // Side is unknown for cancel response
             Decimal::ZERO,
             None,
-            ccxt_core::types::OrderStatus::Canceled,
+            ccxt_core::types::OrderStatus::Cancelled,
         ))
     }
 
@@ -735,7 +740,7 @@ impl HyperLiquid {
         let canceled_orders: Vec<Order> = open_orders
             .into_iter()
             .map(|mut o| {
-                o.status = ccxt_core::types::OrderStatus::Canceled;
+                o.status = ccxt_core::types::OrderStatus::Cancelled;
                 o
             })
             .collect();

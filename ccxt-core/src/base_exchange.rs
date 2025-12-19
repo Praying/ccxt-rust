@@ -15,8 +15,9 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromStr, ToPrimitive};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info};
 
 /// Exchange configuration
@@ -287,6 +288,8 @@ pub struct BaseExchange {
     pub rate_limiter: Option<RateLimiter>,
     /// Thread-safe market data cache
     pub market_cache: Arc<RwLock<MarketCache>>,
+    /// Mutex to serialize market loading operations and prevent concurrent API calls
+    pub market_loading_lock: Arc<Mutex<()>>,
     /// Exchange capability flags
     pub capabilities: ExchangeCapabilities,
     /// API endpoint URLs
@@ -329,14 +332,17 @@ impl BaseExchange {
             retry_config: None,
         };
 
-        let http_client = HttpClient::new(http_config)?;
+        let mut http_client = HttpClient::new(http_config)?;
 
         let rate_limiter = if config.enable_rate_limit {
             let rate_config = RateLimiterConfig::new(
                 config.rate_limit as u32,
                 std::time::Duration::from_millis(1000),
             );
-            Some(RateLimiter::new(rate_config))
+            let limiter = RateLimiter::new(rate_config);
+            // 将 rate_limiter 传递给 http_client，使限流在 HTTP 请求链路中生效
+            http_client.set_rate_limiter(limiter.clone());
+            Some(limiter)
         } else {
             None
         };
@@ -346,6 +352,7 @@ impl BaseExchange {
             http_client,
             rate_limiter,
             market_cache: Arc::new(RwLock::new(MarketCache::default())),
+            market_loading_lock: Arc::new(Mutex::new(())),
             capabilities: ExchangeCapabilities::default(),
             urls: HashMap::new(),
             timeframes: HashMap::new(),
@@ -382,6 +389,72 @@ impl BaseExchange {
         Err(Error::not_implemented(
             "load_markets must be implemented by exchange",
         ))
+    }
+
+    /// Loads market data with a custom loader function, ensuring thread-safe concurrent access.
+    ///
+    /// This method serializes market loading operations to prevent multiple concurrent API calls
+    /// when multiple tasks call `load_markets` simultaneously. Only the first caller will
+    /// execute the loader; subsequent callers will wait for the lock and then return cached data.
+    ///
+    /// # Arguments
+    ///
+    /// * `reload` - Whether to force reload even if markets are already cached
+    /// * `loader` - An async closure that performs the actual market data fetching.
+    ///              Should return `Result<()>` and is responsible for calling `set_markets`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `HashMap` of markets indexed by symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the loader function fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let markets = self.base().load_markets_with_loader(reload, || async {
+    ///     let markets = self.fetch_markets_from_api().await?;
+    ///     self.base().set_markets(markets, None).await?;
+    ///     Ok(())
+    /// }).await?;
+    /// ```
+    pub async fn load_markets_with_loader<F, Fut>(
+        &self,
+        reload: bool,
+        loader: F,
+    ) -> Result<HashMap<String, Market>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        // Acquire the loading lock to serialize concurrent load_markets calls
+        let _loading_guard = self.market_loading_lock.lock().await;
+
+        // Check cache status while holding the lock
+        {
+            let cache = self.market_cache.read().await;
+            if cache.loaded && !reload {
+                debug!(
+                    "Returning cached markets for {} ({} markets)",
+                    self.config.id,
+                    cache.markets.len()
+                );
+                return Ok(cache.markets.clone());
+            }
+        }
+
+        // Execute the loader to fetch and set market data
+        info!(
+            "Loading markets for {} (reload: {})",
+            self.config.id, reload
+        );
+        loader().await?;
+
+        // Return the loaded markets
+        let cache = self.market_cache.read().await;
+        Ok(cache.markets.clone())
     }
 
     /// Sets market and currency data in the cache
@@ -873,7 +946,7 @@ impl BaseExchange {
         let status = match status_str.to_lowercase().as_str() {
             "open" => OrderStatus::Open,
             "closed" => OrderStatus::Closed,
-            "canceled" | "cancelled" => OrderStatus::Canceled,
+            "canceled" | "cancelled" => OrderStatus::Cancelled,
             "expired" => OrderStatus::Expired,
             "rejected" => OrderStatus::Rejected,
             _ => OrderStatus::Open,

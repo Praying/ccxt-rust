@@ -508,8 +508,8 @@ pub fn parse_order_status(status: &str) -> OrderStatus {
         "live" => OrderStatus::Open,
         "partially_filled" => OrderStatus::Open,
         "filled" => OrderStatus::Closed,
-        "canceled" | "cancelled" => OrderStatus::Canceled,
-        "mmp_canceled" => OrderStatus::Canceled,
+        "canceled" | "cancelled" => OrderStatus::Cancelled,
+        "mmp_canceled" => OrderStatus::Cancelled,
         "expired" => OrderStatus::Expired,
         "rejected" => OrderStatus::Rejected,
         _ => OrderStatus::Open, // Default to Open for unknown statuses
@@ -815,8 +815,8 @@ mod tests {
         assert_eq!(parse_order_status("live"), OrderStatus::Open);
         assert_eq!(parse_order_status("partially_filled"), OrderStatus::Open);
         assert_eq!(parse_order_status("filled"), OrderStatus::Closed);
-        assert_eq!(parse_order_status("canceled"), OrderStatus::Canceled);
-        assert_eq!(parse_order_status("mmp_canceled"), OrderStatus::Canceled);
+        assert_eq!(parse_order_status("canceled"), OrderStatus::Cancelled);
+        assert_eq!(parse_order_status("mmp_canceled"), OrderStatus::Cancelled);
         assert_eq!(parse_order_status("expired"), OrderStatus::Expired);
         assert_eq!(parse_order_status("rejected"), OrderStatus::Rejected);
     }

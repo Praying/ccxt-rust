@@ -69,7 +69,7 @@ pub use order::{
     CancelAllOrdersResult, CancelReplaceResponse, OcoOrder, OcoOrderInfo, Order, OrderReport,
     OrderSide, OrderStatus, OrderType, TimeInForce,
 };
-pub use orderbook::{OrderBook, OrderBookEntry, OrderBookSide};
+pub use orderbook::{OrderBook, OrderBookDelta, OrderBookEntry, OrderBookSide};
 pub use position::{Leverage, MarginType, Position, PositionSide};
 pub use risk::{MaxLeverage, OpenInterest, OpenInterestHistory};
 pub use symbol::{ContractType, ExpiryDate, ParsedSymbol, SymbolMarketType};

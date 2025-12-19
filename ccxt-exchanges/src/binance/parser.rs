@@ -12,8 +12,9 @@ use ccxt_core::{
         LedgerDirection, LedgerEntry, LedgerEntryType, Leverage, LeverageTier, Liquidation,
         MarginAdjustment, MarginLoan, MarginType, MarkPrice, Market, MaxBorrowable, MaxLeverage,
         MaxTransferable, NextFundingRate, OHLCV, OcoOrder, OcoOrderInfo, OpenInterest,
-        OpenInterestHistory, Order, OrderBook, OrderBookEntry, OrderReport, OrderSide, OrderStatus,
-        OrderType, Position, PremiumIndex, TakerOrMaker, Ticker, TimeInForce, Trade, Transfer,
+        OpenInterestHistory, Order, OrderBook, OrderBookDelta, OrderBookEntry, OrderReport,
+        OrderSide, OrderStatus, OrderType, Position, PremiumIndex, TakerOrMaker, Ticker,
+        TimeInForce, Trade, Transfer,
         financial::{Amount, Cost, Price},
     },
 };
@@ -411,7 +412,7 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
     let status = match status_str {
         "NEW" | "PARTIALLY_FILLED" => OrderStatus::Open,
         "FILLED" => OrderStatus::Closed,
-        "CANCELED" => OrderStatus::Canceled,
+        "CANCELED" => OrderStatus::Cancelled,
         "EXPIRED" => OrderStatus::Expired,
         "REJECTED" => OrderStatus::Rejected,
         _ => OrderStatus::Open,
@@ -697,6 +698,121 @@ fn parse_orderbook_side(data: &Value) -> Result<Vec<OrderBookEntry>> {
         .ok_or_else(|| Error::from(ParseError::invalid_value("data", "orderbook side")))?;
 
     let mut result = Vec::new();
+
+    for item in array {
+        if let Some(arr) = item.as_array() {
+            if arr.len() >= 2 {
+                let price = arr[0]
+                    .as_str()
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .and_then(Decimal::from_f64_retain)
+                    .ok_or_else(|| Error::from(ParseError::invalid_value("data", "price")))?;
+                let amount = arr[1]
+                    .as_str()
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .and_then(Decimal::from_f64_retain)
+                    .ok_or_else(|| Error::from(ParseError::invalid_value("data", "amount")))?;
+                result.push(OrderBookEntry {
+                    price: Price::new(price),
+                    amount: Amount::new(amount),
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Parse WebSocket orderbook delta data from Binance diff depth stream.
+///
+/// This function parses incremental orderbook updates for proper synchronization.
+/// Binance sends different fields for spot vs futures:
+/// - Spot: `U` (first update ID), `u` (final update ID)
+/// - Futures: `U`, `u`, and `pu` (previous final update ID)
+///
+/// # Arguments
+///
+/// * `data` - Binance WebSocket orderbook delta JSON object
+/// * `symbol` - Trading pair symbol (ccxt format, e.g., "BTC/USDT")
+///
+/// # Returns
+///
+/// Returns a CCXT [`OrderBookDelta`] structure for synchronization.
+///
+/// # Example WebSocket Message (Spot)
+///
+/// ```json
+/// {
+///   "e": "depthUpdate",
+///   "E": 1672515782136,
+///   "s": "BTCUSDT",
+///   "U": 157,
+///   "u": 160,
+///   "b": [["0.0024", "10"]],
+///   "a": [["0.0026", "100"]]
+/// }
+/// ```
+///
+/// # Example WebSocket Message (Futures)
+///
+/// ```json
+/// {
+///   "e": "depthUpdate",
+///   "E": 1672515782136,
+///   "s": "BTCUSDT",
+///   "U": 157,
+///   "u": 160,
+///   "pu": 156,
+///   "b": [["0.0024", "10"]],
+///   "a": [["0.0026", "100"]]
+/// }
+/// ```
+pub fn parse_ws_orderbook_delta(data: &Value, symbol: String) -> Result<OrderBookDelta> {
+    // Parse update IDs for synchronization
+    // U: First update ID in event
+    let first_update_id = data["U"]
+        .as_i64()
+        .ok_or_else(|| Error::from(ParseError::missing_field("U (first_update_id)")))?;
+
+    // u: Final update ID in event
+    let final_update_id = data["u"]
+        .as_i64()
+        .ok_or_else(|| Error::from(ParseError::missing_field("u (final_update_id)")))?;
+
+    // pu: Previous final update ID (futures only, optional for spot)
+    let prev_final_update_id = data["pu"].as_i64();
+
+    // E: Event time
+    let timestamp = data["E"]
+        .as_i64()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+    // Parse bids and asks using WebSocket field names (b, a)
+    let bids = parse_orderbook_side_ws(&data["b"])?;
+    let asks = parse_orderbook_side_ws(&data["a"])?;
+
+    Ok(OrderBookDelta {
+        symbol,
+        first_update_id,
+        final_update_id,
+        prev_final_update_id,
+        timestamp,
+        bids,
+        asks,
+    })
+}
+
+/// Parse one side (bids or asks) of WebSocket orderbook delta data.
+///
+/// WebSocket uses `b` and `a` field names instead of `bids` and `asks`.
+fn parse_orderbook_side_ws(data: &Value) -> Result<Vec<OrderBookEntry>> {
+    // If the field is null or missing, return empty vector
+    let array = match data.as_array() {
+        Some(arr) => arr,
+        None => return Ok(Vec::new()),
+    };
+
+    let mut result = Vec::with_capacity(array.len());
 
     for item in array {
         if let Some(arr) = item.as_array() {
@@ -3733,7 +3849,7 @@ mod tests {
             let status_enum = match expected_status {
                 "open" => OrderStatus::Open,
                 "closed" => OrderStatus::Closed,
-                "canceled" | "cancelled" => OrderStatus::Canceled,
+                "canceled" | "cancelled" => OrderStatus::Cancelled,
                 "expired" => OrderStatus::Expired,
                 "rejected" => OrderStatus::Rejected,
                 _ => OrderStatus::Open,

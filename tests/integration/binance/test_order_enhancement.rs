@@ -64,8 +64,8 @@ async fn test_fetch_canceled_orders() {
             for order in &orders {
                 assert_eq!(
                     order.status,
-                    OrderStatus::Canceled,
-                    "订单状态应该是Canceled"
+                    OrderStatus::Cancelled,
+                    "订单状态应该是Cancelled"
                 );
                 assert_eq!(order.symbol, symbol, "交易对应该匹配");
                 assert!(order.id.is_some(), "订单ID应该存在");
@@ -100,8 +100,8 @@ async fn test_fetch_canceled_orders_no_symbol() {
             for order in &orders {
                 assert_eq!(
                     order.status,
-                    OrderStatus::Canceled,
-                    "订单状态应该是Canceled"
+                    OrderStatus::Cancelled,
+                    "订单状态应该是Cancelled"
                 );
             }
             println!("✅ 成功获取 {} 个已取消订单（所有交易对）", orders.len());

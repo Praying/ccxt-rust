@@ -1445,7 +1445,7 @@ mod order_status_mapping {
                     result,
                     OrderStatus::Open
                         | OrderStatus::Closed
-                        | OrderStatus::Canceled
+                        | OrderStatus::Cancelled
                         | OrderStatus::Expired
                         | OrderStatus::Rejected
                 ),
@@ -1466,7 +1466,7 @@ mod order_status_mapping {
                     result,
                     OrderStatus::Open
                         | OrderStatus::Closed
-                        | OrderStatus::Canceled
+                        | OrderStatus::Cancelled
                         | OrderStatus::Expired
                         | OrderStatus::Rejected
                 ),
@@ -1493,7 +1493,7 @@ mod order_status_mapping {
             match status {
                 "live" | "partially_filled" => prop_assert_eq!(result, OrderStatus::Open),
                 "filled" => prop_assert_eq!(result, OrderStatus::Closed),
-                "canceled" | "mmp_canceled" => prop_assert_eq!(result, OrderStatus::Canceled),
+                "canceled" | "mmp_canceled" => prop_assert_eq!(result, OrderStatus::Cancelled),
                 "expired" => prop_assert_eq!(result, OrderStatus::Expired),
                 "rejected" => prop_assert_eq!(result, OrderStatus::Rejected),
                 _ => {}
@@ -1517,7 +1517,7 @@ mod order_status_mapping {
             match status {
                 "New" | "PartiallyFilled" => prop_assert_eq!(result, OrderStatus::Open),
                 "Filled" => prop_assert_eq!(result, OrderStatus::Closed),
-                "Cancelled" => prop_assert_eq!(result, OrderStatus::Canceled),
+                "Cancelled" => prop_assert_eq!(result, OrderStatus::Cancelled),
                 "Rejected" => prop_assert_eq!(result, OrderStatus::Rejected),
                 "Expired" => prop_assert_eq!(result, OrderStatus::Expired),
                 _ => {}
@@ -1734,7 +1734,7 @@ mod order_data_roundtrip {
         prop_oneof![
             Just(OrderStatus::Open),
             Just(OrderStatus::Closed),
-            Just(OrderStatus::Canceled),
+            Just(OrderStatus::Cancelled),
         ]
     }
 

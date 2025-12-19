@@ -279,7 +279,7 @@ pub fn parse_order_status(status: &str) -> OrderStatus {
     match status.to_lowercase().as_str() {
         "open" | "resting" => OrderStatus::Open,
         "filled" => OrderStatus::Closed,
-        "canceled" | "cancelled" => OrderStatus::Canceled,
+        "canceled" | "cancelled" => OrderStatus::Cancelled,
         "rejected" => OrderStatus::Rejected,
         _ => OrderStatus::Open,
     }
@@ -554,7 +554,7 @@ mod tests {
     fn test_parse_order_status() {
         assert_eq!(parse_order_status("open"), OrderStatus::Open);
         assert_eq!(parse_order_status("filled"), OrderStatus::Closed);
-        assert_eq!(parse_order_status("canceled"), OrderStatus::Canceled);
+        assert_eq!(parse_order_status("canceled"), OrderStatus::Cancelled);
     }
 
     #[test]
