@@ -11,6 +11,7 @@ use ccxt_core::{
     },
 };
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 
 use super::Binance;
@@ -197,8 +198,15 @@ impl Exchange for Binance {
         price: Option<Decimal>,
     ) -> Result<Order> {
         // Convert Decimal to f64 for existing implementation
-        let amount_f64 = amount.to_string().parse::<f64>().unwrap_or(0.0);
-        let price_f64 = price.map(|p| p.to_string().parse::<f64>().unwrap_or(0.0));
+        let amount_f64 = amount
+            .to_f64()
+            .ok_or_else(|| ccxt_core::Error::invalid_request("Failed to convert amount to f64"))?;
+        let price_f64 = match price {
+            Some(p) => Some(p.to_f64().ok_or_else(|| {
+                ccxt_core::Error::invalid_request("Failed to convert price to f64")
+            })?),
+            None => None,
+        };
 
         Binance::create_order(self, symbol, order_type, side, amount_f64, price_f64, None).await
     }

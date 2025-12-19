@@ -585,7 +585,7 @@ pub fn parse_order_status(status: &str) -> OrderStatus {
         "PartiallyFilled" => OrderStatus::Open,
         "Filled" => OrderStatus::Closed,
         "Cancelled" | "Canceled" | "PartiallyFilledCanceled" | "Deactivated" => {
-            OrderStatus::Canceled
+            OrderStatus::Cancelled
         }
         "Rejected" => OrderStatus::Rejected,
         "Expired" => OrderStatus::Expired,
@@ -908,7 +908,7 @@ mod tests {
         assert_eq!(parse_order_status("New"), OrderStatus::Open);
         assert_eq!(parse_order_status("PartiallyFilled"), OrderStatus::Open);
         assert_eq!(parse_order_status("Filled"), OrderStatus::Closed);
-        assert_eq!(parse_order_status("Cancelled"), OrderStatus::Canceled);
+        assert_eq!(parse_order_status("Cancelled"), OrderStatus::Cancelled);
         assert_eq!(parse_order_status("Rejected"), OrderStatus::Rejected);
         assert_eq!(parse_order_status("Expired"), OrderStatus::Expired);
     }

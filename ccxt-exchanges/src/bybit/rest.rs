@@ -262,6 +262,11 @@ impl Bybit {
     ///
     /// Returns a `HashMap` containing all market data, keyed by symbol (e.g., "BTC/USDT").
     pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
+        // Acquire the loading lock to serialize concurrent load_markets calls
+        // This prevents multiple tasks from making duplicate API calls
+        let _loading_guard = self.base().market_loading_lock.lock().await;
+
+        // Check cache status while holding the lock
         {
             let cache = self.base().market_cache.read().await;
             if cache.loaded && !reload {

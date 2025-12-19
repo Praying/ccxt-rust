@@ -121,7 +121,7 @@ async fn test_fetch_closed_orders() -> Result<()> {
     for order in &orders {
         assert!(
             order.status == OrderStatus::Closed
-                || order.status == OrderStatus::Canceled
+                || order.status == OrderStatus::Cancelled
                 || order.status == OrderStatus::Rejected
                 || order.status == OrderStatus::Expired,
             "Order status should be a closed type"

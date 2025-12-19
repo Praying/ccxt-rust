@@ -284,9 +284,7 @@ async fn advanced_example_monitor_orders(
 
             for order in &orders {
                 match order.status {
-                    OrderStatus::Canceled | OrderStatus::Cancelled => {
-                        *stats.get_mut("canceled").unwrap() += 1
-                    }
+                    OrderStatus::Cancelled => *stats.get_mut("canceled").unwrap() += 1,
                     OrderStatus::Closed => {
                         *stats.get_mut("filled").unwrap() += 1;
                         if let Some(filled) = order.filled {

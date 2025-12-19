@@ -64,7 +64,6 @@ impl BinanceAuth {
         let result = mac.finalize();
         let signature = hex::encode(result.into_bytes());
 
-        tracing::debug!("🔍 [AUTH DEBUG] Generated signature: {}", signature);
         Ok(signature)
     }
 

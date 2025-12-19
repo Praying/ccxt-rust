@@ -1091,7 +1091,7 @@ mod order_status_mapping_completeness {
                     prop_assert_eq!(result, OrderStatus::Closed);
                 }
                 "cancelled" | "canceled" | "cancel" => {
-                    prop_assert_eq!(result, OrderStatus::Canceled);
+                    prop_assert_eq!(result, OrderStatus::Cancelled);
                 }
                 "expired" | "expire" => {
                     prop_assert_eq!(result, OrderStatus::Expired);
@@ -1115,7 +1115,6 @@ mod order_status_mapping_completeness {
                     result,
                     OrderStatus::Open
                         | OrderStatus::Closed
-                        | OrderStatus::Canceled
                         | OrderStatus::Cancelled
                         | OrderStatus::Expired
                         | OrderStatus::Rejected
@@ -1236,7 +1235,7 @@ mod data_roundtrip_consistency {
         prop_oneof![
             Just(OrderStatus::Open),
             Just(OrderStatus::Closed),
-            Just(OrderStatus::Canceled),
+            Just(OrderStatus::Cancelled),
             Just(OrderStatus::Expired),
         ]
     }

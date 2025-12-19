@@ -114,9 +114,7 @@ pub enum OrderStatus {
     Open,
     /// Order is closed (filled or cancelled)
     Closed,
-    /// Order was cancelled
-    Canceled,
-    /// Order was cancelled
+    /// Order was cancelled (British spelling - preferred)
     Cancelled,
     /// Order is expired
     Expired,
@@ -132,7 +130,7 @@ impl std::fmt::Display for OrderStatus {
         let s = match self {
             Self::Open => "open",
             Self::Closed => "closed",
-            Self::Canceled | Self::Cancelled => "canceled",
+            Self::Cancelled => "cancelled",
             Self::Expired => "expired",
             Self::Rejected => "rejected",
             Self::Partial => "partial",
@@ -297,10 +295,7 @@ impl Order {
 
     /// Check if order is closed
     pub fn is_closed(&self) -> bool {
-        matches!(
-            self.status,
-            OrderStatus::Closed | OrderStatus::Canceled | OrderStatus::Cancelled
-        )
+        matches!(self.status, OrderStatus::Closed | OrderStatus::Cancelled)
     }
 
     /// Check if order is filled
@@ -312,7 +307,7 @@ impl Order {
 
     /// Check if order is cancelled
     pub fn is_cancelled(&self) -> bool {
-        matches!(self.status, OrderStatus::Canceled | OrderStatus::Cancelled)
+        matches!(self.status, OrderStatus::Cancelled)
     }
 
     /// Get DateTime from timestamp
