@@ -401,7 +401,7 @@ impl BaseExchange {
     ///
     /// * `reload` - Whether to force reload even if markets are already cached
     /// * `loader` - An async closure that performs the actual market data fetching.
-    ///              Should return `Result<()>` and is responsible for calling `set_markets`.
+    ///   Should return `Result<()>` and is responsible for calling `set_markets`.
     ///
     /// # Returns
     ///

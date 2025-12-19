@@ -807,9 +807,8 @@ pub fn parse_ws_orderbook_delta(data: &Value, symbol: String) -> Result<OrderBoo
 /// WebSocket uses `b` and `a` field names instead of `bids` and `asks`.
 fn parse_orderbook_side_ws(data: &Value) -> Result<Vec<OrderBookEntry>> {
     // If the field is null or missing, return empty vector
-    let array = match data.as_array() {
-        Some(arr) => arr,
-        None => return Ok(Vec::new()),
+    let Some(array) = data.as_array() else {
+        return Ok(Vec::new());
     };
 
     let mut result = Vec::with_capacity(array.len());
