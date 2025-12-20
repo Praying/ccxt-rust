@@ -1533,8 +1533,8 @@ mod exchange_trait_consistency {
             let trait_obj: &dyn Exchange = &exchange;
 
             prop_assert!(
-                (trait_obj.rate_limit() - 100.0).abs() < f64::EPSILON,
-                "Rate limit should be 100.0"
+                trait_obj.rate_limit() == 100,
+                "Rate limit should be 100"
             );
         }
     }

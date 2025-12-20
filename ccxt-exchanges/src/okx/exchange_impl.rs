@@ -84,8 +84,8 @@ impl Exchange for Okx {
         ]
     }
 
-    fn rate_limit(&self) -> f64 {
-        20.0
+    fn rate_limit(&self) -> u32 {
+        20
     }
 
     // ==================== Market Data (Public API) ====================
@@ -324,7 +324,7 @@ mod tests {
         let okx = Okx::new(config).unwrap();
 
         let exchange: &dyn Exchange = &okx;
-        assert!((exchange.rate_limit() - 20.0).abs() < f64::EPSILON);
+        assert_eq!(exchange.rate_limit(), 20);
     }
 
     #[test]
@@ -337,7 +337,7 @@ mod tests {
 
         assert_eq!(exchange.id(), "okx");
         assert_eq!(exchange.name(), "OKX");
-        assert!((exchange.rate_limit() - 20.0).abs() < f64::EPSILON);
+        assert_eq!(exchange.rate_limit(), 20);
     }
 
     #[test]

@@ -39,8 +39,8 @@ pub struct ExchangeConfig {
     pub account_id: Option<String>,
     /// Enable rate limiting
     pub enable_rate_limit: bool,
-    /// Rate limit in milliseconds between requests
-    pub rate_limit: f64,
+    /// Rate limit in requests per second
+    pub rate_limit: u32,
     /// Request timeout in seconds
     pub timeout: u64,
     /// Enable sandbox/testnet mode
@@ -68,7 +68,7 @@ impl Default for ExchangeConfig {
             uid: None,
             account_id: None,
             enable_rate_limit: true,
-            rate_limit: 2000.0,
+            rate_limit: 10,
             timeout: 30,
             sandbox: false,
             user_agent: Some(format!("ccxt-rust/{}", env!("CARGO_PKG_VERSION"))),
@@ -177,8 +177,8 @@ impl ExchangeConfigBuilder {
         self
     }
 
-    /// Set the rate limit in milliseconds between requests
-    pub fn rate_limit(mut self, rate_limit: f64) -> Self {
+    /// Set the rate limit in requests per second
+    pub fn rate_limit(mut self, rate_limit: u32) -> Self {
         self.config.rate_limit = rate_limit;
         self
     }
@@ -335,10 +335,8 @@ impl BaseExchange {
         let mut http_client = HttpClient::new(http_config)?;
 
         let rate_limiter = if config.enable_rate_limit {
-            let rate_config = RateLimiterConfig::new(
-                config.rate_limit as u32,
-                std::time::Duration::from_millis(1000),
-            );
+            let rate_config =
+                RateLimiterConfig::new(config.rate_limit, std::time::Duration::from_millis(1000));
             let limiter = RateLimiter::new(rate_config);
             // 将 rate_limiter 传递给 http_client，使限流在 HTTP 请求链路中生效
             http_client.set_rate_limiter(limiter.clone());
@@ -1418,7 +1416,7 @@ mod parse_tests {
             enable_rate_limit: true,
             verbose: false,
             account_id: None,
-            rate_limit: 0.0,
+            rate_limit: 0,
             proxy: None,
             options: Default::default(),
             url_overrides: Default::default(),

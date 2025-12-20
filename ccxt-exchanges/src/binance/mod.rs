@@ -262,8 +262,8 @@ impl Binance {
     }
 
     /// Returns the rate limit in requests per second.
-    pub fn rate_limit(&self) -> f64 {
-        50.0
+    pub fn rate_limit(&self) -> u32 {
+        50
     }
 
     /// Returns `true` if sandbox/testnet mode is enabled.
@@ -863,7 +863,7 @@ mod tests {
             "adjust_for_time_difference": false,
             "recv_window": 5000,
             "default_type": "SWAP",
-            "test": false,
+            "test": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Swap);
@@ -873,7 +873,7 @@ mod tests {
             "adjust_for_time_difference": false,
             "recv_window": 5000,
             "default_type": "FuTuReS",
-            "test": false,
+            "test": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Futures);

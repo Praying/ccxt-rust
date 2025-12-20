@@ -192,9 +192,9 @@ impl HyperLiquid {
     }
 
     /// Returns the rate limit in requests per second.
-    pub fn rate_limit(&self) -> f64 {
+    pub fn rate_limit(&self) -> u32 {
         // HyperLiquid has generous rate limits
-        100.0
+        100
     }
 
     /// Returns `true` if sandbox/testnet mode is enabled.

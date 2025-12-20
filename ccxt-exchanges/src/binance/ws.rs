@@ -1198,9 +1198,10 @@ impl BinanceWs {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
     /// # use std::sync::Arc;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let binance = Arc::new(Binance::new());
+    /// let binance = Arc::new(Binance::new(ExchangeConfig::default())?);
     /// let ws = binance.create_authenticated_ws();
     /// ws.connect_user_stream().await?;
     /// # Ok(())
@@ -2515,10 +2516,12 @@ impl Binance {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # use ccxt_core::types::Price;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let exchange = Binance::new();
+    /// let exchange = Binance::new(ExchangeConfig::default())?;
     /// let ticker = exchange.watch_ticker("BTC/USDT", None).await?;
-    /// println!("Price: {}", ticker.last.unwrap_or(0.0));
+    /// println!("Price: {}", ticker.last.unwrap_or(Price::ZERO));
     /// # Ok(())
     /// # }
     /// ```
@@ -2563,8 +2566,9 @@ impl Binance {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let exchange = Binance::new();
+    /// let exchange = Binance::new(ExchangeConfig::default())?;
     ///
     /// // Watch a subset of symbols
     /// let tickers = exchange.watch_tickers(
@@ -2633,10 +2637,11 @@ impl Binance {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
     /// # use std::collections::HashMap;
     /// # use serde_json::json;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let exchange = Binance::new();
+    /// let exchange = Binance::new(ExchangeConfig::default())?;
     ///
     /// // Use 1-second updates
     /// let ticker = exchange.watch_mark_price("BTC/USDT:USDT", None).await?;
@@ -2704,10 +2709,11 @@ impl Binance {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
     /// # use std::collections::HashMap;
     /// # use serde_json::json;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let exchange = Binance::new();
+    /// let exchange = Binance::new(ExchangeConfig::default())?;
     ///
     /// // Watch order book with 100 ms updates
     /// let orderbook = exchange.watch_order_book("BTC/USDT", None, None).await?;
@@ -2779,8 +2785,9 @@ impl Binance {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let exchange = Binance::new();
+    /// let exchange = Binance::new(ExchangeConfig::default())?;
     ///
     /// let symbols = vec![
     ///     "BTC/USDT".to_string(),
@@ -3140,20 +3147,21 @@ impl Binance {
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
     /// # use std::collections::HashMap;
+    /// # use std::sync::Arc;
     /// # use serde_json::json;
     /// # async fn example() -> ccxt_core::error::Result<()> {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your-api-key".to_string());
     /// config.secret = Some("your-secret".to_string());
-    /// let exchange = Binance::new(config)?;
+    /// let exchange = Arc::new(Binance::new(config)?);
     ///
     /// // Watch spot account balance
-    /// let balance = exchange.watch_balance(None).await?;
+    /// let balance = exchange.clone().watch_balance(None).await?;
     ///
     /// // Watch futures account balance
     /// let mut params = HashMap::new();
     /// params.insert("type".to_string(), json!("future"));
-    /// let futures_balance = exchange.watch_balance(Some(params)).await?;
+    /// let futures_balance = exchange.clone().watch_balance(Some(params)).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -3263,14 +3271,14 @@ impl Binance {
     /// use ccxt_exchanges::binance::Binance;
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let exchange = Arc::new(Binance::new(Default::default()));
+    ///     let exchange = Arc::new(Binance::new(Default::default())?);
     ///
     ///     // Watch all order updates
-    ///     let orders = exchange.watch_orders(None, None, None, None).await?;
+    ///     let orders = exchange.clone().watch_orders(None, None, None, None).await?;
     ///     println!("Received {} order updates", orders.len());
     ///
     ///     // Watch updates for a specific trading pair
-    ///     let btc_orders = exchange.watch_orders(Some("BTC/USDT"), None, None, None).await?;
+    ///     let btc_orders = exchange.clone().watch_orders(Some("BTC/USDT"), None, None, None).await?;
     ///     println!("BTC/USDT orders: {:?}", btc_orders);
     ///
     ///     Ok(())
@@ -3527,15 +3535,19 @@ impl Binance {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::ExchangeConfig;
     ///
     /// #[tokio::main]
-    /// async fn main() {
-    ///     let exchange = Arc::new(Binance::new(Default::default()));
-    ///     let ws = exchange.create_authenticated_ws();
-    ///     
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut config = ExchangeConfig::default();
+    ///     config.api_key = Some("your-api-key".to_string());
+    ///     config.secret = Some("your-secret".to_string());
+    ///     let exchange = Arc::new(Binance::new(config)?);
+    ///
     ///     // Subscribe to BTC/USDT trade updates
-    ///     let trades = ws.watch_my_trades(Some("BTC/USDT"), None, None, None).await.unwrap();
+    ///     let trades = exchange.clone().watch_my_trades(Some("BTC/USDT"), None, None, None).await?;
     ///     println!("My trades: {:?}", trades);
+    ///     Ok(())
     /// }
     /// ```
     pub async fn watch_my_trades(
@@ -3637,12 +3649,13 @@ impl Binance {
     /// # Example
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
     /// # use std::sync::Arc;
     /// # async fn example() -> ccxt_core::error::Result<()> {
-    /// let exchange = Arc::new(Binance::new());
+    /// let exchange = Arc::new(Binance::new(ExchangeConfig::default())?);
     ///
     /// // Watch all positions
-    /// let positions = exchange.watch_positions(None, None, None, None).await?;
+    /// let positions = exchange.clone().watch_positions(None, None, None, None).await?;
     /// for pos in positions {
     ///     println!("Symbol: {}, Side: {:?}, Contracts: {:?}",
     ///              pos.symbol, pos.side, pos.contracts);
@@ -3650,7 +3663,7 @@ impl Binance {
     ///
     /// // Watch a subset of symbols
     /// let symbols = vec!["BTC/USDT".to_string(), "ETH/USDT".to_string()];
-    /// let positions = exchange.watch_positions(Some(symbols), None, Some(10), None).await?;
+    /// let positions = exchange.clone().watch_positions(Some(symbols), None, Some(10), None).await?;
     /// # Ok(())
     /// # }
     /// ```

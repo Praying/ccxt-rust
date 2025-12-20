@@ -3,6 +3,7 @@
 //! This module provides standardized structures for futures contract mark prices,
 //! used for calculating unrealized PnL and liquidation prices.
 
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// Mark price data structure.
@@ -12,19 +13,21 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 /// ```rust
 /// use ccxt_core::types::MarkPrice;
+/// use rust_decimal::Decimal;
+/// use rust_decimal_macros::dec;
 ///
 /// let mark_price = MarkPrice {
 ///     symbol: "BTC/USDT".to_string(),
-///     mark_price: 50000.0,
-///     index_price: Some(49995.0),
-///     estimated_settle_price: Some(50005.0),
-///     last_funding_rate: Some(0.0001),
+///     mark_price: dec!(50000),
+///     index_price: Some(dec!(49995)),
+///     estimated_settle_price: Some(dec!(50005)),
+///     last_funding_rate: Some(dec!(0.0001)),
 ///     next_funding_time: Some(1637000000000),
-///     interest_rate: Some(0.0003),
+///     interest_rate: Some(dec!(0.0003)),
 ///     timestamp: 1637000000000,
 /// };
 ///
-/// println!("Basis (mark - index): {:.2}", mark_price.basis().unwrap_or(0.0));
+/// println!("Basis (mark - index): {}", mark_price.basis().unwrap_or(Decimal::ZERO));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarkPrice {
@@ -32,19 +35,19 @@ pub struct MarkPrice {
     pub symbol: String,
 
     /// Mark price (used for unrealized PnL calculation).
-    pub mark_price: f64,
+    pub mark_price: Decimal,
 
     /// Index price (spot index).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub index_price: Option<f64>,
+    pub index_price: Option<Decimal>,
 
     /// Estimated settlement price.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub estimated_settle_price: Option<f64>,
+    pub estimated_settle_price: Option<Decimal>,
 
     /// Latest funding rate.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_funding_rate: Option<f64>,
+    pub last_funding_rate: Option<Decimal>,
 
     /// Next funding time timestamp in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,7 +55,7 @@ pub struct MarkPrice {
 
     /// Interest rate.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub interest_rate: Option<f64>,
+    pub interest_rate: Option<Decimal>,
 
     /// Data timestamp in milliseconds.
     pub timestamp: i64,
@@ -73,12 +76,12 @@ impl MarkPrice {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         symbol: String,
-        mark_price: f64,
-        index_price: Option<f64>,
-        estimated_settle_price: Option<f64>,
-        last_funding_rate: Option<f64>,
+        mark_price: Decimal,
+        index_price: Option<Decimal>,
+        estimated_settle_price: Option<Decimal>,
+        last_funding_rate: Option<Decimal>,
         next_funding_time: Option<i64>,
-        interest_rate: Option<f64>,
+        interest_rate: Option<Decimal>,
         timestamp: i64,
     ) -> Self {
         Self {
@@ -99,7 +102,7 @@ impl MarkPrice {
     /// * `symbol` - Trading symbol
     /// * `mark_price` - Mark price
     /// * `timestamp` - Data timestamp
-    pub fn simple(symbol: String, mark_price: f64, timestamp: i64) -> Self {
+    pub fn simple(symbol: String, mark_price: Decimal, timestamp: i64) -> Self {
         Self {
             symbol,
             mark_price,
@@ -120,16 +123,17 @@ impl MarkPrice {
     /// # Examples
     /// ```rust
     /// # use ccxt_core::types::MarkPrice;
+    /// # use rust_decimal_macros::dec;
     /// let mark_price = MarkPrice::new(
     ///     "BTC/USDT".to_string(),
-    ///     50000.0,
-    ///     Some(49995.0),
+    ///     dec!(50000),
+    ///     Some(dec!(49995)),
     ///     None, None, None, None,
     ///     1637000000000
     /// );
-    /// assert_eq!(mark_price.basis(), Some(5.0));
+    /// assert_eq!(mark_price.basis(), Some(dec!(5)));
     /// ```
-    pub fn basis(&self) -> Option<f64> {
+    pub fn basis(&self) -> Option<Decimal> {
         self.index_price.map(|ip| self.mark_price - ip)
     }
 
@@ -141,21 +145,22 @@ impl MarkPrice {
     /// # Examples
     /// ```rust
     /// # use ccxt_core::types::MarkPrice;
+    /// # use rust_decimal_macros::dec;
     /// let mark_price = MarkPrice::new(
     ///     "BTC/USDT".to_string(),
-    ///     50100.0,
-    ///     Some(50000.0),
+    ///     dec!(50100),
+    ///     Some(dec!(50000)),
     ///     None, None, None, None,
     ///     1637000000000
     /// );
-    /// assert_eq!(mark_price.basis_rate(), Some(0.2));
+    /// assert_eq!(mark_price.basis_rate(), Some(dec!(0.2)));
     /// ```
-    pub fn basis_rate(&self) -> Option<f64> {
+    pub fn basis_rate(&self) -> Option<Decimal> {
         self.index_price.and_then(|ip| {
-            if ip == 0.0 {
+            if ip == Decimal::ZERO {
                 None
             } else {
-                Some((self.mark_price - ip) / ip * 100.0)
+                Some((self.mark_price - ip) / ip * Decimal::ONE_HUNDRED)
             }
         })
     }
@@ -164,8 +169,8 @@ impl MarkPrice {
     ///
     /// # Returns
     /// The funding rate percentage, or `None` if not available.
-    pub fn funding_rate_percent(&self) -> Option<f64> {
-        self.last_funding_rate.map(|fr| fr * 100.0)
+    pub fn funding_rate_percent(&self) -> Option<Decimal> {
+        self.last_funding_rate.map(|fr| fr * Decimal::ONE_HUNDRED)
     }
 
     /// Calculates the time until the next funding in seconds.
@@ -180,11 +185,11 @@ impl MarkPrice {
     /// Checks if the mark price deviation from index price exceeds a threshold.
     ///
     /// # Arguments
-    /// * `threshold_percent` - Threshold percentage (e.g., 1.0 for 1%)
+    /// * `threshold_percent` - Threshold percentage (e.g., dec!(1) for 1%)
     ///
     /// # Returns
     /// `true` if deviation exceeds threshold, `false` if index price is unavailable.
-    pub fn is_deviation_excessive(&self, threshold_percent: f64) -> bool {
+    pub fn is_deviation_excessive(&self, threshold_percent: Decimal) -> bool {
         self.basis_rate()
             .map(|rate| rate.abs() > threshold_percent)
             .unwrap_or(false)
@@ -195,7 +200,7 @@ impl MarkPrice {
     /// # Returns
     /// `true` if at premium, `false` if index price is unavailable.
     pub fn is_premium(&self) -> bool {
-        self.basis().map(|b| b > 0.0).unwrap_or(false)
+        self.basis().map(|b| b > Decimal::ZERO).unwrap_or(false)
     }
 
     /// Checks if the mark price is at a discount (mark price < index price).
@@ -203,7 +208,7 @@ impl MarkPrice {
     /// # Returns
     /// `true` if at discount, `false` if index price is unavailable.
     pub fn is_discount(&self) -> bool {
-        self.basis().map(|b| b < 0.0).unwrap_or(false)
+        self.basis().map(|b| b < Decimal::ZERO).unwrap_or(false)
     }
 
     /// Checks if the funding rate is positive.
@@ -211,7 +216,9 @@ impl MarkPrice {
     /// # Returns
     /// `true` if funding rate is positive, `false` if not available.
     pub fn is_funding_positive(&self) -> bool {
-        self.last_funding_rate.map(|fr| fr > 0.0).unwrap_or(false)
+        self.last_funding_rate
+            .map(|fr| fr > Decimal::ZERO)
+            .unwrap_or(false)
     }
 
     /// Checks if the data is valid.
@@ -219,7 +226,7 @@ impl MarkPrice {
     /// # Returns
     /// `true` if mark price is greater than zero.
     pub fn is_valid(&self) -> bool {
-        self.mark_price > 0.0
+        self.mark_price > Decimal::ZERO
     }
 }
 
@@ -227,7 +234,7 @@ impl Default for MarkPrice {
     fn default() -> Self {
         Self {
             symbol: String::new(),
-            mark_price: 0.0,
+            mark_price: Decimal::ZERO,
             index_price: None,
             estimated_settle_price: None,
             last_funding_rate: None,
@@ -241,32 +248,33 @@ impl Default for MarkPrice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_mark_price_creation() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50000.0,
-            Some(49995.0),
-            Some(50005.0),
-            Some(0.0001),
+            dec!(50000),
+            Some(dec!(49995)),
+            Some(dec!(50005)),
+            Some(dec!(0.0001)),
             Some(1637000000000),
-            Some(0.0003),
+            Some(dec!(0.0003)),
             1637000000000,
         );
 
         assert_eq!(mark_price.symbol, "BTC/USDT");
-        assert_eq!(mark_price.mark_price, 50000.0);
-        assert_eq!(mark_price.index_price, Some(49995.0));
-        assert_eq!(mark_price.last_funding_rate, Some(0.0001));
+        assert_eq!(mark_price.mark_price, dec!(50000));
+        assert_eq!(mark_price.index_price, Some(dec!(49995)));
+        assert_eq!(mark_price.last_funding_rate, Some(dec!(0.0001)));
     }
 
     #[test]
     fn test_simple_creation() {
-        let mark_price = MarkPrice::simple("BTC/USDT".to_string(), 50000.0, 1637000000000);
+        let mark_price = MarkPrice::simple("BTC/USDT".to_string(), dec!(50000), 1637000000000);
 
         assert_eq!(mark_price.symbol, "BTC/USDT");
-        assert_eq!(mark_price.mark_price, 50000.0);
+        assert_eq!(mark_price.mark_price, dec!(50000));
         assert_eq!(mark_price.index_price, None);
     }
 
@@ -274,17 +282,17 @@ mod tests {
     fn test_basis() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50000.0,
-            Some(49995.0),
+            dec!(50000),
+            Some(dec!(49995)),
             None,
             None,
             None,
             None,
             1637000000000,
         );
-        assert_eq!(mark_price.basis(), Some(5.0));
+        assert_eq!(mark_price.basis(), Some(dec!(5)));
 
-        let no_index = MarkPrice::simple("BTC/USDT".to_string(), 50000.0, 1637000000000);
+        let no_index = MarkPrice::simple("BTC/USDT".to_string(), dec!(50000), 1637000000000);
         assert_eq!(no_index.basis(), None);
     }
 
@@ -292,37 +300,37 @@ mod tests {
     fn test_basis_rate() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50100.0,
-            Some(50000.0),
+            dec!(50100),
+            Some(dec!(50000)),
             None,
             None,
             None,
             None,
             1637000000000,
         );
-        assert_eq!(mark_price.basis_rate(), Some(0.2));
+        assert_eq!(mark_price.basis_rate(), Some(dec!(0.2)));
     }
 
     #[test]
     fn test_funding_rate_percent() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50000.0,
+            dec!(50000),
             None,
             None,
-            Some(0.0001),
+            Some(dec!(0.0001)),
             None,
             None,
             1637000000000,
         );
-        assert_eq!(mark_price.funding_rate_percent(), Some(0.01));
+        assert_eq!(mark_price.funding_rate_percent(), Some(dec!(0.01)));
     }
 
     #[test]
     fn test_time_to_next_funding() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50000.0,
+            dec!(50000),
             None,
             None,
             None,
@@ -337,24 +345,24 @@ mod tests {
     fn test_is_deviation_excessive() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50600.0, // 1.2% 偏离
-            Some(50000.0),
+            dec!(50600), // 1.2% 偏离
+            Some(dec!(50000)),
             None,
             None,
             None,
             None,
             1637000000000,
         );
-        assert!(mark_price.is_deviation_excessive(1.0));
-        assert!(!mark_price.is_deviation_excessive(2.0));
+        assert!(mark_price.is_deviation_excessive(dec!(1)));
+        assert!(!mark_price.is_deviation_excessive(dec!(2)));
     }
 
     #[test]
     fn test_is_premium() {
         let premium = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50100.0,
-            Some(50000.0),
+            dec!(50100),
+            Some(dec!(50000)),
             None,
             None,
             None,
@@ -369,8 +377,8 @@ mod tests {
     fn test_is_discount() {
         let discount = MarkPrice::new(
             "BTC/USDT".to_string(),
-            49900.0,
-            Some(50000.0),
+            dec!(49900),
+            Some(dec!(50000)),
             None,
             None,
             None,
@@ -385,10 +393,10 @@ mod tests {
     fn test_is_funding_positive() {
         let positive = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50000.0,
+            dec!(50000),
             None,
             None,
-            Some(0.0001),
+            Some(dec!(0.0001)),
             None,
             None,
             1637000000000,
@@ -397,10 +405,10 @@ mod tests {
 
         let negative = MarkPrice::new(
             "BTC/USDT".to_string(),
-            50000.0,
+            dec!(50000),
             None,
             None,
-            Some(-0.0001),
+            Some(dec!(-0.0001)),
             None,
             None,
             1637000000000,
@@ -410,10 +418,10 @@ mod tests {
 
     #[test]
     fn test_is_valid() {
-        let valid = MarkPrice::simple("BTC/USDT".to_string(), 50000.0, 1637000000000);
+        let valid = MarkPrice::simple("BTC/USDT".to_string(), dec!(50000), 1637000000000);
         assert!(valid.is_valid());
 
-        let invalid = MarkPrice::simple("BTC/USDT".to_string(), 0.0, 1637000000000);
+        let invalid = MarkPrice::simple("BTC/USDT".to_string(), Decimal::ZERO, 1637000000000);
         assert!(!invalid.is_valid());
     }
 
@@ -421,7 +429,7 @@ mod tests {
     fn test_default() {
         let mark_price = MarkPrice::default();
         assert_eq!(mark_price.symbol, "");
-        assert_eq!(mark_price.mark_price, 0.0);
+        assert_eq!(mark_price.mark_price, Decimal::ZERO);
         assert_eq!(mark_price.index_price, None);
         assert!(!mark_price.is_valid());
     }

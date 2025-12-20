@@ -273,8 +273,8 @@ pub trait Exchange: Send + Sync {
     }
 
     /// Returns the rate limit (requests per second)
-    fn rate_limit(&self) -> f64 {
-        10.0
+    fn rate_limit(&self) -> u32 {
+        10
     }
 
     // ==================== Market Data (Public API) ====================

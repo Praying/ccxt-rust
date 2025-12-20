@@ -175,8 +175,8 @@ impl Okx {
     }
 
     /// Returns the rate limit in requests per second.
-    pub fn rate_limit(&self) -> f64 {
-        20.0
+    pub fn rate_limit(&self) -> u32 {
+        20
     }
 
     /// Returns `true` if sandbox/demo mode is enabled.
@@ -562,7 +562,7 @@ mod tests {
             "account_mode": "cross",
             "default_type": "swap",
             "default_sub_type": "inverse",
-            "demo": true
+            "testnet": true
         }"#;
         let options: OkxOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.account_mode, "cross");
@@ -576,7 +576,7 @@ mod tests {
         // Test backward compatibility - default_type should default to Spot
         let json = r#"{
             "account_mode": "cash",
-            "demo": false
+            "testnet": false
         }"#;
         let options: OkxOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Spot);

@@ -227,8 +227,8 @@ impl Bitget {
     }
 
     /// Returns the rate limit in requests per second.
-    pub fn rate_limit(&self) -> f64 {
-        20.0
+    pub fn rate_limit(&self) -> u32 {
+        20
     }
 
     /// Returns `true` if sandbox/testnet mode is enabled.

@@ -74,7 +74,7 @@ fn test_trait_object_metadata_methods() {
     assert_eq!(exchange.version(), "v3");
     assert!(exchange.certified());
     assert!(exchange.has_websocket());
-    assert_eq!(exchange.rate_limit(), 50.0);
+    assert_eq!(exchange.rate_limit(), 50);
 
     // Test timeframes
     let timeframes = exchange.timeframes();

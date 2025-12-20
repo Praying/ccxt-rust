@@ -71,8 +71,8 @@ impl Exchange for Binance {
         ]
     }
 
-    fn rate_limit(&self) -> f64 {
-        50.0
+    fn rate_limit(&self) -> u32 {
+        50
     }
 
     // ==================== Market Data (Public API) ====================
@@ -317,7 +317,7 @@ mod tests {
         let exchange: Box<dyn Exchange> = Box::new(binance);
 
         assert_eq!(exchange.id(), "binance");
-        assert_eq!(exchange.rate_limit(), 50.0);
+        assert_eq!(exchange.rate_limit(), 50);
     }
 
     // ==================== Property-Based Tests ====================
@@ -427,8 +427,9 @@ mod tests {
                 );
 
                 // Property: rate_limit() should be consistent
-                prop_assert!(
-                    (exchange.rate_limit() - Binance::rate_limit(&binance)).abs() < f64::EPSILON,
+                prop_assert_eq!(
+                    exchange.rate_limit(),
+                    Binance::rate_limit(&binance),
                     "rate_limit() should be consistent between trait and direct call"
                 );
 

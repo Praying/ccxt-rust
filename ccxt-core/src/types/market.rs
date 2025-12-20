@@ -448,7 +448,7 @@ pub struct LastPrice {
     /// Trading symbol.
     pub symbol: String,
     /// Latest price.
-    pub price: f64,
+    pub price: Decimal,
     /// Timestamp in milliseconds.
     pub timestamp: u64,
     /// Datetime string.
@@ -457,7 +457,7 @@ pub struct LastPrice {
 
 impl LastPrice {
     /// Creates a new last price instance.
-    pub fn new(symbol: String, price: f64, timestamp: u64) -> Self {
+    pub fn new(symbol: String, price: Decimal, timestamp: u64) -> Self {
         let datetime = chrono::DateTime::from_timestamp_millis(timestamp as i64)
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
             .unwrap_or_default();
@@ -477,9 +477,9 @@ pub struct TradingFee {
     /// Trading symbol.
     pub symbol: String,
     /// Maker fee rate (0.001 = 0.1%).
-    pub maker: f64,
+    pub maker: Decimal,
     /// Taker fee rate (0.001 = 0.1%).
-    pub taker: f64,
+    pub taker: Decimal,
     /// Timestamp in milliseconds.
     pub timestamp: Option<i64>,
     /// Datetime string.
@@ -488,7 +488,7 @@ pub struct TradingFee {
 
 impl TradingFee {
     /// Creates a new trading fee instance.
-    pub fn new(symbol: String, maker: f64, taker: f64, timestamp: Option<i64>) -> Self {
+    pub fn new(symbol: String, maker: Decimal, taker: Decimal, timestamp: Option<i64>) -> Self {
         let datetime = timestamp.and_then(|ts| {
             chrono::DateTime::from_timestamp_millis(ts)
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
@@ -504,18 +504,18 @@ impl TradingFee {
     }
 
     /// Calculates the difference between maker and taker fees.
-    pub fn fee_difference(&self) -> f64 {
+    pub fn fee_difference(&self) -> Decimal {
         self.taker - self.maker
     }
 
     /// Converts maker fee rate to percentage.
-    pub fn maker_percentage(&self) -> f64 {
-        self.maker * 100.0
+    pub fn maker_percentage(&self) -> Decimal {
+        self.maker * Decimal::ONE_HUNDRED
     }
 
     /// Converts taker fee rate to percentage.
-    pub fn taker_percentage(&self) -> f64 {
-        self.taker * 100.0
+    pub fn taker_percentage(&self) -> Decimal {
+        self.taker * Decimal::ONE_HUNDRED
     }
 }
 

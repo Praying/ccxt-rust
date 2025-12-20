@@ -1943,10 +1943,10 @@ mod exchange_trait_metadata_consistency {
 
             let exchange: &dyn Exchange = &bitget;
 
-            // Rate limit should be 20.0 for Bitget
+            // Rate limit should be 20 for Bitget
             prop_assert!(
-                (exchange.rate_limit() - 20.0).abs() < f64::EPSILON,
-                "rate_limit() should return 20.0"
+                exchange.rate_limit() == 20,
+                "rate_limit() should return 20"
             );
         }
 
