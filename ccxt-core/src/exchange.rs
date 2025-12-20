@@ -70,7 +70,7 @@
 //!     symbol: &str,
 //! ) -> ccxt_core::Result<ccxt_core::Ticker> {
 //!     // Always check capability before calling
-//!     if !exchange.capabilities().fetch_ticker {
+//!     if !exchange.capabilities().fetch_ticker() {
 //!         return Err(ccxt_core::Error::not_implemented("fetch_ticker"));
 //!     }
 //!     exchange.fetch_ticker(symbol).await
@@ -88,9 +88,9 @@
 //!     symbol: &str,
 //! ) -> ccxt_core::Result<Price> {
 //!     let mut best_price: Option<Price> = None;
-//!     
+//!
 //!     for exchange in exchanges {
-//!         if exchange.capabilities().fetch_ticker {
+//!         if exchange.capabilities().fetch_ticker() {
 //!             if let Ok(ticker) = exchange.fetch_ticker(symbol).await {
 //!                 if let Some(last) = ticker.last {
 //!                     best_price = Some(match best_price {
@@ -134,24 +134,32 @@
 //!
 //! ## ExchangeCapabilities
 //!
-//! The [`ExchangeCapabilities`] struct provides runtime feature discovery:
+//! The [`ExchangeCapabilities`] struct provides runtime feature discovery using
+//! efficient bitflags storage (8 bytes instead of 46+ bytes for individual booleans):
 //!
 //! ```rust
 //! use ccxt_core::exchange::ExchangeCapabilities;
 //!
 //! // Create capabilities for public-only access
 //! let public_caps = ExchangeCapabilities::public_only();
-//! assert!(public_caps.fetch_ticker);
-//! assert!(!public_caps.create_order);
+//! assert!(public_caps.fetch_ticker());
+//! assert!(!public_caps.create_order());
 //!
 //! // Create capabilities with all features
 //! let all_caps = ExchangeCapabilities::all();
-//! assert!(all_caps.create_order);
-//! assert!(all_caps.websocket);
+//! assert!(all_caps.create_order());
+//! assert!(all_caps.websocket());
 //!
 //! // Check capability by name (CCXT-style camelCase)
 //! assert!(all_caps.has("fetchTicker"));
 //! assert!(all_caps.has("createOrder"));
+//!
+//! // Use builder pattern for custom configurations
+//! use ccxt_core::ExchangeCapabilitiesBuilder;
+//! let custom = ExchangeCapabilitiesBuilder::new()
+//!     .market_data()     // Add all market data capabilities
+//!     .trading()         // Add all trading capabilities
+//!     .build();
 //! ```
 //!
 //! ## Error Handling
@@ -186,367 +194,11 @@ use std::sync::Arc;
 use crate::error::Result;
 use crate::types::*;
 
-// ============================================================================
-// ExchangeCapabilities
-// ============================================================================
-
-/// Exchange capabilities - describes what features an exchange supports
-///
-/// This struct contains boolean flags for each capability that an exchange
-/// may or may not support. Use this to check feature availability before
-/// calling methods that may not be implemented.
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_core::exchange::ExchangeCapabilities;
-///
-/// let caps = ExchangeCapabilities::public_only();
-/// assert!(caps.fetch_ticker);
-/// assert!(!caps.create_order);
-/// ```
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ExchangeCapabilities {
-    // ==================== Market Data (Public API) ====================
-    /// Can fetch market definitions
-    pub fetch_markets: bool,
-    /// Can fetch currency definitions
-    pub fetch_currencies: bool,
-    /// Can fetch single ticker
-    pub fetch_ticker: bool,
-    /// Can fetch multiple tickers
-    pub fetch_tickers: bool,
-    /// Can fetch order book
-    pub fetch_order_book: bool,
-    /// Can fetch public trades
-    pub fetch_trades: bool,
-    /// Can fetch OHLCV candlestick data
-    pub fetch_ohlcv: bool,
-    /// Can fetch exchange status
-    pub fetch_status: bool,
-    /// Can fetch server time
-    pub fetch_time: bool,
-
-    // ==================== Trading (Private API) ====================
-    /// Can create orders
-    pub create_order: bool,
-    /// Can create market orders
-    pub create_market_order: bool,
-    /// Can create limit orders
-    pub create_limit_order: bool,
-    /// Can cancel orders
-    pub cancel_order: bool,
-    /// Can cancel all orders
-    pub cancel_all_orders: bool,
-    /// Can edit/modify orders
-    pub edit_order: bool,
-    /// Can fetch single order
-    pub fetch_order: bool,
-    /// Can fetch all orders
-    pub fetch_orders: bool,
-    /// Can fetch open orders
-    pub fetch_open_orders: bool,
-    /// Can fetch closed orders
-    pub fetch_closed_orders: bool,
-    /// Can fetch canceled orders
-    pub fetch_canceled_orders: bool,
-
-    // ==================== Account (Private API) ====================
-    /// Can fetch account balance
-    pub fetch_balance: bool,
-    /// Can fetch user's trade history
-    pub fetch_my_trades: bool,
-    /// Can fetch deposit history
-    pub fetch_deposits: bool,
-    /// Can fetch withdrawal history
-    pub fetch_withdrawals: bool,
-    /// Can fetch transaction history
-    pub fetch_transactions: bool,
-    /// Can fetch ledger entries
-    pub fetch_ledger: bool,
-
-    // ==================== Funding ====================
-    /// Can fetch deposit address
-    pub fetch_deposit_address: bool,
-    /// Can create deposit address
-    pub create_deposit_address: bool,
-    /// Can withdraw funds
-    pub withdraw: bool,
-    /// Can transfer between accounts
-    pub transfer: bool,
-
-    // ==================== Margin Trading ====================
-    /// Can fetch borrow rate
-    pub fetch_borrow_rate: bool,
-    /// Can fetch multiple borrow rates
-    pub fetch_borrow_rates: bool,
-    /// Can fetch funding rate
-    pub fetch_funding_rate: bool,
-    /// Can fetch multiple funding rates
-    pub fetch_funding_rates: bool,
-    /// Can fetch positions
-    pub fetch_positions: bool,
-    /// Can set leverage
-    pub set_leverage: bool,
-    /// Can set margin mode
-    pub set_margin_mode: bool,
-
-    // ==================== WebSocket ====================
-    /// WebSocket support available
-    pub websocket: bool,
-    /// Can watch ticker updates
-    pub watch_ticker: bool,
-    /// Can watch multiple ticker updates
-    pub watch_tickers: bool,
-    /// Can watch order book updates
-    pub watch_order_book: bool,
-    /// Can watch trade updates
-    pub watch_trades: bool,
-    /// Can watch OHLCV updates
-    pub watch_ohlcv: bool,
-    /// Can watch balance updates
-    pub watch_balance: bool,
-    /// Can watch order updates
-    pub watch_orders: bool,
-    /// Can watch user trade updates
-    pub watch_my_trades: bool,
-}
-
-impl ExchangeCapabilities {
-    /// Create capabilities with all features enabled
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::exchange::ExchangeCapabilities;
-    ///
-    /// let caps = ExchangeCapabilities::all();
-    /// assert!(caps.fetch_ticker);
-    /// assert!(caps.create_order);
-    /// assert!(caps.websocket);
-    /// ```
-    pub fn all() -> Self {
-        Self {
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_status: true,
-            fetch_time: true,
-            create_order: true,
-            create_market_order: true,
-            create_limit_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            edit_order: true,
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_canceled_orders: true,
-            fetch_balance: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            fetch_transactions: true,
-            fetch_ledger: true,
-            fetch_deposit_address: true,
-            create_deposit_address: true,
-            withdraw: true,
-            transfer: true,
-            fetch_borrow_rate: true,
-            fetch_borrow_rates: true,
-            fetch_funding_rate: true,
-            fetch_funding_rates: true,
-            fetch_positions: true,
-            set_leverage: true,
-            set_margin_mode: true,
-            websocket: true,
-            watch_ticker: true,
-            watch_tickers: true,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: true,
-            watch_balance: true,
-            watch_orders: true,
-            watch_my_trades: true,
-        }
-    }
-
-    /// Create capabilities for public API only (no authentication required)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::exchange::ExchangeCapabilities;
-    ///
-    /// let caps = ExchangeCapabilities::public_only();
-    /// assert!(caps.fetch_ticker);
-    /// assert!(!caps.create_order);
-    /// ```
-    pub fn public_only() -> Self {
-        Self {
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_status: true,
-            fetch_time: true,
-            ..Default::default()
-        }
-    }
-
-    /// Check if a capability is supported by name
-    ///
-    /// This method allows checking capabilities using CCXT-style camelCase names.
-    ///
-    /// # Arguments
-    ///
-    /// * `capability` - The capability name in camelCase format
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::exchange::ExchangeCapabilities;
-    ///
-    /// let caps = ExchangeCapabilities::all();
-    /// assert!(caps.has("fetchTicker"));
-    /// assert!(caps.has("createOrder"));
-    /// assert!(!caps.has("unknownCapability"));
-    /// ```
-    pub fn has(&self, capability: &str) -> bool {
-        match capability {
-            "fetchMarkets" => self.fetch_markets,
-            "fetchCurrencies" => self.fetch_currencies,
-            "fetchTicker" => self.fetch_ticker,
-            "fetchTickers" => self.fetch_tickers,
-            "fetchOrderBook" => self.fetch_order_book,
-            "fetchTrades" => self.fetch_trades,
-            "fetchOHLCV" => self.fetch_ohlcv,
-            "fetchStatus" => self.fetch_status,
-            "fetchTime" => self.fetch_time,
-            "createOrder" => self.create_order,
-            "createMarketOrder" => self.create_market_order,
-            "createLimitOrder" => self.create_limit_order,
-            "cancelOrder" => self.cancel_order,
-            "cancelAllOrders" => self.cancel_all_orders,
-            "editOrder" => self.edit_order,
-            "fetchOrder" => self.fetch_order,
-            "fetchOrders" => self.fetch_orders,
-            "fetchOpenOrders" => self.fetch_open_orders,
-            "fetchClosedOrders" => self.fetch_closed_orders,
-            "fetchCanceledOrders" => self.fetch_canceled_orders,
-            "fetchBalance" => self.fetch_balance,
-            "fetchMyTrades" => self.fetch_my_trades,
-            "fetchDeposits" => self.fetch_deposits,
-            "fetchWithdrawals" => self.fetch_withdrawals,
-            "fetchTransactions" => self.fetch_transactions,
-            "fetchLedger" => self.fetch_ledger,
-            "fetchDepositAddress" => self.fetch_deposit_address,
-            "createDepositAddress" => self.create_deposit_address,
-            "withdraw" => self.withdraw,
-            "transfer" => self.transfer,
-            "fetchBorrowRate" => self.fetch_borrow_rate,
-            "fetchBorrowRates" => self.fetch_borrow_rates,
-            "fetchFundingRate" => self.fetch_funding_rate,
-            "fetchFundingRates" => self.fetch_funding_rates,
-            "fetchPositions" => self.fetch_positions,
-            "setLeverage" => self.set_leverage,
-            "setMarginMode" => self.set_margin_mode,
-            "websocket" => self.websocket,
-            "watchTicker" => self.watch_ticker,
-            "watchTickers" => self.watch_tickers,
-            "watchOrderBook" => self.watch_order_book,
-            "watchTrades" => self.watch_trades,
-            "watchOHLCV" => self.watch_ohlcv,
-            "watchBalance" => self.watch_balance,
-            "watchOrders" => self.watch_orders,
-            "watchMyTrades" => self.watch_my_trades,
-            _ => false,
-        }
-    }
-
-    /// Get a list of all supported capability names
-    pub fn supported_capabilities(&self) -> Vec<&'static str> {
-        let mut caps = Vec::new();
-        if self.fetch_markets {
-            caps.push("fetchMarkets");
-        }
-        if self.fetch_currencies {
-            caps.push("fetchCurrencies");
-        }
-        if self.fetch_ticker {
-            caps.push("fetchTicker");
-        }
-        if self.fetch_tickers {
-            caps.push("fetchTickers");
-        }
-        if self.fetch_order_book {
-            caps.push("fetchOrderBook");
-        }
-        if self.fetch_trades {
-            caps.push("fetchTrades");
-        }
-        if self.fetch_ohlcv {
-            caps.push("fetchOHLCV");
-        }
-        if self.fetch_status {
-            caps.push("fetchStatus");
-        }
-        if self.fetch_time {
-            caps.push("fetchTime");
-        }
-        if self.create_order {
-            caps.push("createOrder");
-        }
-        if self.create_market_order {
-            caps.push("createMarketOrder");
-        }
-        if self.create_limit_order {
-            caps.push("createLimitOrder");
-        }
-        if self.cancel_order {
-            caps.push("cancelOrder");
-        }
-        if self.cancel_all_orders {
-            caps.push("cancelAllOrders");
-        }
-        if self.edit_order {
-            caps.push("editOrder");
-        }
-        if self.fetch_order {
-            caps.push("fetchOrder");
-        }
-        if self.fetch_orders {
-            caps.push("fetchOrders");
-        }
-        if self.fetch_open_orders {
-            caps.push("fetchOpenOrders");
-        }
-        if self.fetch_closed_orders {
-            caps.push("fetchClosedOrders");
-        }
-        if self.fetch_canceled_orders {
-            caps.push("fetchCanceledOrders");
-        }
-        if self.fetch_balance {
-            caps.push("fetchBalance");
-        }
-        if self.fetch_my_trades {
-            caps.push("fetchMyTrades");
-        }
-        if self.websocket {
-            caps.push("websocket");
-        }
-        caps
-    }
-}
+// Re-export ExchangeCapabilities and related types from the capability module
+// The new implementation uses bitflags for efficient storage (8 bytes instead of 46+ bytes)
+pub use crate::capability::{
+    Capabilities, Capability, ExchangeCapabilities, ExchangeCapabilitiesBuilder,
+};
 
 // ============================================================================
 // Exchange Trait
@@ -600,7 +252,7 @@ pub trait Exchange: Send + Sync {
 
     /// Returns whether this exchange supports WebSocket (pro features)
     fn has_websocket(&self) -> bool {
-        self.capabilities().websocket
+        self.capabilities().websocket()
     }
 
     /// Returns the exchange capabilities
@@ -904,30 +556,30 @@ mod tests {
     #[test]
     fn test_capabilities_default() {
         let caps = ExchangeCapabilities::default();
-        assert!(!caps.fetch_ticker);
-        assert!(!caps.create_order);
-        assert!(!caps.websocket);
+        assert!(!caps.fetch_ticker());
+        assert!(!caps.create_order());
+        assert!(!caps.websocket());
     }
 
     #[test]
     fn test_capabilities_all() {
         let caps = ExchangeCapabilities::all();
-        assert!(caps.fetch_ticker);
-        assert!(caps.create_order);
-        assert!(caps.websocket);
-        assert!(caps.fetch_ohlcv);
-        assert!(caps.fetch_balance);
+        assert!(caps.fetch_ticker());
+        assert!(caps.create_order());
+        assert!(caps.websocket());
+        assert!(caps.fetch_ohlcv());
+        assert!(caps.fetch_balance());
     }
 
     #[test]
     fn test_capabilities_public_only() {
         let caps = ExchangeCapabilities::public_only();
-        assert!(caps.fetch_ticker);
-        assert!(caps.fetch_order_book);
-        assert!(caps.fetch_trades);
-        assert!(!caps.create_order);
-        assert!(!caps.fetch_balance);
-        assert!(!caps.websocket);
+        assert!(caps.fetch_ticker());
+        assert!(caps.fetch_order_book());
+        assert!(caps.fetch_trades());
+        assert!(!caps.create_order());
+        assert!(!caps.fetch_balance());
+        assert!(!caps.websocket());
     }
 
     #[test]
@@ -968,13 +620,13 @@ mod property_tests {
 
     // ==================== Strategies ====================
 
-    /// Strategy to generate arbitrary ExchangeCapabilities
+    /// Strategy to generate arbitrary ExchangeCapabilities using builder API
     fn arb_capabilities() -> impl Strategy<Value = ExchangeCapabilities> {
         prop_oneof![
             Just(ExchangeCapabilities::default()),
             Just(ExchangeCapabilities::all()),
             Just(ExchangeCapabilities::public_only()),
-            // Random capabilities
+            // Random capabilities using builder
             (
                 prop::bool::ANY,
                 prop::bool::ANY,
@@ -992,15 +644,26 @@ mod property_tests {
                         fetch_balance,
                         fetch_ohlcv,
                     )| {
-                        ExchangeCapabilities {
-                            fetch_ticker,
-                            fetch_order_book,
-                            create_order,
-                            websocket,
-                            fetch_balance,
-                            fetch_ohlcv,
-                            ..Default::default()
+                        let mut builder = ExchangeCapabilities::builder();
+                        if fetch_ticker {
+                            builder = builder.capability(Capability::FetchTicker);
                         }
+                        if fetch_order_book {
+                            builder = builder.capability(Capability::FetchOrderBook);
+                        }
+                        if create_order {
+                            builder = builder.capability(Capability::CreateOrder);
+                        }
+                        if websocket {
+                            builder = builder.capability(Capability::Websocket);
+                        }
+                        if fetch_balance {
+                            builder = builder.capability(Capability::FetchBalance);
+                        }
+                        if fetch_ohlcv {
+                            builder = builder.capability(Capability::FetchOhlcv);
+                        }
+                        builder.build()
                     }
                 ),
         ]
@@ -1055,10 +718,10 @@ mod property_tests {
             let caps_clone = caps.clone();
             let handle = thread::spawn(move || {
                 // Capabilities were successfully moved to another thread (Send)
-                caps_clone.fetch_ticker
+                caps_clone.fetch_ticker()
             });
             let result = handle.join().expect("Thread should not panic");
-            prop_assert_eq!(result, caps.fetch_ticker);
+            prop_assert_eq!(result, caps.fetch_ticker());
         }
 
         #[test]
@@ -1074,9 +737,9 @@ mod property_tests {
                     thread::spawn(move || {
                         // Read various capabilities from different threads
                         (
-                            caps_ref.fetch_ticker,
-                            caps_ref.create_order,
-                            caps_ref.websocket,
+                            caps_ref.fetch_ticker(),
+                            caps_ref.create_order(),
+                            caps_ref.websocket(),
                         )
                     })
                 })
@@ -1086,9 +749,9 @@ mod property_tests {
             for handle in handles {
                 let (fetch_ticker, create_order, websocket) =
                     handle.join().expect("Thread should not panic");
-                prop_assert_eq!(fetch_ticker, caps.fetch_ticker);
-                prop_assert_eq!(create_order, caps.create_order);
-                prop_assert_eq!(websocket, caps.websocket);
+                prop_assert_eq!(fetch_ticker, caps.fetch_ticker());
+                prop_assert_eq!(create_order, caps.create_order());
+                prop_assert_eq!(websocket, caps.websocket());
             }
         }
 

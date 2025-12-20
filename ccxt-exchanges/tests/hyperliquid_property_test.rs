@@ -1500,26 +1500,26 @@ mod exchange_trait_consistency {
             let caps = trait_obj.capabilities();
 
             // Public API capabilities
-            prop_assert!(caps.fetch_markets);
-            prop_assert!(caps.fetch_ticker);
-            prop_assert!(caps.fetch_tickers);
-            prop_assert!(caps.fetch_order_book);
-            prop_assert!(caps.fetch_trades);
-            prop_assert!(caps.fetch_ohlcv);
+            prop_assert!(caps.fetch_markets());
+            prop_assert!(caps.fetch_ticker());
+            prop_assert!(caps.fetch_tickers());
+            prop_assert!(caps.fetch_order_book());
+            prop_assert!(caps.fetch_trades());
+            prop_assert!(caps.fetch_ohlcv());
 
             // Private API capabilities
-            prop_assert!(caps.create_order);
-            prop_assert!(caps.cancel_order);
-            prop_assert!(caps.cancel_all_orders);
-            prop_assert!(caps.fetch_open_orders);
-            prop_assert!(caps.fetch_balance);
-            prop_assert!(caps.fetch_positions);
-            prop_assert!(caps.set_leverage);
+            prop_assert!(caps.create_order());
+            prop_assert!(caps.cancel_order());
+            prop_assert!(caps.cancel_all_orders());
+            prop_assert!(caps.fetch_open_orders());
+            prop_assert!(caps.fetch_balance());
+            prop_assert!(caps.fetch_positions());
+            prop_assert!(caps.set_leverage());
 
             // Not implemented
-            prop_assert!(!caps.fetch_currencies);
-            prop_assert!(!caps.edit_order);
-            prop_assert!(!caps.fetch_my_trades);
+            prop_assert!(!caps.fetch_currencies());
+            prop_assert!(!caps.edit_order());
+            prop_assert!(!caps.fetch_my_trades());
         }
 
         /// Test that rate limit is consistent

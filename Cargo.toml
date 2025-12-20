@@ -72,6 +72,7 @@ url = "2.5"
 urlencoding = "2.1"
 regex = "1.10"
 lazy_static = "1.4"
+bitflags = "2.9"
 
 # Configuration
 config = "0.15"

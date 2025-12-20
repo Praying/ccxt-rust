@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use ccxt_core::{
     Result,
-    exchange::{Exchange, ExchangeCapabilities},
+    exchange::{Capability, Exchange, ExchangeCapabilities},
     types::{
         Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Ticker, Timeframe, Trade,
     },
@@ -41,65 +41,38 @@ impl Exchange for HyperLiquid {
     }
 
     fn capabilities(&self) -> ExchangeCapabilities {
-        ExchangeCapabilities {
-            // Market Data (Public API)
-            fetch_markets: true,
-            fetch_currencies: false,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_status: false,
-            fetch_time: false,
-
-            // Trading (Private API)
-            create_order: true,
-            create_market_order: true,
-            create_limit_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            edit_order: false,
-            fetch_order: false, // Not directly supported
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: false,
-            fetch_canceled_orders: false,
-
-            // Account (Private API)
-            fetch_balance: true,
-            fetch_my_trades: false,
-            fetch_deposits: false,
-            fetch_withdrawals: false,
-            fetch_transactions: false,
-            fetch_ledger: false,
-
-            // Funding
-            fetch_deposit_address: false,
-            create_deposit_address: false,
-            withdraw: false,
-            transfer: false,
-
-            // Margin Trading
-            fetch_borrow_rate: false,
-            fetch_borrow_rates: false,
-            fetch_funding_rate: true,
-            fetch_funding_rates: false,
-            fetch_positions: true,
-            set_leverage: true,
-            set_margin_mode: false,
-
-            // WebSocket
-            websocket: true,
-            watch_ticker: true,
-            watch_tickers: false,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: true,
-            watch_my_trades: false,
-        }
+        // HyperLiquid supports:
+        // - Market Data: markets, ticker, tickers, order_book, trades, ohlcv
+        // - Trading: create_order, cancel_order, cancel_all_orders, open_orders
+        // - Account: balance
+        // - Margin: funding_rate, positions, set_leverage
+        // - WebSocket: ticker, order_book, trades, orders
+        ExchangeCapabilities::builder()
+            .market_data()
+            .trading()
+            // Remove unsupported market data capabilities
+            .without_capability(Capability::FetchCurrencies)
+            .without_capability(Capability::FetchStatus)
+            .without_capability(Capability::FetchTime)
+            // Remove unsupported trading capabilities
+            .without_capability(Capability::EditOrder)
+            .without_capability(Capability::FetchOrder)
+            .without_capability(Capability::FetchOrders)
+            .without_capability(Capability::FetchClosedOrders)
+            .without_capability(Capability::FetchCanceledOrders)
+            // Add account capabilities
+            .capability(Capability::FetchBalance)
+            // Add margin capabilities
+            .capability(Capability::FetchFundingRate)
+            .capability(Capability::FetchPositions)
+            .capability(Capability::SetLeverage)
+            // Add WebSocket capabilities
+            .capability(Capability::Websocket)
+            .capability(Capability::WatchTicker)
+            .capability(Capability::WatchOrderBook)
+            .capability(Capability::WatchTrades)
+            .capability(Capability::WatchOrders)
+            .build()
     }
 
     fn timeframes(&self) -> Vec<Timeframe> {

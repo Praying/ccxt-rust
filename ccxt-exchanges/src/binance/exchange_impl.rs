@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use ccxt_core::{
     Result,
-    exchange::{Exchange, ExchangeCapabilities},
+    exchange::{Capability, Exchange, ExchangeCapabilities},
     types::{
         Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Ticker, Timeframe, Trade,
     },
@@ -41,65 +41,14 @@ impl Exchange for Binance {
     }
 
     fn capabilities(&self) -> ExchangeCapabilities {
-        ExchangeCapabilities {
-            // Market Data (Public API)
-            fetch_markets: true,
-            fetch_currencies: true,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_status: true,
-            fetch_time: true,
-
-            // Trading (Private API)
-            create_order: true,
-            create_market_order: true,
-            create_limit_order: true,
-            cancel_order: true,
-            cancel_all_orders: true,
-            edit_order: false, // Binance doesn't support order editing
-            fetch_order: true,
-            fetch_orders: true,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_canceled_orders: false,
-
-            // Account (Private API)
-            fetch_balance: true,
-            fetch_my_trades: true,
-            fetch_deposits: true,
-            fetch_withdrawals: true,
-            fetch_transactions: true,
-            fetch_ledger: true,
-
-            // Funding
-            fetch_deposit_address: true,
-            create_deposit_address: true,
-            withdraw: true,
-            transfer: true,
-
-            // Margin Trading
-            fetch_borrow_rate: true,
-            fetch_borrow_rates: true,
-            fetch_funding_rate: true,
-            fetch_funding_rates: true,
-            fetch_positions: true,
-            set_leverage: true,
-            set_margin_mode: true,
-
-            // WebSocket
-            websocket: true,
-            watch_ticker: true,
-            watch_tickers: true,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: true,
-            watch_balance: true,
-            watch_orders: true,
-            watch_my_trades: true,
-        }
+        // Binance supports almost all capabilities except:
+        // - EditOrder: Binance doesn't support order editing
+        // - FetchCanceledOrders: Binance doesn't have a separate API for canceled orders
+        ExchangeCapabilities::builder()
+            .all()
+            .without_capability(Capability::EditOrder)
+            .without_capability(Capability::FetchCanceledOrders)
+            .build()
     }
 
     fn timeframes(&self) -> Vec<Timeframe> {
@@ -338,11 +287,11 @@ mod tests {
         let exchange: &dyn Exchange = &binance;
         let caps = exchange.capabilities();
 
-        assert!(caps.fetch_markets);
-        assert!(caps.fetch_ticker);
-        assert!(caps.create_order);
-        assert!(caps.websocket);
-        assert!(!caps.edit_order); // Binance doesn't support order editing
+        assert!(caps.fetch_markets());
+        assert!(caps.fetch_ticker());
+        assert!(caps.create_order());
+        assert!(caps.websocket());
+        assert!(!caps.edit_order()); // Binance doesn't support order editing
     }
 
     #[test]
@@ -485,9 +434,9 @@ mod tests {
 
                 // Property: capabilities should be consistent
                 let trait_caps = exchange.capabilities();
-                prop_assert!(trait_caps.fetch_markets, "Should support fetch_markets");
-                prop_assert!(trait_caps.fetch_ticker, "Should support fetch_ticker");
-                prop_assert!(trait_caps.websocket, "Should support websocket");
+                prop_assert!(trait_caps.fetch_markets(), "Should support fetch_markets");
+                prop_assert!(trait_caps.fetch_ticker(), "Should support fetch_ticker");
+                prop_assert!(trait_caps.websocket(), "Should support websocket");
             }
         }
     }

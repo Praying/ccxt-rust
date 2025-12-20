@@ -39,6 +39,9 @@ chrono = { workspace = true }
 dashmap = { workspace = true }
 indexmap = { workspace = true }
 
+# Bitflags for efficient capability representation
+bitflags = { workspace = true }
+
 # Cryptography
 hmac = { workspace = true }
 sha1 = { workspace = true }

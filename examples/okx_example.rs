@@ -98,14 +98,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Display capabilities
     println!("Exchange Capabilities:");
     let caps = exchange.capabilities();
-    println!("  fetch_markets: {}", caps.fetch_markets);
-    println!("  fetch_ticker: {}", caps.fetch_ticker);
-    println!("  fetch_order_book: {}", caps.fetch_order_book);
-    println!("  fetch_trades: {}", caps.fetch_trades);
-    println!("  fetch_ohlcv: {}", caps.fetch_ohlcv);
-    println!("  create_order: {}", caps.create_order);
-    println!("  cancel_order: {}", caps.cancel_order);
-    println!("  fetch_balance: {}", caps.fetch_balance);
+    println!("  fetch_markets: {}", caps.fetch_markets());
+    println!("  fetch_ticker: {}", caps.fetch_ticker());
+    println!("  fetch_order_book: {}", caps.fetch_order_book());
+    println!("  fetch_trades: {}", caps.fetch_trades());
+    println!("  fetch_ohlcv: {}", caps.fetch_ohlcv());
+    println!("  create_order: {}", caps.create_order());
+    println!("  cancel_order: {}", caps.cancel_order());
+    println!("  fetch_balance: {}", caps.fetch_balance());
     println!();
 
     // Display supported timeframes

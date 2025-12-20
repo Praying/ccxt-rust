@@ -93,19 +93,19 @@ fn test_trait_object_capabilities() {
     let caps = exchange.capabilities();
 
     // Verify Binance capabilities
-    assert!(caps.fetch_markets);
-    assert!(caps.fetch_ticker);
-    assert!(caps.fetch_tickers);
-    assert!(caps.fetch_order_book);
-    assert!(caps.fetch_trades);
-    assert!(caps.fetch_ohlcv);
-    assert!(caps.create_order);
-    assert!(caps.cancel_order);
-    assert!(caps.fetch_balance);
-    assert!(caps.websocket);
+    assert!(caps.fetch_markets());
+    assert!(caps.fetch_ticker());
+    assert!(caps.fetch_tickers());
+    assert!(caps.fetch_order_book());
+    assert!(caps.fetch_trades());
+    assert!(caps.fetch_ohlcv());
+    assert!(caps.create_order());
+    assert!(caps.cancel_order());
+    assert!(caps.fetch_balance());
+    assert!(caps.websocket());
 
     // Binance doesn't support order editing
-    assert!(!caps.edit_order);
+    assert!(!caps.edit_order());
 }
 
 /// Test that trait object can be passed to generic functions.
@@ -199,16 +199,16 @@ fn test_capability_check_before_method_call() {
         let caps = exchange.capabilities();
         let mut supported = Vec::new();
 
-        if caps.fetch_ticker {
+        if caps.fetch_ticker() {
             supported.push("fetch_ticker".to_string());
         }
-        if caps.create_order {
+        if caps.create_order() {
             supported.push("create_order".to_string());
         }
-        if caps.websocket {
+        if caps.websocket() {
             supported.push("websocket".to_string());
         }
-        if caps.edit_order {
+        if caps.edit_order() {
             supported.push("edit_order".to_string());
         }
 
@@ -251,8 +251,8 @@ fn test_multiple_exchanges_unified_interface() {
     // Iterate and use unified interface
     for exchange in &exchanges {
         assert_eq!(exchange.id(), "binance");
-        assert!(exchange.capabilities().fetch_ticker);
-        assert!(exchange.capabilities().websocket);
+        assert!(exchange.capabilities().fetch_ticker());
+        assert!(exchange.capabilities().websocket());
     }
 
     assert_eq!(exchanges.len(), 2);
@@ -272,8 +272,8 @@ fn test_exchange_agnostic_function() {
             version: exchange.version().to_string(),
             certified: exchange.certified(),
             has_websocket: exchange.has_websocket(),
-            can_trade: caps.create_order && caps.cancel_order,
-            can_fetch_market_data: caps.fetch_ticker && caps.fetch_order_book,
+            can_trade: caps.create_order() && caps.cancel_order(),
+            can_fetch_market_data: caps.fetch_ticker() && caps.fetch_order_book(),
             timeframe_count: exchange.timeframes().len(),
         }
     }
@@ -370,8 +370,8 @@ fn test_compare_exchange_capabilities() {
 
         for exchange in exchanges {
             let caps = exchange.capabilities();
-            comparison.all_support_ticker &= caps.fetch_ticker;
-            comparison.all_support_websocket &= caps.websocket;
+            comparison.all_support_ticker &= caps.fetch_ticker();
+            comparison.all_support_websocket &= caps.websocket();
             comparison.all_certified &= exchange.certified();
         }
 
@@ -410,7 +410,7 @@ async fn test_async_trait_object_compilation() {
         exchange: &dyn Exchange,
         symbol: &str,
     ) -> Option<ccxt_core::Result<ccxt_core::Ticker>> {
-        if exchange.capabilities().fetch_ticker {
+        if exchange.capabilities().fetch_ticker() {
             Some(exchange.fetch_ticker(symbol).await)
         } else {
             None
@@ -424,7 +424,7 @@ async fn test_async_trait_object_compilation() {
     let _exchange: &dyn Exchange = &binance;
 
     // Just verify the async function signature is correct
-    assert!(binance.capabilities().fetch_ticker);
+    assert!(binance.capabilities().fetch_ticker());
 
     // The actual API call would be:
     // let result = fetch_ticker_if_supported(&binance, "BTC/USDT").await;
@@ -464,7 +464,7 @@ fn test_trait_object_with_various_configs() {
 
     let exchange: &dyn Exchange = &auth_binance;
     assert_eq!(exchange.id(), "binance");
-    assert!(exchange.capabilities().fetch_balance); // Capability exists even without valid auth
+    assert!(exchange.capabilities().fetch_balance()); // Capability exists even without valid auth
 }
 
 /// Test that ExchangeCapabilities methods work correctly.
