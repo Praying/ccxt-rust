@@ -1966,19 +1966,19 @@ mod exchange_trait_metadata_consistency {
             let caps = exchange.capabilities();
 
             // Core capabilities should always be present
-            prop_assert!(caps.fetch_markets, "fetch_markets should be supported");
-            prop_assert!(caps.fetch_ticker, "fetch_ticker should be supported");
-            prop_assert!(caps.fetch_tickers, "fetch_tickers should be supported");
-            prop_assert!(caps.fetch_order_book, "fetch_order_book should be supported");
-            prop_assert!(caps.fetch_trades, "fetch_trades should be supported");
-            prop_assert!(caps.fetch_ohlcv, "fetch_ohlcv should be supported");
-            prop_assert!(caps.create_order, "create_order should be supported");
-            prop_assert!(caps.cancel_order, "cancel_order should be supported");
-            prop_assert!(caps.fetch_balance, "fetch_balance should be supported");
-            prop_assert!(caps.websocket, "websocket should be supported");
-            prop_assert!(caps.watch_ticker, "watch_ticker should be supported");
-            prop_assert!(caps.watch_order_book, "watch_order_book should be supported");
-            prop_assert!(caps.watch_trades, "watch_trades should be supported");
+            prop_assert!(caps.fetch_markets(), "fetch_markets should be supported");
+            prop_assert!(caps.fetch_ticker(), "fetch_ticker should be supported");
+            prop_assert!(caps.fetch_tickers(), "fetch_tickers should be supported");
+            prop_assert!(caps.fetch_order_book(), "fetch_order_book should be supported");
+            prop_assert!(caps.fetch_trades(), "fetch_trades should be supported");
+            prop_assert!(caps.fetch_ohlcv(), "fetch_ohlcv should be supported");
+            prop_assert!(caps.create_order(), "create_order should be supported");
+            prop_assert!(caps.cancel_order(), "cancel_order should be supported");
+            prop_assert!(caps.fetch_balance(), "fetch_balance should be supported");
+            prop_assert!(caps.websocket(), "websocket should be supported");
+            prop_assert!(caps.watch_ticker(), "watch_ticker should be supported");
+            prop_assert!(caps.watch_order_book(), "watch_order_book should be supported");
+            prop_assert!(caps.watch_trades(), "watch_trades should be supported");
         }
 
         /// Test that timeframes are consistent regardless of configuration

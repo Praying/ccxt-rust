@@ -58,24 +58,24 @@ fn test_exchange_capabilities() {
     let caps = exchange.capabilities();
 
     // Public API
-    assert!(caps.fetch_markets);
-    assert!(caps.fetch_ticker);
-    assert!(caps.fetch_tickers);
-    assert!(caps.fetch_order_book);
-    assert!(caps.fetch_trades);
-    assert!(caps.fetch_ohlcv);
+    assert!(caps.fetch_markets());
+    assert!(caps.fetch_ticker());
+    assert!(caps.fetch_tickers());
+    assert!(caps.fetch_order_book());
+    assert!(caps.fetch_trades());
+    assert!(caps.fetch_ohlcv());
 
     // Private API
-    assert!(caps.create_order);
-    assert!(caps.cancel_order);
-    assert!(caps.fetch_open_orders);
-    assert!(caps.fetch_balance);
-    assert!(caps.fetch_positions);
-    assert!(caps.set_leverage);
+    assert!(caps.create_order());
+    assert!(caps.cancel_order());
+    assert!(caps.fetch_open_orders());
+    assert!(caps.fetch_balance());
+    assert!(caps.fetch_positions());
+    assert!(caps.set_leverage());
 
     // Not supported
-    assert!(!caps.fetch_currencies);
-    assert!(!caps.fetch_my_trades);
+    assert!(!caps.fetch_currencies());
+    assert!(!caps.fetch_my_trades());
 }
 
 /// Test fetching markets from testnet.

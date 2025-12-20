@@ -91,6 +91,7 @@ pub use serde_json;
 // Core modules
 pub mod auth;
 pub mod base_exchange;
+pub mod capability;
 pub mod error;
 pub mod exchange;
 pub mod http_client;
@@ -113,8 +114,10 @@ pub mod test_config;
 
 // Re-exports of core types for convenience
 pub use base_exchange::{BaseExchange, ExchangeConfig, ExchangeConfigBuilder, MarketCache};
-// Re-export unified Exchange trait and capabilities from exchange module
-pub use exchange::{ArcExchange, BoxedExchange, Exchange, ExchangeCapabilities};
+// Re-export unified Exchange trait from exchange module
+pub use exchange::{ArcExchange, BoxedExchange, Exchange};
+// Re-export capabilities from capability module (new bitflags-based implementation)
+pub use capability::{Capabilities, Capability, ExchangeCapabilities, ExchangeCapabilitiesBuilder};
 // Re-export WebSocket exchange trait
 pub use error::{
     ContextExt, Error, ExchangeErrorDetails, NetworkError, OrderError, ParseError, Result,

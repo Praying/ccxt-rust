@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use ccxt_core::{
     Result,
-    exchange::{Exchange, ExchangeCapabilities},
+    exchange::{Capability, Exchange, ExchangeCapabilities},
     types::{
         Amount, Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
         Timeframe, Trade,
@@ -42,65 +42,35 @@ impl Exchange for Bitget {
     }
 
     fn capabilities(&self) -> ExchangeCapabilities {
-        ExchangeCapabilities {
-            // Market Data (Public API)
-            fetch_markets: true,
-            fetch_currencies: false,
-            fetch_ticker: true,
-            fetch_tickers: true,
-            fetch_order_book: true,
-            fetch_trades: true,
-            fetch_ohlcv: true,
-            fetch_status: false,
-            fetch_time: false,
-
-            // Trading (Private API)
-            create_order: true,
-            create_market_order: true,
-            create_limit_order: true,
-            cancel_order: true,
-            cancel_all_orders: false, // Not implemented yet
-            edit_order: false,
-            fetch_order: true,
-            fetch_orders: false,
-            fetch_open_orders: true,
-            fetch_closed_orders: true,
-            fetch_canceled_orders: false,
-
-            // Account (Private API)
-            fetch_balance: true,
-            fetch_my_trades: true,
-            fetch_deposits: false,
-            fetch_withdrawals: false,
-            fetch_transactions: false,
-            fetch_ledger: false,
-
-            // Funding
-            fetch_deposit_address: false,
-            create_deposit_address: false,
-            withdraw: false,
-            transfer: false,
-
-            // Margin Trading
-            fetch_borrow_rate: false,
-            fetch_borrow_rates: false,
-            fetch_funding_rate: false,
-            fetch_funding_rates: false,
-            fetch_positions: false,
-            set_leverage: false,
-            set_margin_mode: false,
-
-            // WebSocket
-            websocket: true,
-            watch_ticker: true,
-            watch_tickers: false,
-            watch_order_book: true,
-            watch_trades: true,
-            watch_ohlcv: false,
-            watch_balance: false,
-            watch_orders: false,
-            watch_my_trades: false,
-        }
+        // Bitget supports:
+        // - Market Data: markets, ticker, tickers, order_book, trades, ohlcv
+        // - Trading: create_order, cancel_order, fetch_order, open_orders, closed_orders
+        // - Account: balance, my_trades
+        // - WebSocket: ticker, order_book, trades
+        ExchangeCapabilities::builder()
+            .market_data()
+            .trading()
+            .account()
+            // Remove unsupported market data capabilities
+            .without_capability(Capability::FetchCurrencies)
+            .without_capability(Capability::FetchStatus)
+            .without_capability(Capability::FetchTime)
+            // Remove unsupported trading capabilities
+            .without_capability(Capability::CancelAllOrders)
+            .without_capability(Capability::EditOrder)
+            .without_capability(Capability::FetchOrders)
+            .without_capability(Capability::FetchCanceledOrders)
+            // Remove unsupported account capabilities
+            .without_capability(Capability::FetchDeposits)
+            .without_capability(Capability::FetchWithdrawals)
+            .without_capability(Capability::FetchTransactions)
+            .without_capability(Capability::FetchLedger)
+            // Add WebSocket capabilities
+            .capability(Capability::Websocket)
+            .capability(Capability::WatchTicker)
+            .capability(Capability::WatchOrderBook)
+            .capability(Capability::WatchTrades)
+            .build()
     }
 
     fn timeframes(&self) -> Vec<Timeframe> {
@@ -306,32 +276,32 @@ mod tests {
         let caps = exchange.capabilities();
 
         // Public API capabilities
-        assert!(caps.fetch_markets);
-        assert!(caps.fetch_ticker);
-        assert!(caps.fetch_tickers);
-        assert!(caps.fetch_order_book);
-        assert!(caps.fetch_trades);
-        assert!(caps.fetch_ohlcv);
+        assert!(caps.fetch_markets());
+        assert!(caps.fetch_ticker());
+        assert!(caps.fetch_tickers());
+        assert!(caps.fetch_order_book());
+        assert!(caps.fetch_trades());
+        assert!(caps.fetch_ohlcv());
 
         // Private API capabilities
-        assert!(caps.create_order);
-        assert!(caps.cancel_order);
-        assert!(caps.fetch_order);
-        assert!(caps.fetch_open_orders);
-        assert!(caps.fetch_closed_orders);
-        assert!(caps.fetch_balance);
-        assert!(caps.fetch_my_trades);
+        assert!(caps.create_order());
+        assert!(caps.cancel_order());
+        assert!(caps.fetch_order());
+        assert!(caps.fetch_open_orders());
+        assert!(caps.fetch_closed_orders());
+        assert!(caps.fetch_balance());
+        assert!(caps.fetch_my_trades());
 
         // WebSocket capabilities
-        assert!(caps.websocket);
-        assert!(caps.watch_ticker);
-        assert!(caps.watch_order_book);
-        assert!(caps.watch_trades);
+        assert!(caps.websocket());
+        assert!(caps.watch_ticker());
+        assert!(caps.watch_order_book());
+        assert!(caps.watch_trades());
 
         // Not implemented capabilities
-        assert!(!caps.edit_order);
-        assert!(!caps.cancel_all_orders);
-        assert!(!caps.fetch_currencies);
+        assert!(!caps.edit_order());
+        assert!(!caps.cancel_all_orders());
+        assert!(!caps.fetch_currencies());
     }
 
     #[test]

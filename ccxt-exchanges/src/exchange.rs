@@ -58,15 +58,16 @@ mod tests {
     #[test]
     fn test_deprecated_capabilities_reexport() {
         // Test that the re-exported ExchangeCapabilities works
+        // Note: New API uses method calls instead of field access (bitflags implementation)
         let caps = ExchangeCapabilities::all();
-        assert!(caps.fetch_ticker);
-        assert!(caps.create_order);
-        assert!(caps.websocket);
+        assert!(caps.fetch_ticker());
+        assert!(caps.create_order());
+        assert!(caps.websocket());
 
         let public_caps = ExchangeCapabilities::public_only();
-        assert!(public_caps.fetch_tickers);
-        assert!(!public_caps.create_order);
-        assert!(!public_caps.websocket);
+        assert!(public_caps.fetch_tickers());
+        assert!(!public_caps.create_order());
+        assert!(!public_caps.websocket());
     }
 
     #[test]
