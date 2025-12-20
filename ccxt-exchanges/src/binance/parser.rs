@@ -36,16 +36,30 @@ fn parse_f64(data: &Value, key: &str) -> Option<f64> {
 }
 
 /// Parse a `Decimal` value from JSON (supports both string and number formats).
+/// Prioritizes string parsing for maximum precision, falls back to f64 only when necessary.
 fn parse_decimal(data: &Value, key: &str) -> Option<Decimal> {
     data.get(key).and_then(|v| {
-        if let Some(num) = v.as_f64() {
-            Decimal::from_f64(num)
-        } else if let Some(s) = v.as_str() {
+        // Prioritize string parsing for maximum precision
+        if let Some(s) = v.as_str() {
             Decimal::from_str(s).ok()
+        } else if let Some(num) = v.as_f64() {
+            // Fallback to f64 only when value is a JSON number
+            Decimal::from_f64(num)
         } else {
             None
         }
     })
+}
+
+/// Parse a `Decimal` value from JSON, trying multiple keys in order.
+/// Useful when different API responses use different field names for the same value.
+fn parse_decimal_multi(data: &Value, keys: &[&str]) -> Option<Decimal> {
+    for key in keys {
+        if let Some(decimal) = parse_decimal(data, key) {
+            return Some(decimal);
+        }
+    }
+    None
 }
 
 /// Convert a JSON `Value` into a `HashMap<String, Value>`.
@@ -332,12 +346,8 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         OrderSide::Buy
     };
 
-    let price = parse_f64(data, "price")
-        .or_else(|| parse_f64(data, "p"))
-        .and_then(Decimal::from_f64_retain);
-    let amount = parse_f64(data, "qty")
-        .or_else(|| parse_f64(data, "q"))
-        .and_then(Decimal::from_f64_retain);
+    let price = parse_decimal_multi(data, &["price", "p"]);
+    let amount = parse_decimal_multi(data, &["qty", "q"]);
 
     let cost = match (price, amount) {
         (Some(p), Some(a)) => Some(p * a),
@@ -446,18 +456,18 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
         _ => None,
     };
 
-    let price = parse_f64(data, "price");
-    let amount = parse_f64(data, "origQty");
-    let filled = parse_f64(data, "executedQty");
-    let remaining = match (amount, filled) {
-        (Some(a), Some(f)) => Some(a - f),
+    let price = parse_decimal(data, "price");
+    let amount = parse_decimal(data, "origQty");
+    let filled = parse_decimal(data, "executedQty");
+    let remaining = match (&amount, &filled) {
+        (Some(a), Some(f)) => Some(*a - *f),
         _ => None,
     };
 
-    let cost = parse_f64(data, "cummulativeQuoteQty");
+    let cost = parse_decimal(data, "cummulativeQuoteQty");
 
-    let average = match (cost, filled) {
-        (Some(c), Some(f)) if f > 0.0 => Some(c / f),
+    let average = match (&cost, &filled) {
+        (Some(c), Some(f)) if !f.is_zero() => Some(*c / *f),
         _ => None,
     };
 
@@ -476,31 +486,24 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
         order_type,
         time_in_force: time_in_force.map(|t| t.to_string()),
         side,
-        price: price.map(Decimal::from_f64_retain).flatten(),
-        average: average.map(Decimal::from_f64_retain).flatten(),
-        amount: amount
-            .map(Decimal::from_f64_retain)
-            .flatten()
-            .ok_or_else(|| Error::from(ParseError::missing_field("amount")))?,
-        filled: filled.map(Decimal::from_f64_retain).flatten(),
-        remaining: remaining.map(Decimal::from_f64_retain).flatten(),
-        cost: cost.map(Decimal::from_f64_retain).flatten(),
+        price,
+        average,
+        amount: amount.ok_or_else(|| Error::from(ParseError::missing_field("amount")))?,
+        filled,
+        remaining,
+        cost,
         trades: None,
         fee: None,
         post_only: None,
         reduce_only: data["reduceOnly"].as_bool(),
-        trigger_price: parse_f64(data, "triggerPrice").and_then(Decimal::from_f64_retain),
-        stop_price: parse_f64(data, "stopPrice").and_then(Decimal::from_f64_retain),
-        take_profit_price: parse_f64(data, "takeProfitPrice").and_then(Decimal::from_f64_retain),
-        stop_loss_price: parse_f64(data, "stopLossPrice").and_then(Decimal::from_f64_retain),
-        trailing_delta: parse_f64(data, "trailingDelta").and_then(Decimal::from_f64_retain),
-        trailing_percent: parse_f64(data, "trailingPercent")
-            .or_else(|| parse_f64(data, "callbackRate"))
-            .and_then(Decimal::from_f64_retain),
-        activation_price: parse_f64(data, "activationPrice")
-            .or_else(|| parse_f64(data, "activatePrice"))
-            .and_then(Decimal::from_f64_retain),
-        callback_rate: parse_f64(data, "callbackRate").and_then(Decimal::from_f64_retain),
+        trigger_price: parse_decimal(data, "triggerPrice"),
+        stop_price: parse_decimal(data, "stopPrice"),
+        take_profit_price: parse_decimal(data, "takeProfitPrice"),
+        stop_loss_price: parse_decimal(data, "stopLossPrice"),
+        trailing_delta: parse_decimal(data, "trailingDelta"),
+        trailing_percent: parse_decimal_multi(data, &["trailingPercent", "callbackRate"]),
+        activation_price: parse_decimal_multi(data, &["activationPrice", "activatePrice"]),
+        callback_rate: parse_decimal(data, "callbackRate"),
         working_type: data["workingType"].as_str().map(|s| s.to_string()),
         fees: Some(Vec::new()),
         info: value_to_hashmap(data),
@@ -627,17 +630,17 @@ pub fn parse_balance(data: &Value) -> Result<Balance> {
                 .ok_or_else(|| Error::from(ParseError::missing_field("asset")))?
                 .to_string();
 
-            let free = parse_f64(balance, "free").unwrap_or(0.0);
-            let locked = parse_f64(balance, "locked").unwrap_or(0.0);
+            let free = parse_decimal(balance, "free").unwrap_or(Decimal::ZERO);
+            let locked = parse_decimal(balance, "locked").unwrap_or(Decimal::ZERO);
             let total = free + locked;
 
-            if total > 0.0 {
+            if !total.is_zero() {
                 balances.insert(
                     currency,
                     BalanceEntry {
-                        free: Decimal::from_f64_retain(free).unwrap_or(Decimal::ZERO),
-                        used: Decimal::from_f64_retain(locked).unwrap_or(Decimal::ZERO),
-                        total: Decimal::from_f64_retain(total).unwrap_or(Decimal::ZERO),
+                        free,
+                        used: locked,
+                        total,
                     },
                 );
             }
@@ -1904,7 +1907,8 @@ pub fn parse_margin_adjustment(data: &Value) -> Result<MarginAdjustment> {
 /// # Example
 ///
 /// ```
-/// let (from, to) = parse_futures_transfer_type(1)?;
+/// use ccxt_exchanges::binance::parser::parse_futures_transfer_type;
+/// let (from, to) = parse_futures_transfer_type(1).unwrap();
 /// assert_eq!(from, "spot");
 /// assert_eq!(to, "future");
 /// ```
@@ -2373,10 +2377,10 @@ pub fn parse_bid_ask(data: &Value) -> Result<ccxt_core::types::BidAsk> {
         symbol.clone()
     };
 
-    let bid_price = parse_f64(data, "bidPrice").unwrap_or(0.0);
-    let bid_quantity = parse_f64(data, "bidQty").unwrap_or(0.0);
-    let ask_price = parse_f64(data, "askPrice").unwrap_or(0.0);
-    let ask_quantity = parse_f64(data, "askQty").unwrap_or(0.0);
+    let bid_price = parse_decimal(data, "bidPrice").unwrap_or(Decimal::ZERO);
+    let bid_quantity = parse_decimal(data, "bidQty").unwrap_or(Decimal::ZERO);
+    let ask_price = parse_decimal(data, "askPrice").unwrap_or(Decimal::ZERO);
+    let ask_quantity = parse_decimal(data, "askQty").unwrap_or(Decimal::ZERO);
 
     let timestamp = data["time"]
         .as_i64()
@@ -2445,7 +2449,7 @@ pub fn parse_last_price(data: &Value) -> Result<ccxt_core::types::LastPrice> {
         symbol.clone()
     };
 
-    let price = parse_f64(data, "price").unwrap_or(0.0);
+    let price = parse_decimal(data, "price").unwrap_or(Decimal::ZERO);
 
     let timestamp = data["time"]
         .as_u64()
@@ -2516,10 +2520,10 @@ pub fn parse_mark_price(data: &Value) -> Result<ccxt_core::types::MarkPrice> {
         symbol.clone()
     };
 
-    let mark_price = parse_f64(data, "markPrice").unwrap_or(0.0);
-    let index_price = parse_f64(data, "indexPrice");
-    let estimated_settle_price = parse_f64(data, "estimatedSettlePrice");
-    let last_funding_rate = parse_f64(data, "lastFundingRate");
+    let mark_price = parse_decimal(data, "markPrice").unwrap_or(Decimal::ZERO);
+    let index_price = parse_decimal(data, "indexPrice");
+    let estimated_settle_price = parse_decimal(data, "estimatedSettlePrice");
+    let last_funding_rate = parse_decimal(data, "lastFundingRate");
 
     let next_funding_time = data["nextFundingTime"].as_i64();
 
@@ -2915,12 +2919,8 @@ pub fn parse_ws_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> 
             ask_volume: None,
             vwap: None,
             open: None,
-            close: parse_f64(data, "p")
-                .and_then(Decimal::from_f64_retain)
-                .map(Price::from),
-            last: parse_f64(data, "p")
-                .and_then(Decimal::from_f64_retain)
-                .map(Price::from),
+            close: parse_decimal(data, "p").map(Price::from),
+            last: parse_decimal(data, "p").map(Price::from),
             previous_close: None,
             change: None,
             percentage: None,
@@ -2944,9 +2944,7 @@ pub fn parse_ws_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> 
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
     };
 
-    let last = parse_f64(data, "c")
-        .or_else(|| parse_f64(data, "price"))
-        .and_then(Decimal::from_f64_retain);
+    let last = parse_decimal_multi(data, &["c", "price"]);
 
     Ok(Ticker {
         symbol,
@@ -2956,50 +2954,22 @@ pub fn parse_ws_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> 
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default(),
         ),
-        high: parse_f64(data, "h")
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        low: parse_f64(data, "l")
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        bid: parse_f64(data, "b")
-            .or_else(|| parse_f64(data, "bidPrice"))
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        bid_volume: parse_f64(data, "B")
-            .or_else(|| parse_f64(data, "bidQty"))
-            .and_then(Decimal::from_f64_retain)
-            .map(Amount::from),
-        ask: parse_f64(data, "a")
-            .or_else(|| parse_f64(data, "askPrice"))
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        ask_volume: parse_f64(data, "A")
-            .or_else(|| parse_f64(data, "askQty"))
-            .and_then(Decimal::from_f64_retain)
-            .map(Amount::from),
-        vwap: parse_f64(data, "w")
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        open: parse_f64(data, "o")
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
+        high: parse_decimal(data, "h").map(Price::from),
+        low: parse_decimal(data, "l").map(Price::from),
+        bid: parse_decimal_multi(data, &["b", "bidPrice"]).map(Price::from),
+        bid_volume: parse_decimal_multi(data, &["B", "bidQty"]).map(Amount::from),
+        ask: parse_decimal_multi(data, &["a", "askPrice"]).map(Price::from),
+        ask_volume: parse_decimal_multi(data, &["A", "askQty"]).map(Amount::from),
+        vwap: parse_decimal(data, "w").map(Price::from),
+        open: parse_decimal(data, "o").map(Price::from),
         close: last.map(Price::from),
         last: last.map(Price::from),
-        previous_close: parse_f64(data, "x")
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        change: parse_f64(data, "p")
-            .and_then(Decimal::from_f64_retain)
-            .map(Price::from),
-        percentage: parse_f64(data, "P").and_then(Decimal::from_f64_retain),
+        previous_close: parse_decimal(data, "x").map(Price::from),
+        change: parse_decimal(data, "p").map(Price::from),
+        percentage: parse_decimal(data, "P"),
         average: None,
-        base_volume: parse_f64(data, "v")
-            .and_then(Decimal::from_f64_retain)
-            .map(Amount::from),
-        quote_volume: parse_f64(data, "q")
-            .and_then(Decimal::from_f64_retain)
-            .map(Amount::from),
+        base_volume: parse_decimal(data, "v").map(Amount::from),
+        quote_volume: parse_decimal(data, "q").map(Amount::from),
         info: value_to_hashmap(data),
     })
 }
@@ -3293,22 +3263,22 @@ pub fn parse_ws_bid_ask(data: &Value) -> Result<BidAsk> {
 
     let bid_price = data["b"]
         .as_str()
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| s.parse::<Decimal>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("bid_price")))?;
 
     let bid_quantity = data["B"]
         .as_str()
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| s.parse::<Decimal>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("bid_quantity")))?;
 
     let ask_price = data["a"]
         .as_str()
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| s.parse::<Decimal>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("ask_price")))?;
 
     let ask_quantity = data["A"]
         .as_str()
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| s.parse::<Decimal>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("ask_quantity")))?;
 
     let timestamp = data["E"].as_i64().unwrap_or(0);
@@ -3346,14 +3316,14 @@ pub fn parse_ws_mark_price(data: &Value) -> Result<MarkPrice> {
 
     let mark_price = data["p"]
         .as_str()
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| s.parse::<Decimal>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("mark_price")))?;
 
-    let index_price = data["i"].as_str().and_then(|s| s.parse::<f64>().ok());
+    let index_price = data["i"].as_str().and_then(|s| s.parse::<Decimal>().ok());
 
-    let estimated_settle_price = data["P"].as_str().and_then(|s| s.parse::<f64>().ok());
+    let estimated_settle_price = data["P"].as_str().and_then(|s| s.parse::<Decimal>().ok());
 
-    let last_funding_rate = data["r"].as_str().and_then(|s| s.parse::<f64>().ok());
+    let last_funding_rate = data["r"].as_str().and_then(|s| s.parse::<Decimal>().ok());
 
     let next_funding_time = data["T"].as_i64();
 
@@ -5256,6 +5226,7 @@ mod transaction_tests {
 #[cfg(test)]
 mod ws_parser_tests {
     use super::*;
+    use rust_decimal_macros::dec;
     use serde_json::json;
 
     #[test]
@@ -5478,18 +5449,18 @@ mod ws_parser_tests {
 
         let bid_ask = parse_ws_bid_ask(&data).unwrap();
         assert_eq!(bid_ask.symbol, "BTCUSDT");
-        assert_eq!(bid_ask.bid_price, 49999.00);
-        assert_eq!(bid_ask.bid_quantity, 1.5);
-        assert_eq!(bid_ask.ask_price, 50001.00);
-        assert_eq!(bid_ask.ask_quantity, 2.0);
+        assert_eq!(bid_ask.bid_price, dec!(49999.00));
+        assert_eq!(bid_ask.bid_quantity, dec!(1.5));
+        assert_eq!(bid_ask.ask_price, dec!(50001.00));
+        assert_eq!(bid_ask.ask_quantity, dec!(2.0));
         assert_eq!(bid_ask.timestamp, 1609459200000);
 
         // Test utility methods
         let spread = bid_ask.spread();
-        assert_eq!(spread, 2.0);
+        assert_eq!(spread, dec!(2.0));
 
         let mid_price = bid_ask.mid_price();
-        assert_eq!(mid_price, 50000.0);
+        assert_eq!(mid_price, dec!(50000.0));
     }
     #[test]
     fn test_parse_ws_mark_price() {
@@ -5506,18 +5477,18 @@ mod ws_parser_tests {
 
         let mark_price = parse_ws_mark_price(&data).unwrap();
         assert_eq!(mark_price.symbol, "BTCUSDT");
-        assert_eq!(mark_price.mark_price, 50250.50);
-        assert_eq!(mark_price.index_price, Some(50000.00));
-        assert_eq!(mark_price.estimated_settle_price, Some(50500.00));
-        assert_eq!(mark_price.last_funding_rate, Some(0.0001));
+        assert_eq!(mark_price.mark_price, dec!(50250.50));
+        assert_eq!(mark_price.index_price, Some(dec!(50000.00)));
+        assert_eq!(mark_price.estimated_settle_price, Some(dec!(50500.00)));
+        assert_eq!(mark_price.last_funding_rate, Some(dec!(0.0001)));
         assert_eq!(mark_price.next_funding_time, Some(1609459300000));
         assert_eq!(mark_price.timestamp, 1609459200000);
 
         // Test utility methods
         let basis = mark_price.basis();
-        assert_eq!(basis, Some(250.50));
+        assert_eq!(basis, Some(dec!(250.50)));
 
         let funding_rate_pct = mark_price.funding_rate_percent();
-        assert_eq!(funding_rate_pct, Some(0.01));
+        assert_eq!(funding_rate_pct, Some(dec!(0.01)));
     }
 }

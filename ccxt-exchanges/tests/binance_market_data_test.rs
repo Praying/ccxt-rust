@@ -2,6 +2,8 @@ use ccxt_core::Exchange;
 use ccxt_core::ExchangeConfig;
 use ccxt_core::error::Result;
 use ccxt_exchanges::binance::Binance;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 fn create_test_binance() -> Binance {
     let config = ExchangeConfig {
@@ -49,10 +51,16 @@ mod tests {
         let bid_ask = &result[0];
 
         assert_eq!(bid_ask.symbol, "BTC/USDT");
-        assert!(bid_ask.bid_price > 0.0, "Bid price must exist");
-        assert!(bid_ask.ask_price > 0.0, "Ask price must exist");
-        assert!(bid_ask.bid_quantity > 0.0, "Bid quantity must exist");
-        assert!(bid_ask.ask_quantity > 0.0, "Ask quantity must exist");
+        assert!(bid_ask.bid_price > Decimal::ZERO, "Bid price must exist");
+        assert!(bid_ask.ask_price > Decimal::ZERO, "Ask price must exist");
+        assert!(
+            bid_ask.bid_quantity > Decimal::ZERO,
+            "Bid quantity must exist"
+        );
+        assert!(
+            bid_ask.ask_quantity > Decimal::ZERO,
+            "Ask quantity must exist"
+        );
         assert!(
             bid_ask.bid_price < bid_ask.ask_price,
             "Bid must be less than ask"
@@ -83,7 +91,7 @@ mod tests {
                 symbols.contains(&bid_ask.symbol.as_str()),
                 "Symbol must be in request list"
             );
-            assert!(bid_ask.bid_price > 0.0 || bid_ask.ask_price > 0.0);
+            assert!(bid_ask.bid_price > Decimal::ZERO || bid_ask.ask_price > Decimal::ZERO);
         }
 
         println!("✓ Multiple symbols BBO test passed");
@@ -101,7 +109,7 @@ mod tests {
         for bid_ask in result.iter().take(10) {
             assert!(!bid_ask.symbol.is_empty());
             assert!(
-                bid_ask.bid_price > 0.0 || bid_ask.ask_price > 0.0,
+                bid_ask.bid_price > Decimal::ZERO || bid_ask.ask_price > Decimal::ZERO,
                 "Must have bid or ask price"
             );
         }
@@ -124,7 +132,7 @@ mod tests {
         let last_price = &result[0];
 
         assert_eq!(last_price.symbol, "BTC/USDT");
-        assert!(last_price.price > 0.0, "Price must exist");
+        assert!(last_price.price > Decimal::ZERO, "Price must exist");
         assert!(last_price.timestamp > 0, "Timestamp must exist");
 
         println!("✓ Single symbol last price test passed");
@@ -149,7 +157,7 @@ mod tests {
 
         for last_price in &results {
             assert!(symbols.contains(&last_price.symbol.as_str()));
-            assert!(last_price.price > 0.0);
+            assert!(last_price.price > Decimal::ZERO);
             assert!(last_price.timestamp > 0);
         }
 
@@ -168,7 +176,10 @@ mod tests {
         let mark_price = &result[0];
 
         assert_eq!(mark_price.symbol, "BTC/USDT:USDT");
-        assert!(mark_price.mark_price > 0.0, "Mark price must exist");
+        assert!(
+            mark_price.mark_price > Decimal::ZERO,
+            "Mark price must exist"
+        );
         assert!(
             mark_price.last_funding_rate.is_some(),
             "Funding rate must exist"
@@ -195,15 +206,18 @@ mod tests {
             let bid = bid_ask.bid_price;
             let ask = bid_ask.ask_price;
             let spread = ask - bid;
-            let spread_percent = spread / bid * 100.0;
+            let spread_percent = spread / bid * dec!(100);
 
             println!(
                 "{} spread: ${:.2} ({:.4}%)",
                 bid_ask.symbol, spread, spread_percent
             );
 
-            assert!(spread > 0.0, "Spread must be positive");
-            assert!(spread_percent < 10.0, "Spread percent must be reasonable");
+            assert!(spread > Decimal::ZERO, "Spread must be positive");
+            assert!(
+                spread_percent < dec!(10),
+                "Spread percent must be reasonable"
+            );
         }
 
         println!("✓ Bid-ask spread analysis test passed");
@@ -214,42 +228,42 @@ mod tests {
     async fn test_market_data_types() -> Result<()> {
         let bid_ask = BidAsk {
             symbol: "BTC/USDT".to_string(),
-            bid_price: 50000.0,
-            ask_price: 50100.0,
-            bid_quantity: 10.0,
-            ask_quantity: 15.0,
+            bid_price: dec!(50000),
+            ask_price: dec!(50100),
+            bid_quantity: dec!(10),
+            ask_quantity: dec!(15),
             timestamp: 1234567890000,
         };
 
         assert_eq!(bid_ask.symbol, "BTC/USDT");
-        assert_eq!(bid_ask.spread(), 100.0);
-        assert_eq!(bid_ask.mid_price(), 50050.0);
-        assert!(bid_ask.spread_percent() > 0.0);
+        assert_eq!(bid_ask.spread(), dec!(100));
+        assert_eq!(bid_ask.mid_price(), dec!(50050));
+        assert!(bid_ask.spread_percent() > Decimal::ZERO);
 
         let last_price = LastPrice {
             symbol: "BTC/USDT".to_string(),
-            price: 50000.0,
+            price: dec!(50000),
             timestamp: 1234567890000,
             datetime: "2023-01-01T00:00:00.000Z".to_string(),
         };
 
         assert_eq!(last_price.symbol, "BTC/USDT");
-        assert_eq!(last_price.price, 50000.0);
+        assert_eq!(last_price.price, dec!(50000));
         assert!(last_price.timestamp > 0);
 
         let mark_price = MarkPrice {
             symbol: "BTC/USDT:USDT".to_string(),
-            mark_price: 50050.0,
-            index_price: Some(50000.0),
+            mark_price: dec!(50050),
+            index_price: Some(dec!(50000)),
             estimated_settle_price: None,
-            last_funding_rate: Some(0.0001),
-            interest_rate: Some(0.0003),
+            last_funding_rate: Some(dec!(0.0001)),
+            interest_rate: Some(dec!(0.0003)),
             next_funding_time: Some(1234567890000),
             timestamp: 1234567890000,
         };
 
         assert_eq!(mark_price.symbol, "BTC/USDT:USDT");
-        assert_eq!(mark_price.mark_price, 50050.0);
+        assert_eq!(mark_price.mark_price, dec!(50050));
         assert!(mark_price.last_funding_rate.is_some());
 
         println!("✓ Market data types test passed");

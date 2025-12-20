@@ -250,15 +250,17 @@ impl Binance {
     ///
     /// Returns an error if markets are not loaded or the API request fails.
     pub async fn fetch_tickers(&self, symbols: Option<Vec<String>>) -> Result<Vec<Ticker>> {
-        let cache = self.base().market_cache.read().await;
-        if !cache.loaded {
-            drop(cache);
-            return Err(Error::exchange(
-                "-1",
-                "Markets not loaded. Call load_markets() first.",
-            ));
-        }
-        drop(cache);
+        // Acquire read lock once and clone the necessary data to avoid lock contention in the loop
+        let markets_by_id = {
+            let cache = self.base().market_cache.read().await;
+            if !cache.loaded {
+                return Err(Error::exchange(
+                    "-1",
+                    "Markets not loaded. Call load_markets() first.",
+                ));
+            }
+            cache.markets_by_id.clone()
+        };
 
         let url = format!("{}/ticker/24hr", self.urls().public);
         let data = self.base().http_client.get(&url, None).await?;
@@ -273,12 +275,9 @@ impl Binance {
         let mut tickers = Vec::new();
         for ticker_data in tickers_array {
             if let Some(binance_symbol) = ticker_data["symbol"].as_str() {
-                let cache = self.base().market_cache.read().await;
-                if let Some(market) = cache.markets_by_id.get(binance_symbol) {
-                    let market_clone = market.clone();
-                    drop(cache);
-
-                    match parser::parse_ticker(ticker_data, Some(&market_clone)) {
+                // Use the pre-cloned map instead of acquiring a lock on each iteration
+                if let Some(market) = markets_by_id.get(binance_symbol) {
+                    match parser::parse_ticker(ticker_data, Some(market)) {
                         Ok(ticker) => {
                             if let Some(ref syms) = symbols {
                                 if syms.contains(&ticker.symbol) {
@@ -296,8 +295,6 @@ impl Binance {
                             );
                         }
                     }
-                } else {
-                    drop(cache);
                 }
             }
         }
@@ -772,8 +769,10 @@ impl Binance {
     /// # async fn example() -> ccxt_core::Result<()> {
     /// # let binance = Binance::new(ExchangeConfig::default())?;
     /// let limits = binance.fetch_trading_limits("BTC/USDT").await?;
-    /// println!("Min amount: {:?}", limits.amount.min);
-    /// println!("Max amount: {:?}", limits.amount.max);
+    /// if let Some(ref amount) = limits.amount {
+    ///     println!("Min amount: {:?}", amount.min);
+    ///     println!("Max amount: {:?}", amount.max);
+    /// }
     /// # Ok(())
     /// # }
     /// ```
@@ -1490,7 +1489,7 @@ impl Binance {
     /// # let binance = Binance::new(ExchangeConfig::default())?;
     /// let currencies = binance.fetch_currencies().await?;
     /// for currency in &currencies {
-    ///     println!("{}: {} - {}", currency.code, currency.name, currency.active);
+    ///     println!("{}: {:?} - {}", currency.code, currency.name, currency.active);
     /// }
     /// # Ok(())
     /// # }
@@ -1868,22 +1867,6 @@ impl Binance {
     ///
     /// Returns an error if the API request fails.
     ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use ccxt_exchanges::binance::Binance;
-    /// # use ccxt_core::ExchangeConfig;
-    /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
-    /// let history = binance.fetch_funding_rate_history(
-    ///     Some("BTC/USDT:USDT"),
-    ///     None,
-    ///     Some(100),
-    ///     None
-    /// ).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     /// Fetch position for a single trading pair.
     ///
     /// # Arguments
@@ -1908,7 +1891,7 @@ impl Binance {
     /// let mut config = ExchangeConfig::default();
     /// config.api_key = Some("your_api_key".to_string());
     /// config.secret = Some("your_secret".to_string());
-    /// let binance = Binance::new_swap(config)?;
+    /// let binance = Binance::new(config)?;
     /// let position = binance.fetch_position("BTC/USDT:USDT", None).await?;
     /// # Ok(())
     /// # }
@@ -2067,15 +2050,17 @@ impl Binance {
             ))
         })?;
 
+        // Clone markets_by_id map once before the loop to avoid lock contention
+        let markets_by_id = {
+            let cache = self.base().market_cache.read().await;
+            cache.markets_by_id.clone()
+        };
+
         let mut positions = Vec::new();
         for position_data in positions_array {
             if let Some(binance_symbol) = position_data["symbol"].as_str() {
-                let cache = self.base().market_cache.read().await;
-                if let Some(market) = cache.markets_by_id.get(binance_symbol) {
-                    let market_clone = market.clone();
-                    drop(cache);
-
-                    match parser::parse_position(position_data, Some(&market_clone)) {
+                if let Some(market) = markets_by_id.get(binance_symbol) {
+                    match parser::parse_position(position_data, Some(market)) {
                         Ok(position) => {
                             // Only return positions with contracts > 0
                             if position.contracts.unwrap_or(0.0) > 0.0 {
@@ -2097,8 +2082,6 @@ impl Binance {
                             );
                         }
                     }
-                } else {
-                    drop(cache);
                 }
             }
         }
@@ -2150,10 +2133,9 @@ impl Binance {
     ///
     /// ```no_run
     /// # use ccxt_exchanges::binance::Binance;
-    /// # use std::collections::HashMap;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let exchange = Binance::new(Default::default());
-    ///
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// # let exchange = Binance::new(ExchangeConfig::default())?;
     /// // Query leverage settings for all trading pairs
     /// let leverages = exchange.fetch_leverages(None, None).await?;
     ///
@@ -2280,9 +2262,9 @@ impl Binance {
     ///
     /// ```no_run
     /// # use ccxt_exchanges::binance::Binance;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let exchange = Binance::new(Default::default());
-    ///
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// # let exchange = Binance::new(ExchangeConfig::default())?;
     /// // Query leverage settings for BTC/USDT futures
     /// let leverage = exchange.fetch_leverage("BTC/USDT:USDT", None).await?;
     /// println!("Long leverage: {:?}", leverage.long_leverage);
@@ -4080,7 +4062,7 @@ impl Binance {
         &self,
         symbol: &str,
         currency: &str,
-        amount: f64,
+        amount: rust_decimal::Decimal,
     ) -> Result<MarginRepay> {
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
@@ -4491,7 +4473,7 @@ impl Binance {
     ///
     /// // Fetch bid/ask for single symbol
     /// let bid_ask = binance.fetch_bids_asks(Some("BTC/USDT")).await?;
-    /// println!("BTC/USDT bid: {}, ask: {}", bid_ask[0].bid, bid_ask[0].ask);
+    /// println!("BTC/USDT bid: {}, ask: {}", bid_ask[0].bid_price, bid_ask[0].ask_price);
     ///
     /// // Fetch bid/ask for all symbols
     /// let all_bid_asks = binance.fetch_bids_asks(None).await?;
@@ -4599,7 +4581,7 @@ impl Binance {
     /// // Fetch mark price for single futures symbol
     /// let mark_price = binance.fetch_mark_price(Some("BTC/USDT")).await?;
     /// println!("BTC/USDT mark price: {}", mark_price[0].mark_price);
-    /// println!("Funding rate: {}", mark_price[0].last_funding_rate);
+    /// println!("Funding rate: {:?}", mark_price[0].last_funding_rate);
     ///
     /// // Fetch mark prices for all futures symbols
     /// let all_mark_prices = binance.fetch_mark_price(None).await?;
@@ -4806,14 +4788,14 @@ impl Binance {
     /// # use std::collections::HashMap;
     /// # use serde_json::json;
     /// # async fn example() -> ccxt_core::Result<()> {
-    /// let binance = Binance::new(Default::default());
+    /// let binance = Binance::new(Default::default())?;
     ///
     /// // Basic usage
     /// let ohlcv = binance.fetch_ohlcv("BTC/USDT", "1h", None, Some(100), None).await?;
     ///
     /// // Using time range
-    /// let since = 1609459200000; // 2021-01-01
-    /// let until = 1612137600000; // 2021-02-01
+    /// let since = 1609459200000i64; // 2021-01-01
+    /// let until = 1612137600000i64; // 2021-02-01
     /// let mut params = HashMap::new();
     /// params.insert("until".to_string(), json!(until));
     /// let ohlcv = binance.fetch_ohlcv("BTC/USDT", "1h", Some(since), None, Some(params)).await?;
@@ -4928,6 +4910,7 @@ impl Binance {
     /// ```rust,no_run
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
+    /// # use rust_decimal::prelude::*;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let config = ExchangeConfig {
     ///     api_key: Some("your-api-key".to_string()),
@@ -4937,9 +4920,10 @@ impl Binance {
     /// let binance = Binance::new(config)?;
     ///
     /// // Fetch trading fee for BTC/USDT
-    /// let fee = binance.fetch_trading_fee("BTC/USDT").await?;
+    /// let fee = binance.fetch_trading_fee("BTC/USDT", None).await?;
+    /// let multiplier = Decimal::from_f64(100.0).unwrap();
     /// println!("Maker fee: {}%, Taker fee: {}%",
-    ///     fee.maker * 100.0, fee.taker * 100.0);
+    ///     fee.maker * multiplier, fee.taker * multiplier);
     /// # Ok(())
     /// # }
     /// ```
@@ -5005,14 +4989,15 @@ impl Binance {
     /// let binance = Binance::new(config)?;
     ///
     /// // Fetch fees for all trading pairs
-    /// let all_fees = binance.fetch_trading_fees(None).await?;
+    /// let all_fees = binance.fetch_trading_fees(None, None).await?;
     /// println!("Total symbols with fees: {}", all_fees.len());
     ///
     /// // Fetch fees for specific trading pairs
-    /// let fees = binance.fetch_trading_fees(Some(vec!["BTC/USDT", "ETH/USDT"])).await?;
-    /// for fee in &fees {
+    /// let fees = binance.fetch_trading_fees(Some(vec!["BTC/USDT".to_string(), "ETH/USDT".to_string()]), None).await?;
+    /// # use rust_decimal::Decimal;
+    /// for (symbol, fee) in &fees {
     ///     println!("{}: Maker {}%, Taker {}%",
-    ///         fee.symbol, fee.maker * 100.0, fee.taker * 100.0);
+    ///         symbol, fee.maker * Decimal::from(100), fee.taker * Decimal::from(100));
     /// }
     /// # Ok(())
     /// # }
@@ -5702,7 +5687,7 @@ impl Binance {
     ///         price: "41000".to_string(),
     ///     },
     /// ];
-    /// let results = binance.edit_orders(updates, None).await?;
+    /// let results = binance.batch_edit_orders(updates, None).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -5804,7 +5789,7 @@ impl Binance {
     ///
     /// // Batch cancel orders
     /// let order_ids = vec![12345, 12346, 12347];
-    /// let results = binance.cancel_orders("BTC/USDT", order_ids, None).await?;
+    /// let results = binance.batch_cancel_orders("BTC/USDT", order_ids, None).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -5910,10 +5895,10 @@ impl Binance {
     /// # use ccxt_core::ExchangeConfig;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let binance = Binance::new_swap(ExchangeConfig::default())?;
+    /// let binance = Binance::new(ExchangeConfig::default())?;
     ///
     /// // Cancel all open orders for BTC/USDT
-    /// let result = binance.cancel_all_orders("BTC/USDT", None).await?;
+    /// let result = binance.cancel_all_orders("BTC/USDT").await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -7873,7 +7858,7 @@ impl Binance {
     ///     OrderType::Limit,
     ///     OrderSide::Buy,
     ///     0.001,
-    ///     40000.0,
+    ///     Some(40000.0),
     ///     None
     /// ).await?;
     /// println!("Order parameters validated successfully");

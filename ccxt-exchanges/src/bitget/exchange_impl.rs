@@ -90,8 +90,8 @@ impl Exchange for Bitget {
         ]
     }
 
-    fn rate_limit(&self) -> f64 {
-        20.0
+    fn rate_limit(&self) -> u32 {
+        20
     }
 
     // ==================== Market Data (Public API) ====================
@@ -329,7 +329,7 @@ mod tests {
         let bitget = Bitget::new(config).unwrap();
 
         let exchange: &dyn Exchange = &bitget;
-        assert!((exchange.rate_limit() - 20.0).abs() < f64::EPSILON);
+        assert_eq!(exchange.rate_limit(), 20);
     }
 
     #[test]
@@ -342,7 +342,7 @@ mod tests {
 
         assert_eq!(exchange.id(), "bitget");
         assert_eq!(exchange.name(), "Bitget");
-        assert!((exchange.rate_limit() - 20.0).abs() < f64::EPSILON);
+        assert_eq!(exchange.rate_limit(), 20);
     }
 
     #[test]

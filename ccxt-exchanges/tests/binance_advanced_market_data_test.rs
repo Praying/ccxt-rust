@@ -8,7 +8,7 @@
 use ccxt_core::ExchangeConfig;
 use ccxt_exchanges::binance::Binance;
 use rust_decimal::Decimal;
-use std::str::FromStr;
+use rust_decimal_macros::dec;
 
 /// Create Binance client for testing.
 fn create_binance_client() -> Binance {
@@ -238,16 +238,16 @@ mod trading_fee_tests {
         // 创建一个测试手续费
         let fee = TradingFee {
             symbol: "BTC/USDT".to_string(),
-            maker: 0.001, // 0.1%
-            taker: 0.001, // 0.1%
+            maker: dec!(0.001), // 0.1%
+            taker: dec!(0.001), // 0.1%
             timestamp: None,
             datetime: None,
         };
 
         // 测试基本字段
         assert_eq!(fee.symbol, "BTC/USDT");
-        assert_eq!(fee.maker, 0.001);
-        assert_eq!(fee.taker, 0.001);
+        assert_eq!(fee.maker, dec!(0.001));
+        assert_eq!(fee.taker, dec!(0.001));
     }
 }
 

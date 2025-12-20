@@ -88,8 +88,8 @@ impl Exchange for HyperLiquid {
         ]
     }
 
-    fn rate_limit(&self) -> f64 {
-        100.0
+    fn rate_limit(&self) -> u32 {
+        100
     }
 
     // ==================== Market Data (Public API) ====================
