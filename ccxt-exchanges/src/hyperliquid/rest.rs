@@ -9,7 +9,7 @@ use ccxt_core::{
 };
 use rust_decimal::Decimal;
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info, warn};
 
 impl HyperLiquid {
@@ -114,7 +114,7 @@ impl HyperLiquid {
     // ============================================================================
 
     /// Fetch all trading markets.
-    pub async fn fetch_markets(&self) -> Result<Vec<Market>> {
+    pub async fn fetch_markets(&self) -> Result<HashMap<String, Arc<Market>>> {
         let response = self
             .info_request("meta", serde_json::Value::Object(serde_json::Map::new()))
             .await?;
@@ -134,14 +134,14 @@ impl HyperLiquid {
         }
 
         // Cache the markets and preserve ownership for the caller
-        let markets = self.base().set_markets(markets, None).await?;
+        let result = self.base().set_markets(markets, None).await?;
 
-        info!("Loaded {} markets for HyperLiquid", markets.len());
-        Ok(markets)
+        info!("Loaded {} markets for HyperLiquid", result.len());
+        Ok(result)
     }
 
     /// Load and cache market data.
-    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
+    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Arc<Market>>> {
         // Acquire the loading lock to serialize concurrent load_markets calls
         // This prevents multiple tasks from making duplicate API calls
         let _loading_guard = self.base().market_loading_lock.lock().await;
@@ -227,7 +227,10 @@ impl HyperLiquid {
         let response = self
             .info_request("l2Book", {
                 let mut map = serde_json::Map::new();
-                map.insert("coin".to_string(), serde_json::Value::String(market.base));
+                map.insert(
+                    "coin".to_string(),
+                    serde_json::Value::String(market.base.clone()),
+                );
                 serde_json::Value::Object(map)
             })
             .await?;
@@ -300,7 +303,10 @@ impl HyperLiquid {
         let response = self
             .info_request("candleSnapshot", {
                 let mut map = serde_json::Map::new();
-                map.insert("coin".to_string(), serde_json::Value::String(market.base));
+                map.insert(
+                    "coin".to_string(),
+                    serde_json::Value::String(market.base.clone()),
+                );
                 map.insert(
                     "interval".to_string(),
                     serde_json::Value::String(interval.to_string()),

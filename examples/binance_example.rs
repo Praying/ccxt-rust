@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     match exchange.fetch_markets().await {
         Ok(markets) => {
             println!("   Found {} markets", markets.len());
-            if let Some(market) = markets.first() {
+            if let Some(market) = markets.values().next() {
                 println!(
                     "   Example market: {} ({}/{})",
                     market.symbol, market.base, market.quote
@@ -197,7 +197,7 @@ async fn main() -> Result<()> {
 
             // Find perpetual futures (symbols ending with /USDT)
             let perpetuals: Vec<_> = markets
-                .iter()
+                .values()
                 .filter(|m| m.symbol.contains("/USDT") && m.symbol.contains("PERP"))
                 .take(5)
                 .collect();

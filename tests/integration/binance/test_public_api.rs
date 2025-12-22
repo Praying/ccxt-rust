@@ -46,7 +46,7 @@ async fn test_fetch_markets() -> anyhow::Result<()> {
     assert!(markets.len() < 10000, "Should have less than 10000 markets");
 
     // 验证几个主要交易对存在
-    let symbols: Vec<String> = markets.iter().map(|m| m.symbol.to_string()).collect();
+    let symbols: Vec<String> = markets.values().map(|m| m.symbol.to_string()).collect();
     assert!(
         symbols.contains(&"BTC/USDT".to_string()),
         "Should contain BTC/USDT"
@@ -57,7 +57,7 @@ async fn test_fetch_markets() -> anyhow::Result<()> {
     );
 
     // 验证第一个市场的数据完整性
-    if let Some(first_market) = markets.first() {
+    if let Some(first_market) = markets.values().next() {
         // 暂时注释掉宏调用，使用手动验证
         // assert_valid_market!(first_market);
         assert!(!first_market.symbol.to_string().is_empty());
@@ -67,11 +67,11 @@ async fn test_fetch_markets() -> anyhow::Result<()> {
 
     // 统计市场类型
     let spot_count = markets
-        .iter()
+        .values()
         .filter(|m| matches!(m.market_type, MarketType::Spot))
         .count();
     let future_count = markets
-        .iter()
+        .values()
         .filter(|m| matches!(m.market_type, MarketType::Futures))
         .count();
     println!(

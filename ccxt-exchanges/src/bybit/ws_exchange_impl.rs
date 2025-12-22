@@ -73,7 +73,7 @@ impl WsExchange for Bybit {
         let bybit_symbol = symbol.replace('/', "");
 
         // Try to get market info if available (optional)
-        let market = self.base().market(symbol).await.ok();
+        let market = self.base().market(symbol).await.ok().map(|m| (*m).clone());
 
         ws.watch_ticker(&bybit_symbol, market).await
     }
@@ -105,7 +105,7 @@ impl WsExchange for Bybit {
         let bybit_symbol = symbol.replace('/', "");
 
         // Try to get market info if available (optional)
-        let market = self.base().market(symbol).await.ok();
+        let market = self.base().market(symbol).await.ok().map(|m| (*m).clone());
 
         ws.watch_trades(&bybit_symbol, market).await
     }

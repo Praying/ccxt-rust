@@ -9,7 +9,7 @@ use ccxt_core::{
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info, warn};
 
 impl Okx {
@@ -256,7 +256,7 @@ impl Okx {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn fetch_markets(&self) -> Result<Vec<Market>> {
+    pub async fn fetch_markets(&self) -> Result<HashMap<String, Arc<Market>>> {
         let path = self.build_api_path("/public/instruments");
         let mut params = HashMap::new();
         params.insert("instType".to_string(), self.get_inst_type().to_string());
@@ -285,10 +285,10 @@ impl Okx {
         }
 
         // Cache the markets and preserve ownership for the caller
-        let markets = self.base().set_markets(markets, None).await?;
+        let result = self.base().set_markets(markets, None).await?;
 
-        info!("Loaded {} markets for OKX", markets.len());
-        Ok(markets)
+        info!("Loaded {} markets for OKX", result.len());
+        Ok(result)
     }
 
     /// Load and cache market data.
@@ -302,7 +302,7 @@ impl Okx {
     /// # Returns
     ///
     /// Returns a `HashMap` containing all market data, keyed by symbol (e.g., "BTC/USDT").
-    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
+    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Arc<Market>>> {
         // Acquire the loading lock to serialize concurrent load_markets calls
         // This prevents multiple tasks from making duplicate API calls
         let _loading_guard = self.base().market_loading_lock.lock().await;
@@ -315,7 +315,11 @@ impl Okx {
                     "Returning cached markets for OKX ({} markets)",
                     cache.markets.len()
                 );
-                return Ok(cache.markets.clone());
+                return Ok(cache
+                    .markets
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Arc::clone(v)))
+                    .collect());
             }
         }
 
@@ -323,7 +327,11 @@ impl Okx {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache
+            .markets
+            .iter()
+            .map(|(k, v)| (k.clone(), Arc::clone(v)))
+            .collect())
     }
 
     /// Fetch ticker for a single trading pair.
@@ -938,7 +946,7 @@ impl Okx {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref()) {
+            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse open order");
@@ -1003,7 +1011,7 @@ impl Okx {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref()) {
+            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse closed order");

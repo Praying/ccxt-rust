@@ -241,13 +241,13 @@ impl ExchangeConfigBuilder {
 #[derive(Debug, Clone)]
 pub struct MarketCache {
     /// Markets indexed by symbol (e.g., "BTC/USDT")
-    pub markets: HashMap<String, Market>,
+    pub markets: HashMap<String, Arc<Market>>,
     /// Markets indexed by exchange-specific ID
-    pub markets_by_id: HashMap<String, Market>,
+    pub markets_by_id: HashMap<String, Arc<Market>>,
     /// Currencies indexed by code (e.g., "BTC")
-    pub currencies: HashMap<String, Currency>,
+    pub currencies: HashMap<String, Arc<Currency>>,
     /// Currencies indexed by exchange-specific ID
-    pub currencies_by_id: HashMap<String, Currency>,
+    pub currencies_by_id: HashMap<String, Arc<Currency>>,
     /// List of all trading pair symbols
     pub symbols: Vec<String>,
     /// List of all currency codes
@@ -282,10 +282,8 @@ use crate::exchange::ExchangeCapabilities;
 pub struct BaseExchange {
     /// Exchange configuration
     pub config: ExchangeConfig,
-    /// HTTP client for API requests
+    /// HTTP client for API requests (handles rate limiting internally)
     pub http_client: HttpClient,
-    /// Rate limiter instance
-    pub rate_limiter: Option<RateLimiter>,
     /// Thread-safe market data cache
     pub market_cache: Arc<RwLock<MarketCache>>,
     /// Mutex to serialize market loading operations and prevent concurrent API calls
@@ -334,21 +332,17 @@ impl BaseExchange {
 
         let mut http_client = HttpClient::new(http_config)?;
 
-        let rate_limiter = if config.enable_rate_limit {
+        // Rate limiting is fully managed by HttpClient
+        if config.enable_rate_limit {
             let rate_config =
                 RateLimiterConfig::new(config.rate_limit, std::time::Duration::from_millis(1000));
             let limiter = RateLimiter::new(rate_config);
-            // 将 rate_limiter 传递给 http_client，使限流在 HTTP 请求链路中生效
-            http_client.set_rate_limiter(limiter.clone());
-            Some(limiter)
-        } else {
-            None
-        };
+            http_client.set_rate_limiter(limiter);
+        }
 
         Ok(Self {
             config,
             http_client,
-            rate_limiter,
             market_cache: Arc::new(RwLock::new(MarketCache::default())),
             market_loading_lock: Arc::new(Mutex::new(())),
             capabilities: ExchangeCapabilities::default(),
@@ -377,7 +371,11 @@ impl BaseExchange {
 
         if cache.loaded && !reload {
             debug!("Returning cached markets for {}", self.config.id);
-            return Ok(cache.markets.clone());
+            return Ok(cache
+                .markets
+                .iter()
+                .map(|(k, v)| (k.clone(), (**v).clone()))
+                .collect());
         }
 
         info!("Loading markets for {}", self.config.id);
@@ -414,18 +412,17 @@ impl BaseExchange {
     /// ```ignore
     /// let markets = self.base().load_markets_with_loader(reload, || async {
     ///     let markets = self.fetch_markets_from_api().await?;
-    ///     self.base().set_markets(markets, None).await?;
-    ///     Ok(())
+    ///     Ok((markets, None))
     /// }).await?;
     /// ```
     pub async fn load_markets_with_loader<F, Fut>(
         &self,
         reload: bool,
         loader: F,
-    ) -> Result<HashMap<String, Market>>
+    ) -> Result<HashMap<String, Arc<Market>>>
     where
         F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<()>>,
+        Fut: Future<Output = Result<(Vec<Market>, Option<Vec<Currency>>)>>,
     {
         // Acquire the loading lock to serialize concurrent load_markets calls
         let _loading_guard = self.market_loading_lock.lock().await;
@@ -443,12 +440,15 @@ impl BaseExchange {
             }
         }
 
-        // Execute the loader to fetch and set market data
+        // Execute the loader to fetch market data
         info!(
             "Loading markets for {} (reload: {})",
             self.config.id, reload
         );
-        loader().await?;
+        let (markets, currencies) = loader().await?;
+
+        // Base layer is responsible for setting markets
+        self.set_markets(markets, currencies).await?;
 
         // Return the loaded markets
         let cache = self.market_cache.read().await;
@@ -473,7 +473,7 @@ impl BaseExchange {
         &self,
         markets: Vec<Market>,
         currencies: Option<Vec<Currency>>,
-    ) -> Result<Vec<Market>> {
+    ) -> Result<HashMap<String, Arc<Market>>> {
         let mut cache = self.market_cache.write().await;
 
         cache.markets.clear();
@@ -481,13 +481,14 @@ impl BaseExchange {
         cache.symbols.clear();
         cache.ids.clear();
 
-        for market in &markets {
+        for market in markets {
             cache.symbols.push(market.symbol.clone());
             cache.ids.push(market.id.clone());
+            let arc_market = Arc::new(market);
             cache
                 .markets_by_id
-                .insert(market.id.clone(), market.clone());
-            cache.markets.insert(market.symbol.clone(), market.clone());
+                .insert(arc_market.id.clone(), Arc::clone(&arc_market));
+            cache.markets.insert(arc_market.symbol.clone(), arc_market);
         }
 
         if let Some(currencies) = currencies {
@@ -497,10 +498,13 @@ impl BaseExchange {
 
             for currency in currencies {
                 cache.codes.push(currency.code.clone());
+                let arc_currency = Arc::new(currency);
                 cache
                     .currencies_by_id
-                    .insert(currency.id.clone(), currency.clone());
-                cache.currencies.insert(currency.code.clone(), currency);
+                    .insert(arc_currency.id.clone(), Arc::clone(&arc_currency));
+                cache
+                    .currencies
+                    .insert(arc_currency.code.clone(), arc_currency);
             }
         }
 
@@ -512,7 +516,7 @@ impl BaseExchange {
             self.config.id
         );
 
-        Ok(markets)
+        Ok(cache.markets.clone())
     }
 
     /// Gets market information by trading symbol
@@ -528,7 +532,7 @@ impl BaseExchange {
     /// # Errors
     ///
     /// Returns an error if markets are not loaded or the symbol is not found.
-    pub async fn market(&self, symbol: &str) -> Result<Market> {
+    pub async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
         let cache = self.market_cache.read().await;
 
         if !cache.loaded {
@@ -559,7 +563,7 @@ impl BaseExchange {
     /// # Errors
     ///
     /// Returns an error if the market ID is not found.
-    pub async fn market_by_id(&self, id: &str) -> Result<Market> {
+    pub async fn market_by_id(&self, id: &str) -> Result<Arc<Market>> {
         let cache = self.market_cache.read().await;
 
         cache
@@ -582,7 +586,7 @@ impl BaseExchange {
     /// # Errors
     ///
     /// Returns an error if the currency is not found.
-    pub async fn currency(&self, code: &str) -> Result<Currency> {
+    pub async fn currency(&self, code: &str) -> Result<Arc<Currency>> {
         let cache = self.market_cache.read().await;
 
         cache
@@ -604,15 +608,16 @@ impl BaseExchange {
 
     /// Applies rate limiting if enabled
     ///
-    /// Blocks until rate limit quota is available.
+    /// # Deprecated
     ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` after rate limit check passes.
-    pub async fn throttle(&self) -> Result<()> {
-        if let Some(limiter) = &self.rate_limiter {
-            limiter.acquire(1).await;
-        }
+    /// Rate limiting is now fully managed by HttpClient internally.
+    /// This method is a no-op and will be removed in a future version.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Rate limiting is now handled internally by HttpClient. This method is a no-op."
+    )]
+    pub fn throttle(&self) -> Result<()> {
+        // Rate limiting is now fully managed by HttpClient
         Ok(())
     }
 
@@ -1269,7 +1274,8 @@ mod tests {
 
         let exchange = BaseExchange::new(config).unwrap();
         assert_eq!(exchange.config.id, "test");
-        assert!(exchange.rate_limiter.is_some());
+        // Rate limiting is now managed by HttpClient internally
+        assert!(exchange.config.enable_rate_limit);
     }
 
     #[tokio::test]

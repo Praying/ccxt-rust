@@ -19,7 +19,7 @@ use ccxt_core::{
 use reqwest::header::HeaderMap;
 use rust_decimal::Decimal;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info, warn};
 
 impl Binance {
@@ -110,7 +110,7 @@ impl Binance {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn fetch_markets(&self) -> Result<Vec<Market>> {
+    pub async fn fetch_markets(&self) -> Result<HashMap<String, Arc<Market>>> {
         let url = format!("{}/exchangeInfo", self.urls().public);
         let data = self.base().http_client.get(&url, None).await?;
 
@@ -128,9 +128,7 @@ impl Binance {
             }
         }
 
-        let markets = self.base().set_markets(markets, None).await?;
-
-        Ok(markets)
+        self.base().set_markets(markets, None).await
     }
     /// Load and cache market data.
     ///
@@ -169,7 +167,7 @@ impl Binance {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
+    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Arc<Market>>> {
         // Acquire the loading lock to serialize concurrent load_markets calls
         // This prevents multiple tasks from making duplicate API calls
         let _loading_guard = self.base().market_loading_lock.lock().await;
@@ -1123,7 +1121,7 @@ impl Binance {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref()) {
+            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse order");
@@ -1762,7 +1760,7 @@ impl Binance {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref()) {
+            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse order");
@@ -2666,7 +2664,7 @@ impl Binance {
             let mut market_ids: Vec<String> = Vec::new();
             for s in syms {
                 if let Ok(market) = self.base().market(s).await {
-                    market_ids.push(market.id);
+                    market_ids.push(market.id.clone());
                 }
             }
             if !market_ids.is_empty() {
@@ -3253,7 +3251,7 @@ impl Binance {
 
         let mut history = Vec::new();
         for history_data in history_array {
-            match parser::parse_funding_history(history_data, market.as_ref()) {
+            match parser::parse_funding_history(history_data, market.as_ref().map(|v| &**v)) {
                 Ok(funding) => history.push(funding),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse funding history");
@@ -3363,7 +3361,7 @@ impl Binance {
 
         let mut fees = Vec::new();
         for fee_data in fees_array {
-            match parser::parse_funding_fee(fee_data, market.as_ref()) {
+            match parser::parse_funding_fee(fee_data, market.as_ref().map(|v| &**v)) {
                 Ok(fee) => fees.push(fee),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse funding fee");

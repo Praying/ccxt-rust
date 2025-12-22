@@ -68,7 +68,7 @@ async fn test_fetch_markets_real() {
         markets.len()
     );
 
-    let btc_usdt = markets.iter().find(|m| m.symbol == "BTC/USDT");
+    let btc_usdt = markets.values().find(|m| m.symbol == "BTC/USDT");
     assert!(btc_usdt.is_some(), "BTC/USDT market not found");
 
     if let Some(market) = btc_usdt {
@@ -284,7 +284,7 @@ async fn test_market_validation() {
     assert!(result.is_ok());
     let markets = result.unwrap();
 
-    for market in markets.iter().take(10) {
+    for market in markets.values().take(10) {
         assert!(!market.symbol.is_empty(), "Symbol should not be empty");
         assert!(!market.base.is_empty(), "Base currency should not be empty");
         assert!(
