@@ -94,7 +94,7 @@ async fn test_fetch_markets() {
 
     assert!(!markets.is_empty(), "Should have at least one market");
 
-    for market in &markets {
+    for market in markets.values() {
         // All HyperLiquid markets should be perpetual contracts
         assert!(
             market.symbol.ends_with("/USDC:USDC"),

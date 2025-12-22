@@ -95,11 +95,16 @@ impl Exchange for HyperLiquid {
     // ==================== Market Data (Public API) ====================
 
     async fn fetch_markets(&self) -> Result<Vec<Market>> {
-        HyperLiquid::fetch_markets(self).await
+        let markets = HyperLiquid::fetch_markets(self).await?;
+        Ok(markets.into_values().map(|m| (*m).clone()).collect())
     }
 
     async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
-        HyperLiquid::load_markets(self, reload).await
+        let markets = HyperLiquid::load_markets(self, reload).await?;
+        Ok(markets
+            .into_iter()
+            .map(|(k, v)| (k, (*v).clone()))
+            .collect())
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -204,11 +209,15 @@ impl Exchange for HyperLiquid {
     // ==================== Helper Methods ====================
 
     async fn market(&self, symbol: &str) -> Result<Market> {
-        self.base().market(symbol).await
+        self.base().market(symbol).await.map(|m| (*m).clone())
     }
 
     async fn markets(&self) -> HashMap<String, Market> {
         let cache = self.base().market_cache.read().await;
-        cache.markets.clone()
+        cache
+            .markets
+            .iter()
+            .map(|(k, v)| (k.clone(), (**v).clone()))
+            .collect()
     }
 }

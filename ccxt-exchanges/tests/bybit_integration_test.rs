@@ -135,7 +135,7 @@ async fn test_fetch_markets() {
     );
 
     // Check for common trading pair
-    let btc_usdt = markets.iter().find(|m| m.symbol == "BTC/USDT");
+    let btc_usdt = markets.values().find(|m| m.symbol == "BTC/USDT");
     assert!(btc_usdt.is_some(), "BTC/USDT market not found");
 
     if let Some(market) = btc_usdt {

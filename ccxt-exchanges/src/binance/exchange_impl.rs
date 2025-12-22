@@ -78,13 +78,16 @@ impl Exchange for Binance {
     // ==================== Market Data (Public API) ====================
 
     async fn fetch_markets(&self) -> Result<Vec<Market>> {
-        // Delegate to existing implementation
-        Binance::fetch_markets(self).await
+        let arc_markets = Binance::fetch_markets(self).await?;
+        Ok(arc_markets.into_values().map(|v| (*v).clone()).collect())
     }
 
     async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
-        // Delegate to existing implementation
-        Binance::load_markets(self, reload).await
+        let arc_markets = Binance::load_markets(self, reload).await?;
+        Ok(arc_markets
+            .into_iter()
+            .map(|(k, v)| (k, (*v).clone()))
+            .collect())
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -248,14 +251,17 @@ impl Exchange for Binance {
         cache
             .markets
             .get(symbol)
-            .cloned()
+            .map(|v| (**v).clone())
             .ok_or_else(|| ccxt_core::Error::bad_symbol(format!("Market {} not found", symbol)))
     }
 
     async fn markets(&self) -> HashMap<String, Market> {
-        // Use async read for async method
         let cache = self.base().market_cache.read().await;
-        cache.markets.clone()
+        cache
+            .markets
+            .iter()
+            .map(|(k, v)| (k.clone(), (**v).clone()))
+            .collect()
     }
 }
 

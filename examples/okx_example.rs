@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Display first 5 markets
     println!("Sample markets:");
-    for market in markets.iter().take(5) {
+    for market in markets.values().take(5) {
         println!(
             "  {} - Base: {}, Quote: {}, Active: {}",
             market.symbol, market.base, market.quote, market.active

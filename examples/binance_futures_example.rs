@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
             // Find perpetual futures (symbols ending with /USDT)
             let perpetuals: Vec<_> = markets
-                .iter()
+                .values()
                 .filter(|m| m.symbol.contains("/USDT"))
                 .take(10)
                 .collect();
