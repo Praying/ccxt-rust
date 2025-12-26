@@ -353,14 +353,11 @@ async fn test_fetch_my_recent_trades() {
     
     let exchange = create_test_exchange();
     
-    let mut params = HashMap::new();
-    params.insert("limit".to_string(), serde_json::json!(10));
-    
     let result = exchange.fetch_my_recent_trades(
         "BTC/USDT",
         None,
-        None,
-        Some(params)
+        Some(10),
+        None
     ).await;
     
     // 注意：这个测试可能返回空列表（如果没有成交记录）

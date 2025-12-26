@@ -15,6 +15,7 @@ mod exchange_impl;
 pub mod parser;
 pub mod rest;
 pub mod symbol;
+pub mod traits;
 pub mod ws;
 mod ws_exchange_impl;
 

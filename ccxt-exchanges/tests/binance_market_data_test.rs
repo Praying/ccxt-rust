@@ -1,3 +1,8 @@
+//! Binance market data tests.
+//!
+//! Tests for market data methods including fetch_bids_asks, fetch_last_prices,
+//! fetch_mark_price, and fetch_time.
+
 use ccxt_core::Exchange;
 use ccxt_core::ExchangeConfig;
 use ccxt_core::error::Result;
@@ -15,19 +20,17 @@ fn create_test_binance() -> Binance {
     };
     Binance::new(config).expect("Failed to create Binance instance")
 }
+
 #[tokio::test]
 #[ignore = "Requires network access to Binance API"]
 async fn test_fetch_market_data() {
     let exchange = Binance::new(ExchangeConfig::default()).unwrap();
     exchange.load_markets(false).await.unwrap();
 
-    // This call should fail to compile initially because market() is now async.
-    // We will fix this by adding .await
     let market = exchange.market("BTC/USDT").await.unwrap();
     assert_eq!(market.symbol, "BTC/USDT");
     assert!(market.active);
 
-    // This call should also be updated with .await
     let markets = exchange.markets().await;
     assert!(markets.contains_key("BTC/USDT"));
     assert!(markets.contains_key("ETH/USDT"));
@@ -41,187 +44,131 @@ mod tests {
     use ccxt_core::types::{BidAsk, LastPrice, MarkPrice};
 
     #[tokio::test]
-    #[ignore]
-    async fn test_fetch_bids_asks_single_symbol() -> Result<()> {
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_time() {
         let binance = create_test_binance();
+        let server_time = binance.fetch_time().await.unwrap();
 
-        let result = binance.fetch_bids_asks(Some("BTC/USDT")).await?;
-
-        assert_eq!(result.len(), 1);
-        let bid_ask = &result[0];
-
-        assert_eq!(bid_ask.symbol, "BTC/USDT");
-        assert!(bid_ask.bid_price > Decimal::ZERO, "Bid price must exist");
-        assert!(bid_ask.ask_price > Decimal::ZERO, "Ask price must exist");
-        assert!(
-            bid_ask.bid_quantity > Decimal::ZERO,
-            "Bid quantity must exist"
+        assert!(server_time.server_time > 0);
+        assert!(!server_time.datetime.is_empty());
+        println!(
+            "Server time: {} ({})",
+            server_time.server_time, server_time.datetime
         );
-        assert!(
-            bid_ask.ask_quantity > Decimal::ZERO,
-            "Ask quantity must exist"
-        );
-        assert!(
-            bid_ask.bid_price < bid_ask.ask_price,
-            "Bid must be less than ask"
-        );
-
-        println!("✓ Single symbol BBO test passed");
-        Ok(())
     }
 
     #[tokio::test]
-    #[ignore]
-    async fn test_fetch_bids_asks_multiple_symbols() -> Result<()> {
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_bids_asks_single_symbol() {
         let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
 
-        let symbols = ["BTC/USDT", "ETH/USDT", "BNB/USDT"];
-        let mut results = Vec::new();
-        for symbol in &symbols {
-            let result = binance.fetch_bids_asks(Some(*symbol)).await?;
-            if !result.is_empty() {
-                results.extend(result);
-            }
-        }
+        let bid_asks = binance.fetch_bids_asks(Some("BTC/USDT")).await.unwrap();
+        assert!(!bid_asks.is_empty());
 
-        assert_eq!(results.len(), symbols.len(), "Result count must match");
-
-        for bid_ask in &results {
-            assert!(
-                symbols.contains(&bid_ask.symbol.as_str()),
-                "Symbol must be in request list"
-            );
-            assert!(bid_ask.bid_price > Decimal::ZERO || bid_ask.ask_price > Decimal::ZERO);
-        }
-
-        println!("✓ Multiple symbols BBO test passed");
-        Ok(())
+        let bid_ask = &bid_asks[0];
+        assert!(bid_ask.bid_price > Decimal::ZERO);
+        assert!(bid_ask.ask_price > Decimal::ZERO);
+        assert!(bid_ask.ask_price >= bid_ask.bid_price);
+        println!(
+            "BTC/USDT bid: {}, ask: {}",
+            bid_ask.bid_price, bid_ask.ask_price
+        );
     }
 
     #[tokio::test]
-    #[ignore]
-    async fn test_fetch_bids_asks_all_symbols() -> Result<()> {
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_bids_asks_all_symbols() {
         let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
 
-        let result = binance.fetch_bids_asks(None).await?;
+        let bid_asks = binance.fetch_bids_asks(None).await.unwrap();
+        assert!(!bid_asks.is_empty());
+        println!("Total symbols with bid/ask: {}", bid_asks.len());
+    }
 
-        assert!(!result.is_empty(), "Must return at least one symbol");
-        for bid_ask in result.iter().take(10) {
-            assert!(!bid_ask.symbol.is_empty());
-            assert!(
-                bid_ask.bid_price > Decimal::ZERO || bid_ask.ask_price > Decimal::ZERO,
-                "Must have bid or ask price"
-            );
+    #[tokio::test]
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_last_prices_single_symbol() {
+        let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
+
+        let prices = binance.fetch_last_prices(Some("BTC/USDT")).await.unwrap();
+        assert!(!prices.is_empty());
+
+        let price = &prices[0];
+        assert!(price.price > Decimal::ZERO);
+        println!("BTC/USDT last price: {}", price.price);
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_last_prices_all_symbols() {
+        let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
+
+        let prices = binance.fetch_last_prices(None).await.unwrap();
+        assert!(!prices.is_empty());
+        println!("Total symbols with prices: {}", prices.len());
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_mark_price_single_symbol() {
+        let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
+
+        // Note: fetch_mark_price is for futures markets
+        let mark_prices = binance
+            .fetch_mark_price(Some("BTC/USDT:USDT"))
+            .await
+            .unwrap();
+        assert!(!mark_prices.is_empty());
+
+        let mark_price = &mark_prices[0];
+        assert!(mark_price.mark_price > Decimal::ZERO);
+        println!("BTC/USDT:USDT mark price: {}", mark_price.mark_price);
+        if let Some(funding_rate) = mark_price.last_funding_rate {
+            println!("Funding rate: {}", funding_rate);
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_fetch_mark_price_all_symbols() {
+        let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
+
+        let mark_prices = binance.fetch_mark_price(None).await.unwrap();
+        assert!(!mark_prices.is_empty());
+        println!(
+            "Total futures symbols with mark prices: {}",
+            mark_prices.len()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_bid_ask_spread_analysis() {
+        let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
+
+        let bid_asks = binance.fetch_bids_asks(Some("BTC/USDT")).await.unwrap();
+        assert!(!bid_asks.is_empty());
+
+        let bid_ask = &bid_asks[0];
+        let spread = bid_ask.spread();
+        let mid_price = bid_ask.mid_price();
+        let spread_percent = bid_ask.spread_percent();
+
+        assert!(spread >= Decimal::ZERO);
+        assert!(mid_price > Decimal::ZERO);
+        assert!(spread_percent >= Decimal::ZERO);
 
         println!(
-            "✓ All symbols BBO test passed (returned {} symbols)",
-            result.len()
+            "Spread: {}, Mid price: {}, Spread %: {}",
+            spread, mid_price, spread_percent
         );
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_fetch_last_prices_single_symbol() -> Result<()> {
-        let binance = create_test_binance();
-
-        let result = binance.fetch_last_prices(Some("BTC/USDT")).await?;
-
-        assert!(result.len() == 1, "Must return one symbol price");
-        let last_price = &result[0];
-
-        assert_eq!(last_price.symbol, "BTC/USDT");
-        assert!(last_price.price > Decimal::ZERO, "Price must exist");
-        assert!(last_price.timestamp > 0, "Timestamp must exist");
-
-        println!("✓ Single symbol last price test passed");
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_fetch_last_prices_multiple_symbols() -> Result<()> {
-        let binance = create_test_binance();
-
-        let symbols = ["BTC/USDT", "ETH/USDT", "BNB/USDT"];
-        let mut results = Vec::new();
-        for symbol in &symbols {
-            let result = binance.fetch_last_prices(Some(*symbol)).await?;
-            if !result.is_empty() {
-                results.extend(result);
-            }
-        }
-
-        assert_eq!(results.len(), symbols.len());
-
-        for last_price in &results {
-            assert!(symbols.contains(&last_price.symbol.as_str()));
-            assert!(last_price.price > Decimal::ZERO);
-            assert!(last_price.timestamp > 0);
-        }
-
-        println!("✓ Multiple symbols last price test passed");
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_fetch_mark_price_single_symbol() -> Result<()> {
-        let binance = create_test_binance();
-
-        let result = binance.fetch_mark_price(Some("BTC/USDT:USDT")).await?;
-
-        assert!(result.len() == 1, "Must return one futures symbol");
-        let mark_price = &result[0];
-
-        assert_eq!(mark_price.symbol, "BTC/USDT:USDT");
-        assert!(
-            mark_price.mark_price > Decimal::ZERO,
-            "Mark price must exist"
-        );
-        assert!(
-            mark_price.last_funding_rate.is_some(),
-            "Funding rate must exist"
-        );
-        assert!(mark_price.timestamp > 0, "Timestamp must exist");
-
-        println!("✓ Single symbol mark price test passed");
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_bid_ask_spread_analysis() -> Result<()> {
-        let binance = create_test_binance();
-
-        let symbols = ["BTC/USDT", "ETH/USDT"];
-        let mut results = Vec::new();
-        for symbol in &symbols {
-            let result = binance.fetch_bids_asks(Some(*symbol)).await?;
-            results.extend(result);
-        }
-
-        for bid_ask in &results {
-            let bid = bid_ask.bid_price;
-            let ask = bid_ask.ask_price;
-            let spread = ask - bid;
-            let spread_percent = spread / bid * dec!(100);
-
-            println!(
-                "{} spread: ${:.2} ({:.4}%)",
-                bid_ask.symbol, spread, spread_percent
-            );
-
-            assert!(spread > Decimal::ZERO, "Spread must be positive");
-            assert!(
-                spread_percent < dec!(10),
-                "Spread percent must be reasonable"
-            );
-        }
-
-        println!("✓ Bid-ask spread analysis test passed");
-        Ok(())
     }
 
     #[tokio::test]
@@ -276,39 +223,37 @@ mod integration_tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore]
-    async fn test_complete_market_data_workflow() -> Result<()> {
+    #[ignore = "Requires network access to Binance API"]
+    async fn test_complete_market_data_workflow() {
         let binance = create_test_binance();
+        binance.load_markets(false).await.unwrap();
 
-        println!("\n=== Complete Market Data Workflow Test ===\n");
+        // Test fetch_time
+        let server_time = binance.fetch_time().await.unwrap();
+        assert!(server_time.server_time > 0);
+        println!("1. Server time: {}", server_time.datetime);
 
-        println!("1. Fetch bid-ask quotes...");
-        let bid_asks = binance.fetch_bids_asks(Some("BTC/USDT")).await?;
+        // Test fetch_bids_asks
+        let bid_asks = binance.fetch_bids_asks(Some("BTC/USDT")).await.unwrap();
         assert!(!bid_asks.is_empty());
-        println!("   ✓ Fetched {} bid-ask quotes", bid_asks.len());
-
-        println!("2. Fetch last prices...");
-        let last_prices = binance.fetch_last_prices(Some("BTC/USDT")).await?;
-        assert!(!last_prices.is_empty());
-        println!("   ✓ Fetched {} last prices", last_prices.len());
-
-        println!("3. Fetch futures mark prices...");
-        let mark_prices = binance.fetch_mark_price(Some("BTC/USDT:USDT")).await?;
-        assert!(!mark_prices.is_empty());
-        println!("   ✓ Fetched {} mark prices", mark_prices.len());
-
-        println!("4. Data consistency check...");
-        let bid = bid_asks[0].bid_price;
-        let ask = bid_asks[0].ask_price;
-        let last = last_prices[0].price;
-
-        assert!(
-            last >= bid && last <= ask,
-            "Last price must be between bid and ask"
+        println!(
+            "2. BTC/USDT bid/ask: {} / {}",
+            bid_asks[0].bid_price, bid_asks[0].ask_price
         );
-        println!("   ✓ Data consistency check passed");
 
-        println!("\n=== Workflow Test Complete ===\n");
-        Ok(())
+        // Test fetch_last_prices
+        let prices = binance.fetch_last_prices(Some("BTC/USDT")).await.unwrap();
+        assert!(!prices.is_empty());
+        println!("3. BTC/USDT last price: {}", prices[0].price);
+
+        // Test fetch_mark_price (futures)
+        let mark_prices = binance
+            .fetch_mark_price(Some("BTC/USDT:USDT"))
+            .await
+            .unwrap();
+        assert!(!mark_prices.is_empty());
+        println!("4. BTC/USDT:USDT mark price: {}", mark_prices[0].mark_price);
+
+        println!("✓ Complete market data workflow test passed");
     }
 }

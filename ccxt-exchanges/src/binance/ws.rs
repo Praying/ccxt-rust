@@ -3204,7 +3204,7 @@ impl Binance {
 
         // Optionally fetch the initial snapshot
         if fetch_snapshot {
-            let snapshot = self.fetch_balance(params.clone()).await?;
+            let snapshot = self.fetch_balance(Some(account_type)).await?;
 
             // Update cache with the snapshot
             let mut balances = ws.balances.write().await;

@@ -1240,6 +1240,466 @@ impl ExchangeCapabilities {
 }
 
 // ============================================================================
+// Trait-Capability Mapping
+// ============================================================================
+
+/// Trait category for capability-to-trait mapping.
+///
+/// This enum represents the decomposed trait hierarchy used in the exchange
+/// trait system. Each variant corresponds to a specific trait that exchanges
+/// can implement.
+///
+/// # Trait Hierarchy
+///
+/// ```text
+/// PublicExchange (base trait - metadata, capabilities)
+///     │
+///     ├── MarketData (public market data)
+///     ├── Trading (order management)
+///     ├── Account (balance, trade history)
+///     ├── Margin (positions, leverage, funding)
+///     └── Funding (deposits, withdrawals, transfers)
+///
+/// FullExchange = PublicExchange + MarketData + Trading + Account + Margin + Funding
+/// ```
+///
+/// # Capability Mapping
+///
+/// | Trait Category | Capabilities |
+/// |----------------|--------------|
+/// | `PublicExchange` | Base trait, always required |
+/// | `MarketData` | FetchMarkets, FetchCurrencies, FetchTicker, FetchTickers, FetchOrderBook, FetchTrades, FetchOhlcv, FetchStatus, FetchTime |
+/// | `Trading` | CreateOrder, CreateMarketOrder, CreateLimitOrder, CancelOrder, CancelAllOrders, EditOrder, FetchOrder, FetchOrders, FetchOpenOrders, FetchClosedOrders, FetchCanceledOrders |
+/// | `Account` | FetchBalance, FetchMyTrades, FetchDeposits, FetchWithdrawals, FetchTransactions, FetchLedger |
+/// | `Margin` | FetchBorrowRate, FetchBorrowRates, FetchFundingRate, FetchFundingRates, FetchPositions, SetLeverage, SetMarginMode |
+/// | `Funding` | FetchDepositAddress, CreateDepositAddress, Withdraw, Transfer |
+/// | `WebSocket` | Websocket, WatchTicker, WatchTickers, WatchOrderBook, WatchTrades, WatchOhlcv, WatchBalance, WatchOrders, WatchMyTrades |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TraitCategory {
+    /// Base trait providing exchange metadata and capabilities.
+    /// All exchanges must implement this trait.
+    PublicExchange,
+    /// Public market data operations (ticker, orderbook, trades, OHLCV).
+    /// Corresponds to the `MarketData` trait.
+    MarketData,
+    /// Order management operations (create, cancel, fetch orders).
+    /// Corresponds to the `Trading` trait.
+    Trading,
+    /// Account-related operations (balance, trade history).
+    /// Corresponds to the `Account` trait.
+    Account,
+    /// Margin/futures trading operations (positions, leverage, funding).
+    /// Corresponds to the `Margin` trait.
+    Margin,
+    /// Deposit/withdrawal operations.
+    /// Corresponds to the `Funding` trait.
+    Funding,
+    /// WebSocket real-time data streaming.
+    /// Corresponds to the `WsExchange` trait.
+    WebSocket,
+}
+
+impl TraitCategory {
+    /// Get all trait categories.
+    pub const fn all() -> [Self; 7] {
+        [
+            Self::PublicExchange,
+            Self::MarketData,
+            Self::Trading,
+            Self::Account,
+            Self::Margin,
+            Self::Funding,
+            Self::WebSocket,
+        ]
+    }
+
+    /// Get the display name for this trait category.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::PublicExchange => "PublicExchange",
+            Self::MarketData => "MarketData",
+            Self::Trading => "Trading",
+            Self::Account => "Account",
+            Self::Margin => "Margin",
+            Self::Funding => "Funding",
+            Self::WebSocket => "WebSocket",
+        }
+    }
+
+    /// Get the capabilities associated with this trait category.
+    pub const fn capabilities(&self) -> Capabilities {
+        match self {
+            Self::PublicExchange => Capabilities::empty(), // Base trait, no specific capabilities
+            Self::MarketData => Capabilities::MARKET_DATA,
+            Self::Trading => Capabilities::TRADING,
+            Self::Account => Capabilities::ACCOUNT,
+            Self::Margin => Capabilities::MARGIN,
+            Self::Funding => Capabilities::FUNDING,
+            Self::WebSocket => Capabilities::WEBSOCKET_ALL,
+        }
+    }
+
+    /// Get the minimum required capabilities for this trait.
+    ///
+    /// Returns the capabilities that MUST be present for an exchange
+    /// to be considered as implementing this trait.
+    pub const fn minimum_capabilities(&self) -> Capabilities {
+        match self {
+            Self::PublicExchange => Capabilities::empty(),
+            // MarketData requires at least fetch_markets and fetch_ticker
+            Self::MarketData => Capabilities::from_bits_truncate(
+                Capabilities::FETCH_MARKETS.bits() | Capabilities::FETCH_TICKER.bits(),
+            ),
+            // Trading requires at least create_order and cancel_order
+            Self::Trading => Capabilities::from_bits_truncate(
+                Capabilities::CREATE_ORDER.bits() | Capabilities::CANCEL_ORDER.bits(),
+            ),
+            // Account requires at least fetch_balance
+            Self::Account => Capabilities::FETCH_BALANCE,
+            // Margin requires at least fetch_positions
+            Self::Margin => Capabilities::FETCH_POSITIONS,
+            // Funding requires at least fetch_deposit_address
+            Self::Funding => Capabilities::FETCH_DEPOSIT_ADDRESS,
+            // WebSocket requires the base websocket capability
+            Self::WebSocket => Capabilities::WEBSOCKET,
+        }
+    }
+}
+
+impl fmt::Display for TraitCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
+impl Capability {
+    /// Get the trait category this capability belongs to.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::{Capability, TraitCategory};
+    ///
+    /// assert_eq!(Capability::FetchTicker.trait_category(), TraitCategory::MarketData);
+    /// assert_eq!(Capability::CreateOrder.trait_category(), TraitCategory::Trading);
+    /// assert_eq!(Capability::FetchBalance.trait_category(), TraitCategory::Account);
+    /// ```
+    pub const fn trait_category(&self) -> TraitCategory {
+        match self {
+            // Market Data
+            Self::FetchMarkets
+            | Self::FetchCurrencies
+            | Self::FetchTicker
+            | Self::FetchTickers
+            | Self::FetchOrderBook
+            | Self::FetchTrades
+            | Self::FetchOhlcv
+            | Self::FetchStatus
+            | Self::FetchTime => TraitCategory::MarketData,
+
+            // Trading
+            Self::CreateOrder
+            | Self::CreateMarketOrder
+            | Self::CreateLimitOrder
+            | Self::CancelOrder
+            | Self::CancelAllOrders
+            | Self::EditOrder
+            | Self::FetchOrder
+            | Self::FetchOrders
+            | Self::FetchOpenOrders
+            | Self::FetchClosedOrders
+            | Self::FetchCanceledOrders => TraitCategory::Trading,
+
+            // Account
+            Self::FetchBalance
+            | Self::FetchMyTrades
+            | Self::FetchDeposits
+            | Self::FetchWithdrawals
+            | Self::FetchTransactions
+            | Self::FetchLedger => TraitCategory::Account,
+
+            // Funding
+            Self::FetchDepositAddress
+            | Self::CreateDepositAddress
+            | Self::Withdraw
+            | Self::Transfer => TraitCategory::Funding,
+
+            // Margin
+            Self::FetchBorrowRate
+            | Self::FetchBorrowRates
+            | Self::FetchFundingRate
+            | Self::FetchFundingRates
+            | Self::FetchPositions
+            | Self::SetLeverage
+            | Self::SetMarginMode => TraitCategory::Margin,
+
+            // WebSocket
+            Self::Websocket
+            | Self::WatchTicker
+            | Self::WatchTickers
+            | Self::WatchOrderBook
+            | Self::WatchTrades
+            | Self::WatchOhlcv
+            | Self::WatchBalance
+            | Self::WatchOrders
+            | Self::WatchMyTrades => TraitCategory::WebSocket,
+        }
+    }
+}
+
+impl ExchangeCapabilities {
+    // ========================================================================
+    // Trait Implementation Checks
+    // ========================================================================
+
+    /// Check if the exchange supports the MarketData trait.
+    ///
+    /// Returns `true` if the exchange has the minimum capabilities required
+    /// to implement the `MarketData` trait (fetch_markets and fetch_ticker).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::public_only();
+    /// assert!(caps.supports_market_data());
+    ///
+    /// let caps = ExchangeCapabilities::none();
+    /// assert!(!caps.supports_market_data());
+    /// ```
+    #[inline]
+    pub const fn supports_market_data(&self) -> bool {
+        self.inner
+            .contains(TraitCategory::MarketData.minimum_capabilities())
+    }
+
+    /// Check if the exchange supports the Trading trait.
+    ///
+    /// Returns `true` if the exchange has the minimum capabilities required
+    /// to implement the `Trading` trait (create_order and cancel_order).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// assert!(caps.supports_trading());
+    ///
+    /// let caps = ExchangeCapabilities::public_only();
+    /// assert!(!caps.supports_trading());
+    /// ```
+    #[inline]
+    pub const fn supports_trading(&self) -> bool {
+        self.inner
+            .contains(TraitCategory::Trading.minimum_capabilities())
+    }
+
+    /// Check if the exchange supports the Account trait.
+    ///
+    /// Returns `true` if the exchange has the minimum capabilities required
+    /// to implement the `Account` trait (fetch_balance).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// assert!(caps.supports_account());
+    ///
+    /// let caps = ExchangeCapabilities::public_only();
+    /// assert!(!caps.supports_account());
+    /// ```
+    #[inline]
+    pub const fn supports_account(&self) -> bool {
+        self.inner
+            .contains(TraitCategory::Account.minimum_capabilities())
+    }
+
+    /// Check if the exchange supports the Margin trait.
+    ///
+    /// Returns `true` if the exchange has the minimum capabilities required
+    /// to implement the `Margin` trait (fetch_positions).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::futures_exchange();
+    /// assert!(caps.supports_margin());
+    ///
+    /// let caps = ExchangeCapabilities::spot_exchange();
+    /// assert!(!caps.supports_margin());
+    /// ```
+    #[inline]
+    pub const fn supports_margin(&self) -> bool {
+        self.inner
+            .contains(TraitCategory::Margin.minimum_capabilities())
+    }
+
+    /// Check if the exchange supports the Funding trait.
+    ///
+    /// Returns `true` if the exchange has the minimum capabilities required
+    /// to implement the `Funding` trait (fetch_deposit_address).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// assert!(caps.supports_funding());
+    ///
+    /// let caps = ExchangeCapabilities::public_only();
+    /// assert!(!caps.supports_funding());
+    /// ```
+    #[inline]
+    pub const fn supports_funding(&self) -> bool {
+        self.inner
+            .contains(TraitCategory::Funding.minimum_capabilities())
+    }
+
+    /// Check if the exchange supports WebSocket.
+    ///
+    /// Returns `true` if the exchange has the base WebSocket capability.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// assert!(caps.supports_websocket());
+    ///
+    /// let caps = ExchangeCapabilities::public_only();
+    /// assert!(!caps.supports_websocket());
+    /// ```
+    #[inline]
+    pub const fn supports_websocket(&self) -> bool {
+        self.inner
+            .contains(TraitCategory::WebSocket.minimum_capabilities())
+    }
+
+    /// Check if the exchange supports all traits (FullExchange).
+    ///
+    /// Returns `true` if the exchange has the minimum capabilities required
+    /// to implement all traits: MarketData, Trading, Account, Margin, and Funding.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::ExchangeCapabilities;
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// assert!(caps.supports_full_exchange());
+    ///
+    /// let caps = ExchangeCapabilities::spot_exchange();
+    /// assert!(!caps.supports_full_exchange());
+    /// ```
+    #[inline]
+    pub const fn supports_full_exchange(&self) -> bool {
+        self.supports_market_data()
+            && self.supports_trading()
+            && self.supports_account()
+            && self.supports_margin()
+            && self.supports_funding()
+    }
+
+    /// Check if the exchange supports a specific trait category.
+    ///
+    /// # Arguments
+    ///
+    /// * `category` - The trait category to check
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::{ExchangeCapabilities, TraitCategory};
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// assert!(caps.supports_trait(TraitCategory::MarketData));
+    /// assert!(caps.supports_trait(TraitCategory::Trading));
+    /// ```
+    pub const fn supports_trait(&self, category: TraitCategory) -> bool {
+        match category {
+            TraitCategory::PublicExchange => true, // Always supported
+            TraitCategory::MarketData => self.supports_market_data(),
+            TraitCategory::Trading => self.supports_trading(),
+            TraitCategory::Account => self.supports_account(),
+            TraitCategory::Margin => self.supports_margin(),
+            TraitCategory::Funding => self.supports_funding(),
+            TraitCategory::WebSocket => self.supports_websocket(),
+        }
+    }
+
+    /// Get a list of supported trait categories.
+    ///
+    /// Returns a vector of trait categories that this exchange supports
+    /// based on its capabilities.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::{ExchangeCapabilities, TraitCategory};
+    ///
+    /// let caps = ExchangeCapabilities::public_only();
+    /// let traits = caps.supported_traits();
+    /// assert!(traits.contains(&TraitCategory::PublicExchange));
+    /// assert!(traits.contains(&TraitCategory::MarketData));
+    /// assert!(!traits.contains(&TraitCategory::Trading));
+    /// ```
+    pub fn supported_traits(&self) -> Vec<TraitCategory> {
+        TraitCategory::all()
+            .iter()
+            .filter(|cat| self.supports_trait(**cat))
+            .copied()
+            .collect()
+    }
+
+    /// Get capabilities for a specific trait category.
+    ///
+    /// Returns the capabilities that are enabled for the specified trait category.
+    ///
+    /// # Arguments
+    ///
+    /// * `category` - The trait category to get capabilities for
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::{ExchangeCapabilities, TraitCategory, Capabilities};
+    ///
+    /// let caps = ExchangeCapabilities::all();
+    /// let market_caps = caps.capabilities_for_trait(TraitCategory::MarketData);
+    /// assert!(market_caps.contains(Capabilities::FETCH_TICKER));
+    /// ```
+    pub const fn capabilities_for_trait(&self, category: TraitCategory) -> Capabilities {
+        Capabilities::from_bits_truncate(self.inner.bits() & category.capabilities().bits())
+    }
+
+    /// Get the trait category for a specific capability.
+    ///
+    /// # Arguments
+    ///
+    /// * `capability` - The capability to get the trait category for
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::capability::{ExchangeCapabilities, Capability, TraitCategory};
+    ///
+    /// let category = ExchangeCapabilities::trait_for_capability(Capability::FetchTicker);
+    /// assert_eq!(category, TraitCategory::MarketData);
+    /// ```
+    pub const fn trait_for_capability(capability: Capability) -> TraitCategory {
+        capability.trait_category()
+    }
+}
+
+// ============================================================================
 // Unit Tests
 // ============================================================================
 
@@ -1432,5 +1892,309 @@ mod tests {
         // ExchangeCapabilities should be 8 bytes (u64)
         assert_eq!(std::mem::size_of::<ExchangeCapabilities>(), 8);
         assert_eq!(std::mem::size_of::<Capabilities>(), 8);
+    }
+
+    // ========================================================================
+    // Trait-Capability Mapping Tests
+    // ========================================================================
+
+    #[test]
+    fn test_trait_category_all() {
+        let categories = TraitCategory::all();
+        assert_eq!(categories.len(), 7);
+        assert!(categories.contains(&TraitCategory::PublicExchange));
+        assert!(categories.contains(&TraitCategory::MarketData));
+        assert!(categories.contains(&TraitCategory::Trading));
+        assert!(categories.contains(&TraitCategory::Account));
+        assert!(categories.contains(&TraitCategory::Margin));
+        assert!(categories.contains(&TraitCategory::Funding));
+        assert!(categories.contains(&TraitCategory::WebSocket));
+    }
+
+    #[test]
+    fn test_trait_category_names() {
+        assert_eq!(TraitCategory::PublicExchange.name(), "PublicExchange");
+        assert_eq!(TraitCategory::MarketData.name(), "MarketData");
+        assert_eq!(TraitCategory::Trading.name(), "Trading");
+        assert_eq!(TraitCategory::Account.name(), "Account");
+        assert_eq!(TraitCategory::Margin.name(), "Margin");
+        assert_eq!(TraitCategory::Funding.name(), "Funding");
+        assert_eq!(TraitCategory::WebSocket.name(), "WebSocket");
+    }
+
+    #[test]
+    fn test_trait_category_capabilities() {
+        assert_eq!(
+            TraitCategory::PublicExchange.capabilities(),
+            Capabilities::empty()
+        );
+        assert_eq!(
+            TraitCategory::MarketData.capabilities(),
+            Capabilities::MARKET_DATA
+        );
+        assert_eq!(TraitCategory::Trading.capabilities(), Capabilities::TRADING);
+        assert_eq!(TraitCategory::Account.capabilities(), Capabilities::ACCOUNT);
+        assert_eq!(TraitCategory::Margin.capabilities(), Capabilities::MARGIN);
+        assert_eq!(TraitCategory::Funding.capabilities(), Capabilities::FUNDING);
+        assert_eq!(
+            TraitCategory::WebSocket.capabilities(),
+            Capabilities::WEBSOCKET_ALL
+        );
+    }
+
+    #[test]
+    fn test_capability_trait_category() {
+        // Market Data
+        assert_eq!(
+            Capability::FetchTicker.trait_category(),
+            TraitCategory::MarketData
+        );
+        assert_eq!(
+            Capability::FetchMarkets.trait_category(),
+            TraitCategory::MarketData
+        );
+        assert_eq!(
+            Capability::FetchOhlcv.trait_category(),
+            TraitCategory::MarketData
+        );
+
+        // Trading
+        assert_eq!(
+            Capability::CreateOrder.trait_category(),
+            TraitCategory::Trading
+        );
+        assert_eq!(
+            Capability::CancelOrder.trait_category(),
+            TraitCategory::Trading
+        );
+        assert_eq!(
+            Capability::FetchOpenOrders.trait_category(),
+            TraitCategory::Trading
+        );
+
+        // Account
+        assert_eq!(
+            Capability::FetchBalance.trait_category(),
+            TraitCategory::Account
+        );
+        assert_eq!(
+            Capability::FetchMyTrades.trait_category(),
+            TraitCategory::Account
+        );
+
+        // Margin
+        assert_eq!(
+            Capability::FetchPositions.trait_category(),
+            TraitCategory::Margin
+        );
+        assert_eq!(
+            Capability::SetLeverage.trait_category(),
+            TraitCategory::Margin
+        );
+        assert_eq!(
+            Capability::FetchFundingRate.trait_category(),
+            TraitCategory::Margin
+        );
+
+        // Funding
+        assert_eq!(
+            Capability::FetchDepositAddress.trait_category(),
+            TraitCategory::Funding
+        );
+        assert_eq!(
+            Capability::Withdraw.trait_category(),
+            TraitCategory::Funding
+        );
+        assert_eq!(
+            Capability::Transfer.trait_category(),
+            TraitCategory::Funding
+        );
+
+        // WebSocket
+        assert_eq!(
+            Capability::Websocket.trait_category(),
+            TraitCategory::WebSocket
+        );
+        assert_eq!(
+            Capability::WatchTicker.trait_category(),
+            TraitCategory::WebSocket
+        );
+    }
+
+    #[test]
+    fn test_supports_market_data() {
+        let caps = ExchangeCapabilities::public_only();
+        assert!(caps.supports_market_data());
+
+        let caps = ExchangeCapabilities::none();
+        assert!(!caps.supports_market_data());
+
+        // Only fetch_markets is not enough
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::FetchMarkets)
+            .build();
+        assert!(!caps.supports_market_data());
+
+        // Both fetch_markets and fetch_ticker are required
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::FetchMarkets)
+            .capability(Capability::FetchTicker)
+            .build();
+        assert!(caps.supports_market_data());
+    }
+
+    #[test]
+    fn test_supports_trading() {
+        let caps = ExchangeCapabilities::all();
+        assert!(caps.supports_trading());
+
+        let caps = ExchangeCapabilities::public_only();
+        assert!(!caps.supports_trading());
+
+        // Both create_order and cancel_order are required
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::CreateOrder)
+            .capability(Capability::CancelOrder)
+            .build();
+        assert!(caps.supports_trading());
+    }
+
+    #[test]
+    fn test_supports_account() {
+        let caps = ExchangeCapabilities::all();
+        assert!(caps.supports_account());
+
+        let caps = ExchangeCapabilities::public_only();
+        assert!(!caps.supports_account());
+
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::FetchBalance)
+            .build();
+        assert!(caps.supports_account());
+    }
+
+    #[test]
+    fn test_supports_margin() {
+        let caps = ExchangeCapabilities::futures_exchange();
+        assert!(caps.supports_margin());
+
+        let caps = ExchangeCapabilities::spot_exchange();
+        assert!(!caps.supports_margin());
+
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::FetchPositions)
+            .build();
+        assert!(caps.supports_margin());
+    }
+
+    #[test]
+    fn test_supports_funding() {
+        let caps = ExchangeCapabilities::all();
+        assert!(caps.supports_funding());
+
+        let caps = ExchangeCapabilities::public_only();
+        assert!(!caps.supports_funding());
+
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::FetchDepositAddress)
+            .build();
+        assert!(caps.supports_funding());
+    }
+
+    #[test]
+    fn test_supports_websocket() {
+        let caps = ExchangeCapabilities::all();
+        assert!(caps.supports_websocket());
+
+        let caps = ExchangeCapabilities::public_only();
+        assert!(!caps.supports_websocket());
+
+        let caps = ExchangeCapabilities::builder()
+            .capability(Capability::Websocket)
+            .build();
+        assert!(caps.supports_websocket());
+    }
+
+    #[test]
+    fn test_supports_full_exchange() {
+        let caps = ExchangeCapabilities::all();
+        assert!(caps.supports_full_exchange());
+
+        let caps = ExchangeCapabilities::spot_exchange();
+        assert!(!caps.supports_full_exchange()); // Missing margin and funding
+
+        let caps = ExchangeCapabilities::futures_exchange();
+        assert!(!caps.supports_full_exchange()); // Missing funding
+    }
+
+    #[test]
+    fn test_supports_trait() {
+        let caps = ExchangeCapabilities::all();
+        assert!(caps.supports_trait(TraitCategory::PublicExchange));
+        assert!(caps.supports_trait(TraitCategory::MarketData));
+        assert!(caps.supports_trait(TraitCategory::Trading));
+        assert!(caps.supports_trait(TraitCategory::Account));
+        assert!(caps.supports_trait(TraitCategory::Margin));
+        assert!(caps.supports_trait(TraitCategory::Funding));
+        assert!(caps.supports_trait(TraitCategory::WebSocket));
+
+        let caps = ExchangeCapabilities::public_only();
+        assert!(caps.supports_trait(TraitCategory::PublicExchange));
+        assert!(caps.supports_trait(TraitCategory::MarketData));
+        assert!(!caps.supports_trait(TraitCategory::Trading));
+        assert!(!caps.supports_trait(TraitCategory::Account));
+        assert!(!caps.supports_trait(TraitCategory::Margin));
+        assert!(!caps.supports_trait(TraitCategory::Funding));
+        assert!(!caps.supports_trait(TraitCategory::WebSocket));
+    }
+
+    #[test]
+    fn test_supported_traits() {
+        let caps = ExchangeCapabilities::public_only();
+        let traits = caps.supported_traits();
+        assert!(traits.contains(&TraitCategory::PublicExchange));
+        assert!(traits.contains(&TraitCategory::MarketData));
+        assert!(!traits.contains(&TraitCategory::Trading));
+
+        let caps = ExchangeCapabilities::all();
+        let traits = caps.supported_traits();
+        assert_eq!(traits.len(), 7); // All traits supported
+    }
+
+    #[test]
+    fn test_capabilities_for_trait() {
+        let caps = ExchangeCapabilities::all();
+
+        let market_caps = caps.capabilities_for_trait(TraitCategory::MarketData);
+        assert!(market_caps.contains(Capabilities::FETCH_TICKER));
+        assert!(market_caps.contains(Capabilities::FETCH_ORDER_BOOK));
+        assert!(!market_caps.contains(Capabilities::CREATE_ORDER));
+
+        let trading_caps = caps.capabilities_for_trait(TraitCategory::Trading);
+        assert!(trading_caps.contains(Capabilities::CREATE_ORDER));
+        assert!(trading_caps.contains(Capabilities::CANCEL_ORDER));
+        assert!(!trading_caps.contains(Capabilities::FETCH_TICKER));
+    }
+
+    #[test]
+    fn test_trait_for_capability() {
+        assert_eq!(
+            ExchangeCapabilities::trait_for_capability(Capability::FetchTicker),
+            TraitCategory::MarketData
+        );
+        assert_eq!(
+            ExchangeCapabilities::trait_for_capability(Capability::CreateOrder),
+            TraitCategory::Trading
+        );
+        assert_eq!(
+            ExchangeCapabilities::trait_for_capability(Capability::FetchBalance),
+            TraitCategory::Account
+        );
+    }
+
+    #[test]
+    fn test_trait_category_display() {
+        assert_eq!(format!("{}", TraitCategory::MarketData), "MarketData");
+        assert_eq!(format!("{}", TraitCategory::Trading), "Trading");
     }
 }

@@ -9,6 +9,9 @@
 //! 6. `fetch_24hr_stats` - Get 24-hour statistics
 //! 7. `fetch_trading_limits` - Get trading limits
 //! 8. `fetch_bids_asks` - Get best bid/ask prices
+//! 9. `fetch_last_prices` - Get latest prices
+//! 10. `fetch_mark_price` - Get futures mark prices
+//! 11. `fetch_time` - Get server time
 //!
 //! # Usage
 //!
@@ -109,26 +112,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // 4. Fetch best bid/ask prices
-    println!("4. 【fetch_bids_asks】Get BTC/USDT best bid/ask prices");
+    println!("4. 【fetch_bids_asks】Get BTC/USDT best bid/ask");
     match exchange.fetch_bids_asks(Some("BTC/USDT")).await {
-        Ok(bids_asks) => {
-            println!(
-                "   ✓ Successfully fetched bid/ask prices for {} symbols",
-                bids_asks.len()
-            );
-            if let Some(ba) = bids_asks.first() {
-                println!("   {}:", ba.symbol);
-                println!(
-                    "     - Best bid: {} (quantity: {})",
-                    ba.bid_price, ba.bid_quantity
-                );
-                println!(
-                    "     - Best ask: {} (quantity: {})",
-                    ba.ask_price, ba.ask_quantity
-                );
-                println!("     - Spread: {}", ba.spread());
-                println!("     - Spread %: {:.4}%", ba.spread_percent());
-                println!("     - Mid price: {}", ba.mid_price());
+        Ok(bid_asks) => {
+            println!("   ✓ Successfully fetched bid/ask prices");
+            if let Some(bid_ask) = bid_asks.first() {
+                println!("   BTC/USDT:");
+                println!("     - Bid price: {}", bid_ask.bid_price);
+                println!("     - Ask price: {}", bid_ask.ask_price);
+                println!("     - Bid quantity: {}", bid_ask.bid_quantity);
+                println!("     - Ask quantity: {}", bid_ask.ask_quantity);
+                println!("     - Spread: {}", bid_ask.spread());
+                println!("     - Mid price: {}", bid_ask.mid_price());
             }
         }
         Err(e) => println!("   ✗ Error: {}", e),
@@ -238,34 +233,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!();
 
         // 8. Fetch my recent trades
-        println!("8. 【fetch_my_recent_trades】Get my BTC/USDT trade history");
-        let mut my_params = HashMap::new();
-        my_params.insert("limit".to_string(), "10".to_string());
-
+        println!("8. 【fetch_my_recent_trades】Get my recent trade history");
         match exchange
-            .fetch_my_recent_trades("BTC/USDT", None, None, Some(my_params))
+            .fetch_my_recent_trades("BTC/USDT", None, Some(5), None)
             .await
         {
             Ok(trades) => {
                 if trades.is_empty() {
-                    println!("   ℹ No trade history found");
+                    println!("   ℹ No recent trades found");
                 } else {
-                    println!("   ✓ Successfully fetched {} trade records", trades.len());
+                    println!("   ✓ Found {} recent trades:", trades.len());
                     for (i, trade) in trades.iter().take(3).enumerate() {
-                        println!("\n   Trade #{}", i + 1);
-                        println!("     - ID: {}", trade.id.clone().unwrap_or_default());
-                        println!("     - Price: {}", trade.price);
-                        println!("     - Amount: {}", trade.amount);
-                        println!("     - Side: {}", trade.side);
-                        println!("     - Cost: {}", trade.cost.unwrap_or_default());
-                        if let Some(fee) = &trade.fee {
-                            println!("     - Fee: {} {}", fee.cost, fee.currency.clone());
-                        }
-                    }
-                    if trades.len() > 3 {
                         println!(
-                            "\n   (Showing only first 3 trades, total: {})",
-                            trades.len()
+                            "   {}. {:?} {} @ {} ({})",
+                            i + 1,
+                            trade.side,
+                            trade.amount,
+                            trade.price,
+                            trade.datetime.as_deref().unwrap_or("N/A")
                         );
                     }
                 }
@@ -343,19 +328,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    // 11. Query best bid/ask prices
-    println!("11. 【Query】Get best bid/ask prices for BTC/USDT");
-
-    match exchange.fetch_bids_asks(Some("BTC/USDT")).await {
-        Ok(bids_asks) => {
-            println!("   ✓ Successfully fetched {} symbols", bids_asks.len());
-            for ba in bids_asks.iter() {
+    // 11. Query best bid/ask prices for multiple symbols
+    println!("11. 【Query】Fetch all bid/ask prices");
+    match exchange.fetch_bids_asks(None).await {
+        Ok(bid_asks) => {
+            println!("   ✓ Fetched bid/ask for {} symbols", bid_asks.len());
+            // Show first 3 symbols
+            for bid_ask in bid_asks.iter().take(3) {
                 println!(
-                    "   {} - bid:{} ask:{} spread:{:.2}%",
-                    ba.symbol,
-                    ba.bid_price,
-                    ba.ask_price,
-                    ba.spread_percent()
+                    "   {}: bid={}, ask={}",
+                    bid_ask.symbol, bid_ask.bid_price, bid_ask.ask_price
                 );
             }
         }

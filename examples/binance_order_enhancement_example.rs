@@ -1,184 +1,60 @@
 //! Binance Order Enhancement Example
 //!
-//! Demonstrates usage of three newly added order-related methods:
-//! 1. `fetch_order_trades()` - Query specific trade records for an order
-//! 2. `fetch_canceled_orders()` - Query cancelled orders
-//! 3. `create_market_buy_order_with_cost()` - Create market buy order by cost amount
+//! Note: Some order-related methods (fetch_order_trades, fetch_canceled_orders,
+//! create_market_buy_order_with_cost) are not yet migrated to the new modular structure.
+//! This is a placeholder example.
 
-// Allow clippy warnings for example code - examples prioritize readability over strict linting
-#![allow(clippy::option_as_ref_deref)]
-
-use ccxt_core::types::{OrderSide, OrderType};
-use ccxt_exchanges::prelude::*;
-use std::collections::HashMap;
+use ccxt_core::ExchangeConfig;
+use ccxt_exchanges::binance::Binance;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ExchangeConfig {
-        api_key: Some("YOUR_API_KEY".to_string()),
-        secret: Some("YOUR_SECRET".to_string()),
+        api_key: std::env::var("BINANCE_API_KEY").ok(),
+        secret: std::env::var("BINANCE_SECRET").ok(),
         ..Default::default()
     };
 
-    let exchange = Binance::new(config)?;
+    let _exchange = Binance::new(config)?;
 
     println!("========================================");
     println!("Binance Order Enhancement Example");
     println!("========================================\n");
 
-    // ========================================
-    // Example 1: fetch_order_trades() - Query order trade records
-    // ========================================
-    println!("Example 1: Query Order Trade Records");
-    println!("----------------------------------------");
+    // Note: The following methods are not yet migrated to the new modular structure:
+    // - fetch_order_trades
+    // - fetch_canceled_orders
+    // - create_market_buy_order_with_cost
 
-    let order_id = "12345678"; // Replace with actual order ID
-    let symbol = "BTC/USDT";
+    println!("Note: Order enhancement methods are not yet migrated to the new modular structure.");
+    println!("      See rest_old.rs for the original implementations.\n");
 
-    match exchange
-        .fetch_order_trades(order_id, symbol, None, None)
-        .await
-    {
-        Ok(trades) => {
-            println!(
-                "✅ Successfully fetched trade records for order {}",
-                order_id
-            );
-            println!("Number of trades: {}", trades.len());
+    println!("Code examples (not executable until methods are migrated):");
+    println!(
+        r#"
+// Fetch order trades
+let trades = exchange.fetch_order_trades(
+    "12345678",    // Order ID
+    "BTC/USDT",    // Symbol
+    None,          // Since timestamp
+    None,          // Limit
+).await?;
 
-            for (i, trade) in trades.iter().enumerate() {
-                println!("\nTrade {}:", i + 1);
-                println!(
-                    "  Trade ID: {}",
-                    trade.id.as_ref().map(|s| s.as_str()).unwrap_or("N/A")
-                );
-                println!("  Timestamp: {:?}", trade.timestamp);
-                println!("  Price: {:?}", trade.price);
-                println!("  Amount: {:?}", trade.amount);
-                println!("  Cost: {:?}", trade.cost);
-                println!("  Fee: {:?}", trade.fee);
-                println!("  Side: {:?}", trade.side);
-            }
-        }
-        Err(e) => {
-            println!("❌ Query failed: {}", e);
-        }
-    }
+// Fetch canceled orders
+let orders = exchange.fetch_canceled_orders(
+    "BTC/USDT",    // Symbol
+    Some(10),      // Limit
+    None,          // Optional parameters
+).await?;
 
-    println!("\n");
-
-    // ========================================
-    // Example 2: fetch_canceled_orders() - Query cancelled orders
-    // ========================================
-    println!("Example 2: Query Cancelled Orders");
-    println!("----------------------------------------");
-
-    let symbol = "BTC/USDT";
-    let limit = 10u64;
-
-    match exchange
-        .fetch_canceled_orders(symbol, Some(limit), None)
-        .await
-    {
-        Ok(orders) => {
-            println!("✅ Successfully fetched cancelled orders");
-            println!("Number of orders: {}", orders.len());
-
-            for (i, order) in orders.iter().enumerate() {
-                println!("\nOrder {}:", i + 1);
-                println!("  Order ID: {}", order.id.as_str());
-                println!("  Symbol: {}", order.symbol);
-                println!("  Type: {:?}", order.order_type);
-                println!("  Side: {:?}", order.side);
-                println!("  Price: {:?}", order.price);
-                println!("  Amount: {:?}", order.amount);
-                println!("  Status: {:?}", order.status);
-                println!("  Created: {:?}", order.timestamp);
-            }
-        }
-        Err(e) => {
-            println!("❌ Query failed: {}", e);
-        }
-    }
-
-    println!("\n");
-
-    // ========================================
-    // Example 3: create_market_buy_order_with_cost() - Buy by amount
-    // ========================================
-    println!("Example 3: Create Market Buy Order by Cost");
-    println!("----------------------------------------");
-
-    let symbol = "BTC/USDT";
-    let cost = 100.0; // Spend 100 USDT to buy BTC
-
-    println!("Creating market buy order:");
-    println!("  Symbol: {}", symbol);
-    println!("  Cost Amount: {} USDT", cost);
-
-    match exchange
-        .create_market_buy_order_with_cost(symbol, cost, None)
-        .await
-    {
-        Ok(order) => {
-            println!("\n✅ Order created successfully");
-            println!("  Order ID: {}", order.id.as_str());
-            println!("  Symbol: {}", order.symbol);
-            println!("  Type: {:?}", order.order_type);
-            println!("  Side: {:?}", order.side);
-            println!("  Cost: {:?}", order.cost);
-            println!("  Filled: {:?}", order.filled);
-            println!("  Status: {:?}", order.status);
-            println!("  Created: {:?}", order.timestamp);
-        }
-        Err(e) => {
-            println!("❌ Order creation failed: {}", e);
-        }
-    }
-
-    println!("\n");
-
-    // ========================================
-    // Example 4: Use create_order() with cost parameter
-    // ========================================
-    println!("Example 4: Use create_order() with Cost Parameter");
-    println!("----------------------------------------");
-
-    let symbol = "ETH/USDT";
-    let cost = 50.0; // Spend 50 USDT to buy ETH
-
-    let mut params = HashMap::new();
-    params.insert("cost".to_string(), cost.to_string());
-
-    println!("Creating market buy order via create_order():");
-    println!("  Symbol: {}", symbol);
-    println!("  Cost Amount: {} USDT", cost);
-
-    match exchange
-        .create_order(
-            symbol,
-            OrderType::Market,
-            OrderSide::Buy,
-            cost, // Amount parameter will be ignored, using cost parameter instead
-            None,
-            Some(params),
-        )
-        .await
-    {
-        Ok(order) => {
-            println!("\n✅ Order created successfully");
-            println!("  Order ID: {}", order.id.as_str());
-            println!("  Symbol: {}", order.symbol);
-            println!("  Type: {:?}", order.order_type);
-            println!("  Side: {:?}", order.side);
-            println!("  Cost: {:?}", order.cost);
-            println!("  Filled: {:?}", order.filled);
-            println!("  Status: {:?}", order.status);
-        }
-        Err(e) => {
-            println!("❌ Order creation failed: {}", e);
-        }
-    }
+// Create market buy order with cost
+let order = exchange.create_market_buy_order_with_cost(
+    "BTC/USDT",    // Symbol
+    100.0,         // Cost in quote currency
+    None,          // Optional parameters
+).await?;
+"#
+    );
 
     println!("\n========================================");
     println!("Example execution complete");

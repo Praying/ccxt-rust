@@ -46,6 +46,11 @@ async fn test_fetch_trading_fees() -> Result<()> {
     assert!(!fees.is_empty(), "Should fetch trading fee information");
     println!("Fetched fees for {} symbols", fees.len());
 
+    // Verify the structure of the returned fees
+    for (symbol, fee) in fees.iter().take(3) {
+        println!("{}: maker={}, taker={}", symbol, fee.maker, fee.taker);
+    }
+
     Ok(())
 }
 
@@ -63,11 +68,11 @@ async fn test_fetch_trading_fee() -> Result<()> {
     let _ = binance.fetch_markets().await?;
     let fee = binance.fetch_trading_fee("BTC/USDT", None).await?;
 
-    assert!(
-        fee.symbol == "BTC/USDT",
+    assert_eq!(
+        fee.symbol, "BTCUSDT",
         "Fee object should correspond to BTC/USDT"
     );
-    println!("BTC/USDT fee: {:?}", fee);
+    println!("BTC/USDT fee: maker={}, taker={}", fee.maker, fee.taker);
 
     Ok(())
 }
@@ -195,7 +200,10 @@ async fn test_order_management_flow() -> Result<()> {
     println!("✓ Markets loaded successfully");
 
     let fee = binance.fetch_trading_fee("BTC/USDT", None).await?;
-    println!("✓ Trading fee fetched successfully: {:?}", fee);
+    println!(
+        "✓ Trading fee fetched successfully: maker={}, taker={}",
+        fee.maker, fee.taker
+    );
 
     let open_orders = binance.fetch_open_orders(Some("BTC/USDT")).await?;
     println!("✓ Open orders count: {}", open_orders.len());

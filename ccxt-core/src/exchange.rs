@@ -200,6 +200,14 @@ pub use crate::capability::{
     Capabilities, Capability, ExchangeCapabilities, ExchangeCapabilitiesBuilder,
 };
 
+// Re-export sub-traits for convenience
+// These modular traits allow exchanges to implement only the capabilities they support
+pub use crate::traits::{
+    Account, ArcAccount, ArcFullExchange, ArcFunding, ArcMargin, ArcMarketData, ArcTrading,
+    BoxedAccount, BoxedFullExchange, BoxedFunding, BoxedMargin, BoxedMarketData, BoxedTrading,
+    FullExchange as ModularFullExchange, Funding, Margin, MarketData, PublicExchange, Trading,
+};
+
 // ============================================================================
 // Exchange Trait
 // ============================================================================
@@ -210,10 +218,32 @@ pub use crate::capability::{
 /// must provide. It is designed to be object-safe for dynamic dispatch,
 /// allowing exchanges to be used polymorphically via `dyn Exchange`.
 ///
+/// # Relationship to Modular Traits
+///
+/// The `Exchange` trait provides a unified interface that combines functionality
+/// from the modular trait hierarchy:
+///
+/// - [`PublicExchange`]: Metadata and capabilities (id, name, capabilities, etc.)
+/// - [`MarketData`]: Public market data (fetch_markets, fetch_ticker, etc.)
+/// - [`Trading`]: Order management (create_order, cancel_order, etc.)
+/// - [`Account`]: Account operations (fetch_balance, fetch_my_trades)
+/// - [`Margin`]: Margin/futures operations (available via separate trait)
+/// - [`Funding`]: Deposit/withdrawal operations (available via separate trait)
+///
+/// For new implementations, consider implementing the modular traits instead,
+/// which allows for more granular capability composition. Types implementing
+/// all modular traits automatically satisfy the requirements for `Exchange`.
+///
 /// # Thread Safety
 ///
 /// All implementations must be `Send + Sync` to allow safe usage across
 /// thread boundaries.
+///
+/// # Backward Compatibility
+///
+/// This trait maintains full backward compatibility with existing code.
+/// All methods from the original monolithic trait are still available.
+/// Existing implementations continue to work without modification.
 ///
 /// # Example
 ///
@@ -544,6 +574,68 @@ pub type BoxedExchange = Box<dyn Exchange>;
 ///
 /// Use this when you need shared ownership across threads.
 pub type ArcExchange = Arc<dyn Exchange>;
+
+// ============================================================================
+// Exchange Extension Trait
+// ============================================================================
+
+/// Extension trait providing access to modular sub-traits from Exchange.
+///
+/// This trait provides helper methods to access the modular trait interfaces
+/// from an Exchange implementation. It enables gradual migration from the
+/// monolithic Exchange trait to the modular trait hierarchy.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use ccxt_core::exchange::{Exchange, ExchangeExt};
+///
+/// async fn use_modular_traits(exchange: &dyn Exchange) {
+///     // Access market data functionality
+///     if let Some(market_data) = exchange.as_market_data() {
+///         let ticker = market_data.fetch_ticker("BTC/USDT").await;
+///     }
+/// }
+/// ```
+pub trait ExchangeExt: Exchange {
+    /// Check if this exchange implements the MarketData trait.
+    ///
+    /// Returns true if the exchange supports market data operations.
+    fn supports_market_data(&self) -> bool {
+        self.capabilities().fetch_markets() || self.capabilities().fetch_ticker()
+    }
+
+    /// Check if this exchange implements the Trading trait.
+    ///
+    /// Returns true if the exchange supports trading operations.
+    fn supports_trading(&self) -> bool {
+        self.capabilities().create_order()
+    }
+
+    /// Check if this exchange implements the Account trait.
+    ///
+    /// Returns true if the exchange supports account operations.
+    fn supports_account(&self) -> bool {
+        self.capabilities().fetch_balance()
+    }
+
+    /// Check if this exchange implements the Margin trait.
+    ///
+    /// Returns true if the exchange supports margin/futures operations.
+    fn supports_margin(&self) -> bool {
+        self.capabilities().fetch_positions()
+    }
+
+    /// Check if this exchange implements the Funding trait.
+    ///
+    /// Returns true if the exchange supports funding operations.
+    fn supports_funding(&self) -> bool {
+        self.capabilities().withdraw()
+    }
+}
+
+/// Blanket implementation of ExchangeExt for all Exchange implementations.
+impl<T: Exchange + ?Sized> ExchangeExt for T {}
 
 // ============================================================================
 // Tests
