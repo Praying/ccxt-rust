@@ -8,6 +8,11 @@
 //! - Spot wallet does not support this functionality
 //! - Requires API key and secret for access
 //!
+//! # Status
+//!
+//! This example is currently a placeholder. The `fetch_ledger` method
+//! is being migrated to the new modular REST API structure.
+//!
 //! # Prerequisites
 //!
 //! Set the following environment variables:
@@ -26,215 +31,40 @@
 //! ```
 
 use ccxt_rust::prelude::*;
-use std::collections::HashMap;
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let api_key = env::var("BINANCE_API_KEY").expect("Set BINANCE_API_KEY environment variable");
-    let secret = env::var("BINANCE_SECRET").expect("Set BINANCE_SECRET environment variable");
+    let api_key = env::var("BINANCE_API_KEY").ok();
+    let secret = env::var("BINANCE_SECRET").ok();
 
-    let exchange = ccxt_exchanges::binance::Binance::new(ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(secret),
+    let _exchange = ccxt_exchanges::binance::Binance::new(ExchangeConfig {
+        api_key,
+        secret,
         ..Default::default()
     })?;
 
     println!("=== Binance Ledger Query Example ===\n");
+    println!(
+        "Note: The fetch_ledger method is being migrated to the new modular REST API structure."
+    );
+    println!("This example will be updated once the migration is complete.\n");
 
-    // ========================================================================
-    // Example 1: Query USDT-M Futures Ledger (Last 10 Records)
-    // ========================================================================
-    println!("1. Query USDT-M Futures Ledger (Last 10 Records)");
-    println!("{}", "-".repeat(60));
+    // The fetch_ledger method will support:
+    // - USDT-M Futures Ledger
+    // - COIN-M Futures Ledger
+    // - Options Ledger
+    // - Time Range Queries
+    // - Portfolio Margin Account Queries
+    //
+    // Note: Spot wallet does not support ledger queries.
 
-    let mut params = HashMap::new();
-    params.insert("type".to_string(), "future".to_string());
-    params.insert("limit".to_string(), "10".to_string());
-
-    match exchange
-        .fetch_ledger(None, None, Some(10), Some(params.clone()))
-        .await
-    {
-        Ok(entries) => {
-            println!("Query successful! {} records found\n", entries.len());
-            for (i, entry) in entries.iter().enumerate() {
-                println!("Record #{}", i + 1);
-                println!("  ID: {}", entry.id);
-                println!("  Time: {}", entry.datetime);
-                println!("  Currency: {}", entry.currency);
-                println!("  Amount: {}", entry.amount);
-                println!("  Balance: {}", entry.after.unwrap_or(0.0));
-                println!("  Direction: {:?}", entry.direction);
-                println!("  Type: {:?}", entry.type_);
-                if let Some(ref_id) = &entry.reference_id {
-                    println!("  Reference ID: {}", ref_id);
-                }
-                println!();
-            }
-        }
-        Err(e) => {
-            eprintln!("Query failed: {}", e);
-        }
-    }
-
-    // ========================================================================
-    // Example 2: Query COIN-M Futures Ledger (Specific Currency)
-    // ========================================================================
-    println!("\n2. Query COIN-M Futures Ledger (BTC)");
-    println!("{}", "-".repeat(60));
-
-    params.clear();
-    params.insert("type".to_string(), "delivery".to_string());
-    params.insert("limit".to_string(), "5".to_string());
-
-    match exchange
-        .fetch_ledger(Some("BTC".to_string()), None, Some(5), Some(params.clone()))
-        .await
-    {
-        Ok(entries) => {
-            println!("Query successful! {} BTC records found\n", entries.len());
-            for (i, entry) in entries.iter().enumerate() {
-                println!(
-                    "Record #{}: {} {} {:?} @ {}",
-                    i + 1,
-                    entry.amount,
-                    entry.currency,
-                    entry.type_,
-                    entry.datetime
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("Query failed: {}", e);
-        }
-    }
-
-    // ========================================================================
-    // Example 3: Query Options Ledger
-    // ========================================================================
-    println!("\n3. Query Options Ledger");
-    println!("{}", "-".repeat(60));
-
-    params.clear();
-    params.insert("type".to_string(), "option".to_string());
-    params.insert("limit".to_string(), "5".to_string());
-
-    match exchange
-        .fetch_ledger(None, None, Some(5), Some(params.clone()))
-        .await
-    {
-        Ok(entries) => {
-            println!(
-                "Query successful! {} options records found\n",
-                entries.len()
-            );
-            for entry in entries.iter() {
-                println!(
-                    "{}: {} {} {:?}",
-                    entry.datetime, entry.amount, entry.currency, entry.type_
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("Query failed: {}", e);
-        }
-    }
-
-    // ========================================================================
-    // Example 4: Time Range Query
-    // ========================================================================
-    println!("\n4. Query Ledger Within Time Range");
-    println!("{}", "-".repeat(60));
-
-    let now = chrono::Utc::now().timestamp_millis();
-    let seven_days_ago = now - 7 * 24 * 60 * 60 * 1000;
-
-    params.clear();
-    params.insert("type".to_string(), "future".to_string());
-    params.insert("startTime".to_string(), seven_days_ago.to_string());
-    params.insert("endTime".to_string(), now.to_string());
-    params.insert("limit".to_string(), "20".to_string());
-
-    match exchange
-        .fetch_ledger(None, None, Some(20), Some(params.clone()))
-        .await
-    {
-        Ok(entries) => {
-            println!(
-                "Query successful! {} records in last 7 days\n",
-                entries.len()
-            );
-
-            let mut type_counts: HashMap<String, usize> = HashMap::new();
-            for entry in &entries {
-                let type_name = format!("{:?}", entry.type_);
-                *type_counts.entry(type_name).or_insert(0) += 1;
-            }
-
-            println!("Type Distribution:");
-            for (entry_type, count) in type_counts.iter() {
-                println!("  {}: {} entries", entry_type, count);
-            }
-        }
-        Err(e) => {
-            eprintln!("Query failed: {}", e);
-        }
-    }
-
-    // ========================================================================
-    // Example 5: Portfolio Margin Account Query
-    // ========================================================================
-    println!("\n5. Query Portfolio Margin Account");
-    println!("{}", "-".repeat(60));
-
-    params.clear();
-    params.insert("type".to_string(), "future".to_string());
-    params.insert("portfolioMargin".to_string(), "true".to_string());
-    params.insert("limit".to_string(), "5".to_string());
-
-    match exchange
-        .fetch_ledger(None, None, Some(5), Some(params))
-        .await
-    {
-        Ok(entries) => {
-            println!(
-                "Query successful! {} portfolio margin records",
-                entries.len()
-            );
-            for entry in entries.iter() {
-                println!("  {}: {} {}", entry.datetime, entry.amount, entry.currency);
-            }
-        }
-        Err(e) => {
-            eprintln!(
-                "Query failed: {} (account may not have portfolio margin enabled)",
-                e
-            );
-        }
-    }
-
-    // ========================================================================
-    // Example 6: Unsupported Operation (Spot Ledger)
-    // ========================================================================
-    println!("\n6. Attempt to Query Spot Ledger (Expected to Fail)");
-    println!("{}", "-".repeat(60));
-
-    let mut spot_params = HashMap::new();
-    spot_params.insert("type".to_string(), "spot".to_string());
-
-    match exchange
-        .fetch_ledger(None, None, Some(10), Some(spot_params))
-        .await
-    {
-        Ok(_) => {
-            println!("Unexpected success (should not happen)");
-        }
-        Err(e) => {
-            println!("Expected error: {}", e);
-            println!("(Spot wallet does not support ledger query)");
-        }
-    }
+    println!("Available ledger query types (when implemented):");
+    println!("  1. USDT-M Futures Ledger (type: 'future')");
+    println!("  2. COIN-M Futures Ledger (type: 'delivery')");
+    println!("  3. Options Ledger (type: 'option')");
+    println!("  4. Portfolio Margin Account (portfolioMargin: 'true')");
+    println!("\nSpot wallet does NOT support ledger queries.");
 
     println!("\n=== Example Complete ===");
     Ok(())

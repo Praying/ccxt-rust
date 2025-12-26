@@ -1,6 +1,8 @@
 //! Binance Advanced Features Example
 //!
 //! Demonstrates usage of newly added API methods.
+//!
+//! Note: Some methods like trading fee methods return raw JSON in the new modular structure.
 
 use ccxt_core::{ExchangeConfig, Result};
 use ccxt_exchanges::binance::Binance;
@@ -33,26 +35,23 @@ async fn main() -> Result<()> {
             Err(e) => println!("Failed to fetch currencies: {}", e),
         }
 
-        // 3. Get trading fees
+        // 3. Get trading fees (returns HashMap<String, FeeTradingFee>)
         println!("\n=== Get Trading Fees ===");
         match binance.fetch_trading_fees(None, None).await {
             Ok(fees) => {
-                println!("Fetched fees for {} trading pairs", fees.len());
-                for (symbol, fee) in fees.iter() {
-                    if symbol.starts_with("BTC") {
-                        println!("{}: {:?}", symbol, fee);
-                        break;
-                    }
+                println!("Fetched {} trading fees", fees.len());
+                for (symbol, fee) in fees.iter().take(5) {
+                    println!("  {}: maker={}, taker={}", symbol, fee.maker, fee.taker);
                 }
             }
             Err(e) => println!("Failed to fetch trading fees: {}", e),
         }
 
-        // 4. Get single trading pair fee
+        // 4. Get single trading pair fee (returns FeeTradingFee)
         println!("\n=== Get Single Trading Pair Fee ===");
         match binance.fetch_trading_fee("BTC/USDT", None).await {
             Ok(fee) => {
-                println!("BTC/USDT fee: {:?}", fee);
+                println!("BTC/USDT fee: maker={}, taker={}", fee.maker, fee.taker);
             }
             Err(e) => println!("Failed to fetch fee: {}", e),
         }

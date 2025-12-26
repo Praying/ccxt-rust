@@ -1,11 +1,29 @@
 //! Exchange trait implementation for Binance
 //!
-//! This module implements the unified `Exchange` trait from `ccxt-core` for Binance.
+//! This module implements the unified `Exchange` trait from `ccxt-core` for Binance,
+//! as well as the new decomposed traits (PublicExchange, MarketData, Trading, Account, Margin, Funding).
+//!
+//! # Backward Compatibility
+//!
+//! Binance implements both the legacy `Exchange` trait and the new modular traits.
+//! This ensures that existing code using `dyn Exchange` continues to work, while
+//! new code can use the more granular trait interfaces.
+//!
+//! # Trait Implementations
+//!
+//! - `Exchange`: Unified interface (backward compatible)
+//! - `PublicExchange`: Metadata and capabilities
+//! - `MarketData`: Public market data (via traits module)
+//! - `Trading`: Order management (via traits module)
+//! - `Account`: Balance and trade history (via traits module)
+//! - `Margin`: Positions, leverage, funding (via traits module)
+//! - `Funding`: Deposits, withdrawals, transfers (via traits module)
 
 use async_trait::async_trait;
 use ccxt_core::{
     Result,
     exchange::{Capability, Exchange, ExchangeCapabilities},
+    traits::PublicExchange,
     types::{
         Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Ticker, Timeframe, Trade,
     },
@@ -15,6 +33,10 @@ use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 
 use super::Binance;
+
+// Re-export ExchangeExt for use in tests
+#[cfg(test)]
+use ccxt_core::exchange::ExchangeExt;
 
 #[async_trait]
 impl Exchange for Binance {
@@ -265,6 +287,100 @@ impl Exchange for Binance {
     }
 }
 
+// ==================== PublicExchange Trait Implementation ====================
+
+#[async_trait]
+impl PublicExchange for Binance {
+    fn id(&self) -> &str {
+        "binance"
+    }
+
+    fn name(&self) -> &str {
+        "Binance"
+    }
+
+    fn version(&self) -> &'static str {
+        "v3"
+    }
+
+    fn certified(&self) -> bool {
+        true
+    }
+
+    fn capabilities(&self) -> ExchangeCapabilities {
+        // Binance supports almost all capabilities except:
+        // - EditOrder: Binance doesn't support order editing
+        // - FetchCanceledOrders: Binance doesn't have a separate API for canceled orders
+        ExchangeCapabilities::builder()
+            .all()
+            .without_capability(Capability::EditOrder)
+            .without_capability(Capability::FetchCanceledOrders)
+            .build()
+    }
+
+    fn timeframes(&self) -> Vec<Timeframe> {
+        vec![
+            Timeframe::M1,
+            Timeframe::M3,
+            Timeframe::M5,
+            Timeframe::M15,
+            Timeframe::M30,
+            Timeframe::H1,
+            Timeframe::H2,
+            Timeframe::H4,
+            Timeframe::H6,
+            Timeframe::H8,
+            Timeframe::H12,
+            Timeframe::D1,
+            Timeframe::D3,
+            Timeframe::W1,
+            Timeframe::Mon1,
+        ]
+    }
+
+    fn rate_limit(&self) -> u32 {
+        50
+    }
+
+    fn has_websocket(&self) -> bool {
+        true
+    }
+}
+
+// Helper methods for REST API operations
+impl Binance {
+    /// Check required authentication credentials.
+    pub(crate) fn check_required_credentials(&self) -> ccxt_core::Result<()> {
+        if self.base().config.api_key.is_none() || self.base().config.secret.is_none() {
+            return Err(ccxt_core::Error::authentication(
+                "API key and secret are required",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Get authenticator instance.
+    pub(crate) fn get_auth(&self) -> ccxt_core::Result<super::auth::BinanceAuth> {
+        let api_key = self
+            .base()
+            .config
+            .api_key
+            .as_ref()
+            .ok_or_else(|| ccxt_core::Error::authentication("API key is required"))?
+            .clone();
+
+        let secret = self
+            .base()
+            .config
+            .secret
+            .as_ref()
+            .ok_or_else(|| ccxt_core::Error::authentication("Secret is required"))?
+            .clone();
+
+        Ok(super::auth::BinanceAuth::new(api_key, secret))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,6 +440,56 @@ mod tests {
 
         assert_eq!(exchange.id(), "binance");
         assert_eq!(exchange.rate_limit(), 50);
+    }
+
+    #[test]
+    fn test_binance_exchange_ext_trait() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test ExchangeExt methods
+        let exchange: &dyn Exchange = &binance;
+
+        // Binance supports all capabilities
+        assert!(
+            exchange.supports_market_data(),
+            "Binance should support market data"
+        );
+        assert!(
+            exchange.supports_trading(),
+            "Binance should support trading"
+        );
+        assert!(
+            exchange.supports_account(),
+            "Binance should support account operations"
+        );
+        assert!(
+            exchange.supports_margin(),
+            "Binance should support margin operations"
+        );
+        assert!(
+            exchange.supports_funding(),
+            "Binance should support funding operations"
+        );
+    }
+
+    #[test]
+    fn test_binance_implements_both_exchange_and_public_exchange() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test that Binance can be used as both Exchange and PublicExchange
+        let exchange: &dyn Exchange = &binance;
+        let public_exchange: &dyn PublicExchange = &binance;
+
+        // Both should return the same values
+        assert_eq!(exchange.id(), public_exchange.id());
+        assert_eq!(exchange.name(), public_exchange.name());
+        assert_eq!(exchange.version(), public_exchange.version());
+        assert_eq!(exchange.certified(), public_exchange.certified());
+        assert_eq!(exchange.rate_limit(), public_exchange.rate_limit());
+        assert_eq!(exchange.has_websocket(), public_exchange.has_websocket());
+        assert_eq!(exchange.timeframes(), public_exchange.timeframes());
     }
 
     // ==================== Property-Based Tests ====================

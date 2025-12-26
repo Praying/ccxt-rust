@@ -27,6 +27,8 @@ pub mod market_data;
 pub mod ohlcv;
 pub mod order;
 pub mod orderbook;
+/// Parameter types for trait methods with builder pattern support
+pub mod params;
 pub mod position;
 /// Risk management and position risk types
 pub mod risk;
@@ -70,6 +72,10 @@ pub use order::{
     OrderSide, OrderStatus, OrderType, TimeInForce,
 };
 pub use orderbook::{OrderBook, OrderBookDelta, OrderBookEntry, OrderBookSide};
+pub use params::{
+    AccountType, BalanceParams, LeverageParams, MarginMode, OhlcvParams, OrderBookParams,
+    OrderParams, PriceType, TransferParams, WithdrawParams,
+};
 pub use position::{Leverage, MarginType, Position, PositionSide};
 pub use risk::{MaxLeverage, OpenInterest, OpenInterestHistory};
 pub use symbol::{ContractType, ExpiryDate, ParsedSymbol, SymbolMarketType};
@@ -191,7 +197,7 @@ impl Ohlcv {
 }
 
 /// Timeframe enum for OHLCV data
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub enum Timeframe {
     /// 1 minute
     #[serde(rename = "1m")]
@@ -210,6 +216,7 @@ pub enum Timeframe {
     M30,
     /// 1 hour
     #[serde(rename = "1h")]
+    #[default]
     H1,
     /// 2 hours
     #[serde(rename = "2h")]

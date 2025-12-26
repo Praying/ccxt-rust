@@ -101,6 +101,8 @@ pub mod rate_limiter;
 pub mod retry_strategy;
 pub mod symbol;
 pub mod time;
+/// Exchange trait hierarchy for modular capability composition
+pub mod traits;
 pub mod types;
 pub mod ws_client;
 pub mod ws_exchange;
@@ -115,9 +117,11 @@ pub mod test_config;
 // Re-exports of core types for convenience
 pub use base_exchange::{BaseExchange, ExchangeConfig, ExchangeConfigBuilder, MarketCache};
 // Re-export unified Exchange trait from exchange module
-pub use exchange::{ArcExchange, BoxedExchange, Exchange};
+pub use exchange::{ArcExchange, BoxedExchange, Exchange, ExchangeExt};
 // Re-export capabilities from capability module (new bitflags-based implementation)
-pub use capability::{Capabilities, Capability, ExchangeCapabilities, ExchangeCapabilitiesBuilder};
+pub use capability::{
+    Capabilities, Capability, ExchangeCapabilities, ExchangeCapabilitiesBuilder, TraitCategory,
+};
 // Re-export WebSocket exchange trait
 pub use error::{
     ContextExt, Error, ExchangeErrorDetails, NetworkError, OrderError, ParseError, Result,
@@ -154,7 +158,9 @@ pub mod prelude {
     };
     pub use crate::error::{ContextExt, Error, Result};
     // Re-export unified Exchange trait and capabilities
-    pub use crate::exchange::{ArcExchange, BoxedExchange, Exchange, ExchangeCapabilities};
+    pub use crate::exchange::{
+        ArcExchange, BoxedExchange, Exchange, ExchangeCapabilities, ExchangeExt,
+    };
     // Re-export WebSocket exchange trait
     pub use crate::ws_exchange::{FullExchange, MessageStream, WsExchange};
     // Re-export deprecated ErrorContext for backwards compatibility
