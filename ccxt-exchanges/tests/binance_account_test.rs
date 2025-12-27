@@ -13,6 +13,7 @@
 
 use ccxt_core::ExchangeConfig;
 use ccxt_core::error::Result;
+use ccxt_core::types::AccountType;
 use ccxt_exchanges::binance::Binance;
 
 /// Create Binance client for testing.
@@ -70,8 +71,7 @@ fn create_binance_client() -> Binance {
 async fn test_fetch_spot_balance() -> Result<()> {
     let binance = create_binance_client();
 
-    // Note: The current implementation uses account_type as a string parameter
-    let balance = binance.fetch_balance(Some("spot")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Spot)).await?;
 
     assert!(
         !balance.balances.is_empty(),
@@ -99,8 +99,7 @@ async fn test_fetch_spot_balance() -> Result<()> {
 async fn test_fetch_margin_balance() -> Result<()> {
     let binance = create_binance_client();
 
-    // Note: The current implementation uses account_type as a string parameter
-    let balance = binance.fetch_balance(Some("margin")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Margin)).await?;
 
     assert!(
         !balance.balances.is_empty(),
@@ -119,9 +118,9 @@ async fn test_fetch_margin_balance() -> Result<()> {
 async fn test_fetch_isolated_margin_balance() -> Result<()> {
     let binance = create_binance_client();
 
-    // Note: The current implementation uses account_type as a string parameter
-    // Isolated margin with symbol is not yet supported in the simplified API
-    let balance = binance.fetch_balance(Some("isolated")).await?;
+    let balance = binance
+        .fetch_balance(Some(AccountType::IsolatedMargin))
+        .await?;
 
     assert!(
         !balance.balances.is_empty(),
@@ -137,8 +136,7 @@ async fn test_fetch_isolated_margin_balance() -> Result<()> {
 async fn test_fetch_future_balance() -> Result<()> {
     let binance = create_binance_client();
 
-    // Note: The current implementation uses account_type as a string parameter
-    let balance = binance.fetch_balance(Some("future")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Futures)).await?;
 
     assert!(
         !balance.balances.is_empty(),
@@ -154,8 +152,7 @@ async fn test_fetch_future_balance() -> Result<()> {
 async fn test_fetch_funding_balance() -> Result<()> {
     let binance = create_binance_client();
 
-    // Note: The current implementation uses account_type as a string parameter
-    let balance = binance.fetch_balance(Some("funding")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Funding)).await?;
 
     assert!(
         !balance.balances.is_empty(),
@@ -209,7 +206,12 @@ async fn test_fetch_max_transferable() {
 async fn test_multiple_account_types() -> Result<()> {
     let binance = create_binance_client();
 
-    let account_types = vec!["spot", "margin", "future", "funding"];
+    let account_types = vec![
+        AccountType::Spot,
+        AccountType::Margin,
+        AccountType::Futures,
+        AccountType::Funding,
+    ];
 
     for account_type in account_types {
         let balance = binance.fetch_balance(Some(account_type)).await?;

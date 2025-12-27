@@ -2221,66 +2221,100 @@ pub fn parse_balance_with_type(data: &Value, account_type: &str) -> Result<Balan
             }
         }
         "linear" | "future" => {
-            if let Some(assets) = data["assets"].as_array() {
-                for item in assets {
-                    if let Some(asset) = item["asset"].as_str() {
-                        let available_balance =
-                            if let Some(balance_str) = item["availableBalance"].as_str() {
-                                balance_str.parse::<f64>().unwrap_or(0.0)
-                            } else {
-                                item["availableBalance"].as_f64().unwrap_or(0.0)
-                            };
+            // Handle both array response (from /fapi/v2/balance) and object with assets field
+            let assets = if let Some(arr) = data.as_array() {
+                arr.clone()
+            } else if let Some(arr) = data["assets"].as_array() {
+                arr.clone()
+            } else {
+                vec![]
+            };
 
-                        let wallet_balance =
-                            if let Some(balance_str) = item["walletBalance"].as_str() {
-                                balance_str.parse::<f64>().unwrap_or(0.0)
-                            } else {
-                                item["walletBalance"].as_f64().unwrap_or(0.0)
-                            };
+            for item in &assets {
+                if let Some(asset) = item["asset"].as_str() {
+                    let available_balance =
+                        if let Some(balance_str) = item["availableBalance"].as_str() {
+                            balance_str.parse::<f64>().unwrap_or(0.0)
+                        } else {
+                            item["availableBalance"].as_f64().unwrap_or(0.0)
+                        };
 
-                        let used = wallet_balance - available_balance;
+                    let wallet_balance = if let Some(balance_str) = item["walletBalance"].as_str() {
+                        balance_str.parse::<f64>().unwrap_or(0.0)
+                    } else {
+                        item["walletBalance"].as_f64().unwrap_or(0.0)
+                    };
 
-                        balances.insert(
-                            asset.to_string(),
-                            BalanceEntry {
-                                free: Decimal::from_f64(available_balance).unwrap_or(Decimal::ZERO),
-                                used: Decimal::from_f64(used).unwrap_or(Decimal::ZERO),
-                                total: Decimal::from_f64(wallet_balance).unwrap_or(Decimal::ZERO),
-                            },
-                        );
-                    }
+                    // Also check balance field as fallback
+                    let wallet_balance = if wallet_balance == 0.0 {
+                        if let Some(balance_str) = item["balance"].as_str() {
+                            balance_str.parse::<f64>().unwrap_or(0.0)
+                        } else {
+                            item["balance"].as_f64().unwrap_or(wallet_balance)
+                        }
+                    } else {
+                        wallet_balance
+                    };
+
+                    let used = wallet_balance - available_balance;
+
+                    balances.insert(
+                        asset.to_string(),
+                        BalanceEntry {
+                            free: Decimal::from_f64(available_balance).unwrap_or(Decimal::ZERO),
+                            used: Decimal::from_f64(used).unwrap_or(Decimal::ZERO),
+                            total: Decimal::from_f64(wallet_balance).unwrap_or(Decimal::ZERO),
+                        },
+                    );
                 }
             }
         }
         "inverse" | "delivery" => {
-            if let Some(assets) = data["assets"].as_array() {
-                for item in assets {
-                    if let Some(asset) = item["asset"].as_str() {
-                        let available_balance =
-                            if let Some(balance_str) = item["availableBalance"].as_str() {
-                                balance_str.parse::<f64>().unwrap_or(0.0)
-                            } else {
-                                item["availableBalance"].as_f64().unwrap_or(0.0)
-                            };
+            // Handle both array response and object with assets field
+            let assets = if let Some(arr) = data.as_array() {
+                arr.clone()
+            } else if let Some(arr) = data["assets"].as_array() {
+                arr.clone()
+            } else {
+                vec![]
+            };
 
-                        let wallet_balance =
-                            if let Some(balance_str) = item["walletBalance"].as_str() {
-                                balance_str.parse::<f64>().unwrap_or(0.0)
-                            } else {
-                                item["walletBalance"].as_f64().unwrap_or(0.0)
-                            };
+            for item in &assets {
+                if let Some(asset) = item["asset"].as_str() {
+                    let available_balance =
+                        if let Some(balance_str) = item["availableBalance"].as_str() {
+                            balance_str.parse::<f64>().unwrap_or(0.0)
+                        } else {
+                            item["availableBalance"].as_f64().unwrap_or(0.0)
+                        };
 
-                        let used = wallet_balance - available_balance;
+                    let wallet_balance = if let Some(balance_str) = item["walletBalance"].as_str() {
+                        balance_str.parse::<f64>().unwrap_or(0.0)
+                    } else {
+                        item["walletBalance"].as_f64().unwrap_or(0.0)
+                    };
 
-                        balances.insert(
-                            asset.to_string(),
-                            BalanceEntry {
-                                free: Decimal::from_f64(available_balance).unwrap_or(Decimal::ZERO),
-                                used: Decimal::from_f64(used).unwrap_or(Decimal::ZERO),
-                                total: Decimal::from_f64(wallet_balance).unwrap_or(Decimal::ZERO),
-                            },
-                        );
-                    }
+                    // Also check balance field as fallback
+                    let wallet_balance = if wallet_balance == 0.0 {
+                        if let Some(balance_str) = item["balance"].as_str() {
+                            balance_str.parse::<f64>().unwrap_or(0.0)
+                        } else {
+                            item["balance"].as_f64().unwrap_or(wallet_balance)
+                        }
+                    } else {
+                        wallet_balance
+                    };
+
+                    let used = wallet_balance - available_balance;
+
+                    balances.insert(
+                        asset.to_string(),
+                        BalanceEntry {
+                            free: Decimal::from_f64(available_balance).unwrap_or(Decimal::ZERO),
+                            used: Decimal::from_f64(used).unwrap_or(Decimal::ZERO),
+                            total: Decimal::from_f64(wallet_balance).unwrap_or(Decimal::ZERO),
+                        },
+                    );
                 }
             }
         }
@@ -2311,6 +2345,81 @@ pub fn parse_balance_with_type(data: &Value, account_type: &str) -> Result<Balan
                             },
                         );
                     }
+                }
+            }
+        }
+        "option" => {
+            // Options account uses equity and available fields
+            if let Some(asset) = data["asset"].as_str() {
+                let equity = if let Some(equity_str) = data["equity"].as_str() {
+                    equity_str.parse::<f64>().unwrap_or(0.0)
+                } else {
+                    data["equity"].as_f64().unwrap_or(0.0)
+                };
+
+                let available = if let Some(available_str) = data["available"].as_str() {
+                    available_str.parse::<f64>().unwrap_or(0.0)
+                } else {
+                    data["available"].as_f64().unwrap_or(0.0)
+                };
+
+                let used = equity - available;
+
+                balances.insert(
+                    asset.to_string(),
+                    BalanceEntry {
+                        free: Decimal::from_f64(available).unwrap_or(Decimal::ZERO),
+                        used: Decimal::from_f64(used).unwrap_or(Decimal::ZERO),
+                        total: Decimal::from_f64(equity).unwrap_or(Decimal::ZERO),
+                    },
+                );
+            }
+        }
+        "portfolio" => {
+            // Portfolio margin balance - can be array or single object
+            let assets = if let Some(arr) = data.as_array() {
+                arr.clone()
+            } else if data.is_object() {
+                vec![data.clone()]
+            } else {
+                vec![]
+            };
+
+            for item in &assets {
+                if let Some(asset) = item["asset"].as_str() {
+                    let total_wallet_balance =
+                        if let Some(balance_str) = item["totalWalletBalance"].as_str() {
+                            balance_str.parse::<f64>().unwrap_or(0.0)
+                        } else {
+                            item["totalWalletBalance"].as_f64().unwrap_or(0.0)
+                        };
+
+                    let available_balance =
+                        if let Some(balance_str) = item["availableBalance"].as_str() {
+                            balance_str.parse::<f64>().unwrap_or(0.0)
+                        } else {
+                            item["availableBalance"].as_f64().unwrap_or(0.0)
+                        };
+
+                    // Fallback to crossWalletBalance if availableBalance not present
+                    let free = if available_balance > 0.0 {
+                        available_balance
+                    } else if let Some(cross_str) = item["crossWalletBalance"].as_str() {
+                        cross_str.parse::<f64>().unwrap_or(0.0)
+                    } else {
+                        item["crossWalletBalance"].as_f64().unwrap_or(0.0)
+                    };
+
+                    let used = total_wallet_balance - free;
+
+                    balances.insert(
+                        asset.to_string(),
+                        BalanceEntry {
+                            free: Decimal::from_f64(free).unwrap_or(Decimal::ZERO),
+                            used: Decimal::from_f64(used).unwrap_or(Decimal::ZERO),
+                            total: Decimal::from_f64(total_wallet_balance).unwrap_or(Decimal::ZERO),
+                        },
+                    );
                 }
             }
         }

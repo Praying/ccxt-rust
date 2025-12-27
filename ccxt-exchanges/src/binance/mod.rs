@@ -16,13 +16,14 @@ pub mod error;
 mod exchange_impl;
 pub mod parser;
 pub mod rest;
+pub mod signed_request;
 pub mod symbol;
 pub mod time_sync;
-pub mod traits;
 pub mod ws;
 mod ws_exchange_impl;
 
 pub use builder::BinanceBuilder;
+pub use signed_request::{HttpMethod, SignedRequestBuilder};
 pub use time_sync::{TimeSyncConfig, TimeSyncManager};
 
 /// Binance exchange structure.
@@ -313,6 +314,44 @@ impl Binance {
     /// ```
     pub fn time_sync(&self) -> &Arc<TimeSyncManager> {
         &self.time_sync
+    }
+
+    /// Creates a new signed request builder for the given endpoint.
+    ///
+    /// This is the recommended way to make authenticated API requests.
+    /// The builder handles credential validation, timestamp generation,
+    /// parameter signing, and request execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - Full API endpoint URL
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::{Binance, HttpMethod};
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Simple GET request
+    /// let response = binance.signed_request("https://api.binance.com/api/v3/account")
+    ///     .execute()
+    ///     .await?;
+    ///
+    /// // POST request with parameters
+    /// let response = binance.signed_request("https://api.binance.com/api/v3/order")
+    ///     .method(HttpMethod::Post)
+    ///     .param("symbol", "BTCUSDT")
+    ///     .param("side", "BUY")
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn signed_request(&self, endpoint: impl Into<String>) -> SignedRequestBuilder<'_> {
+        SignedRequestBuilder::new(self, endpoint)
     }
 
     /// Returns the exchange ID.

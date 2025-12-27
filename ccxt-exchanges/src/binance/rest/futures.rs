@@ -3,7 +3,7 @@
 //! This module contains all FAPI (USDT-margined perpetual futures) specific methods
 //! including position management, leverage, funding rates, and position mode.
 
-use super::super::{Binance, parser};
+use super::super::{Binance, parser, signed_request::HttpMethod};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{FeeFundingRate, FeeFundingRateHistory, LeverageTier, MarketType, Position},
@@ -49,46 +49,20 @@ impl Binance {
     /// # }
     /// ```
     pub async fn fetch_position(&self, symbol: &str, params: Option<Value>) -> Result<Position> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
 
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        // Determine API endpoint based on market type
+        // Determine API endpoint based on market type (linear vs inverse)
         let url = if market.linear.unwrap_or(true) {
             format!("{}/positionRisk", self.urls().fapi_private)
         } else {
             format!("{}/positionRisk", self.urls().dapi_private)
         };
 
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
         let data = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .param("symbol", &market.id)
+            .merge_json_params(params)
+            .execute()
             .await?;
 
         // API returns array, find matching symbol
@@ -147,26 +121,6 @@ impl Binance {
         symbols: Option<Vec<String>>,
         params: Option<Value>,
     ) -> Result<Vec<Position>> {
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-
-        if let Some(ref params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-        let query_string = auth.build_query_string(&signed_params);
-
         // Default to USDT-M futures endpoint
         let use_coin_m = params
             .as_ref()
@@ -181,15 +135,10 @@ impl Binance {
             format!("{}/positionRisk", self.urls().fapi_private)
         };
 
-        let request_url = format!("{}?{}", url, query_string);
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
         let data = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .merge_json_params(params)
+            .execute()
             .await?;
 
         let positions_array = data.as_array().ok_or_else(|| {
@@ -284,44 +233,20 @@ impl Binance {
         symbol: Option<&str>,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-
-        if let Some(sym) = symbol {
+        let market_id = if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
-            request_params.insert("symbol".to_string(), market.id.clone());
-        }
+            Some(market.id.clone())
+        } else {
+            None
+        };
 
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
+        let url = format!("{}/positionRisk", self.urls().fapi_private);
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!("{}/positionRisk?{}", self.urls().fapi_private, query_string);
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
-
-        Ok(data)
+        self.signed_request(url)
+            .optional_param("symbol", market_id)
+            .merge_json_params(params)
+            .execute()
+            .await
     }
 
     // ==================== Leverage Methods ====================
@@ -385,11 +310,6 @@ impl Binance {
             .and_then(|v| v.parse::<bool>().ok())
             .unwrap_or(false);
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params_map, timestamp, Some(self.options().recv_window))?;
-
         let url = if market_type == "future" && sub_type == "linear" {
             // USDT-M futures
             if is_portfolio_margin {
@@ -416,18 +336,10 @@ impl Binance {
             ));
         };
 
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
         let response = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .params(params_map)
+            .execute()
             .await?;
 
         let leverages_data = if let Some(positions) = response.get("positions") {
@@ -539,8 +451,6 @@ impl Binance {
         leverage: i64,
         params: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, Value>> {
-        self.check_required_credentials()?;
-
         if leverage < 1 || leverage > 125 {
             return Err(Error::invalid_request(
                 "Leverage must be between 1 and 125".to_string(),
@@ -556,16 +466,6 @@ impl Binance {
             ));
         }
 
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
-        request_params.insert("leverage".to_string(), leverage.to_string());
-
-        if let Some(p) = params {
-            for (key, value) in p {
-                request_params.insert(key, value);
-            }
-        }
-
         // Select API endpoint based on market type
         let url = if market.linear.unwrap_or(true) {
             format!("{}/leverage", self.urls().fapi_private)
@@ -577,27 +477,18 @@ impl Binance {
             ));
         };
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
+        let mut builder = self
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("symbol", &market.id)
+            .param("leverage", leverage);
 
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
+        if let Some(p) = params {
+            let params_map: BTreeMap<String, String> = p.into_iter().collect();
+            builder = builder.params(params_map);
+        }
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
-        let response = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
-            .await?;
+        let response = builder.execute().await?;
 
         let result: HashMap<String, Value> = serde_json::from_value(response).map_err(|e| {
             Error::from(ParseError::invalid_format(
@@ -632,48 +523,20 @@ impl Binance {
         symbol: Option<&str>,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-
-        if let Some(sym) = symbol {
+        let market_id = if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
-            request_params.insert("symbol".to_string(), market.id.clone());
-        }
+            Some(market.id.clone())
+        } else {
+            None
+        };
 
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
+        let url = format!("{}/leverageBracket", self.urls().fapi_private);
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!(
-            "{}/leverageBracket?{}",
-            self.urls().fapi_private,
-            query_string
-        );
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
-
-        Ok(data)
+        self.signed_request(url)
+            .optional_param("symbol", market_id)
+            .merge_json_params(params)
+            .execute()
+            .await
     }
 
     /// Fetch leverage tier information for trading pairs.
@@ -710,11 +573,7 @@ impl Binance {
         symbols: Option<Vec<String>>,
         params: Option<HashMap<String, String>>,
     ) -> Result<BTreeMap<String, Vec<LeverageTier>>> {
-        self.check_required_credentials()?;
-
         self.load_markets(false).await?;
-
-        let mut request_params = BTreeMap::new();
 
         let is_portfolio_margin = params
             .as_ref()
@@ -722,26 +581,17 @@ impl Binance {
             .map(|v| v == "true")
             .unwrap_or(false);
 
-        let market = if let Some(syms) = &symbols {
+        let (market, market_id) = if let Some(syms) = &symbols {
             if let Some(first_symbol) = syms.first() {
                 let m = self.base().market(first_symbol).await?;
-                request_params.insert("symbol".to_string(), m.id.clone());
-                Some(m)
+                let id = m.id.clone();
+                (Some(m), Some(id))
             } else {
-                None
+                (None, None)
             }
         } else {
-            None
+            (None, None)
         };
-
-        if let Some(p) = params {
-            for (key, value) in p {
-                // Do not pass portfolioMargin parameter to API
-                if key != "portfolioMargin" {
-                    request_params.insert(key, value);
-                }
-            }
-        }
 
         // Select API endpoint based on market type and Portfolio Margin mode
         let url = if let Some(ref m) = market {
@@ -764,23 +614,18 @@ impl Binance {
             format!("{}/leverageBracket", self.urls().fapi_private)
         };
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        // Build request params, filtering out portfolioMargin
+        let filtered_params: Option<BTreeMap<String, String>> = params.map(|p| {
+            p.into_iter()
+                .filter(|(k, _)| k != "portfolioMargin")
+                .collect()
+        });
 
         let response = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .optional_param("symbol", market_id)
+            .params(filtered_params.unwrap_or_default())
+            .execute()
             .await?;
 
         let mut tiers_map: BTreeMap<String, Vec<LeverageTier>> = BTreeMap::new();
@@ -861,8 +706,6 @@ impl Binance {
         margin_mode: &str,
         params: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, Value>> {
-        self.check_required_credentials()?;
-
         let margin_type = match margin_mode.to_uppercase().as_str() {
             "ISOLATED" | "ISOLATED_MARGIN" => "ISOLATED",
             "CROSS" | "CROSSED" | "CROSS_MARGIN" => "CROSSED",
@@ -883,16 +726,6 @@ impl Binance {
             ));
         }
 
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
-        request_params.insert("marginType".to_string(), margin_type.to_string());
-
-        if let Some(p) = params {
-            for (key, value) in p {
-                request_params.insert(key, value);
-            }
-        }
-
         // Select API endpoint based on market type
         let url = if market.linear.unwrap_or(true) {
             format!("{}/marginType", self.urls().fapi_private)
@@ -904,26 +737,18 @@ impl Binance {
             ));
         };
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
+        let mut builder = self
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("symbol", &market.id)
+            .param("marginType", margin_type);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        if let Some(p) = params {
+            let params_map: BTreeMap<String, String> = p.into_iter().collect();
+            builder = builder.params(params_map);
+        }
 
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
-        let response = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
-            .await?;
+        let response = builder.execute().await?;
 
         let result: HashMap<String, Value> = serde_json::from_value(response).map_err(|e| {
             Error::from(ParseError::invalid_format(

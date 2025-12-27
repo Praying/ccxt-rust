@@ -44,3 +44,6 @@ pub mod futures;
 pub mod margin;
 pub mod market_data;
 pub mod spot;
+
+// Re-export commonly used types
+pub use account::BalanceFetchParams;

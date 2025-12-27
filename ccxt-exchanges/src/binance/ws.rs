@@ -3204,7 +3204,9 @@ impl Binance {
 
         // Optionally fetch the initial snapshot
         if fetch_snapshot {
-            let snapshot = self.fetch_balance(Some(account_type)).await?;
+            // Convert string account type to AccountType enum
+            let account_type_enum = account_type.parse::<ccxt_core::types::AccountType>().ok();
+            let snapshot = self.fetch_balance(account_type_enum).await?;
 
             // Update cache with the snapshot
             let mut balances = ws.balances.write().await;
