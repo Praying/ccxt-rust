@@ -15,7 +15,7 @@ pub struct OpenInterest {
     /// Notional value of open interest.
     pub open_interest_value: f64,
     /// Timestamp in milliseconds.
-    pub timestamp: u64,
+    pub timestamp: i64,
 }
 
 impl Default for OpenInterest {
@@ -42,7 +42,7 @@ pub struct OpenInterestHistory {
     /// Total notional value.
     pub sum_open_interest_value: f64,
     /// Timestamp in milliseconds.
-    pub timestamp: u64,
+    pub timestamp: i64,
 }
 
 impl Default for OpenInterestHistory {

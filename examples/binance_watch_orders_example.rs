@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\n=== Example 4: Watch Orders Since Specified Time ===");
-    let since = chrono::Utc::now().timestamp_millis() - 3600000;
+    let since: i64 = chrono::Utc::now().timestamp_millis() - 3600000;
     match exchange
         .clone()
         .watch_orders(None, Some(since), None, None)

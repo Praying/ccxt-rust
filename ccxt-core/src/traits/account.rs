@@ -4,6 +4,13 @@
 //! including fetching balances and trade history. These operations
 //! require authentication.
 //!
+//! # Timestamp Format
+//!
+//! All timestamp parameters and return values in this trait use the standardized format:
+//! - **Type**: `i64`
+//! - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+//! - **Range**: Supports dates from 1970 to approximately year 294,276
+//!
 //! # Object Safety
 //!
 //! This trait is designed to be object-safe, allowing for dynamic dispatch via
@@ -25,6 +32,10 @@
 //!     // Get specific currency balance
 //!     let btc = exchange.get_balance("BTC").await?;
 //!     
+//!     // Fetch trade history with i64 timestamp
+//!     let since: i64 = chrono::Utc::now().timestamp_millis() - 86400000; // 24 hours ago
+//!     let trades = exchange.fetch_my_trades_since("BTC/USDT", Some(since), Some(100)).await?;
+//!     
 //!     Ok(())
 //! }
 //! ```
@@ -39,6 +50,13 @@ use crate::types::{Balance, BalanceEntry, Trade, params::BalanceParams};
 ///
 /// This trait provides methods for fetching account balances and trade history.
 /// All methods require authentication and are async.
+///
+/// # Timestamp Format
+///
+/// All timestamp parameters and fields in returned data structures use:
+/// - **Type**: `i64`
+/// - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+/// - **Example**: `1609459200000` represents January 1, 2021, 00:00:00 UTC
 ///
 /// # Supertrait
 ///
@@ -149,20 +167,28 @@ pub trait Account: PublicExchange {
     ///
     /// # Arguments
     ///
-    /// * `symbol` - Trading pair symbol
-    /// * `since` - Optional start timestamp in milliseconds
+    /// * `symbol` - Trading pair symbol (e.g., "BTC/USDT")
+    /// * `since` - Optional start timestamp in milliseconds (i64) since Unix epoch
     /// * `limit` - Optional maximum number of trades to return
+    ///
+    /// # Timestamp Format
+    ///
+    /// The `since` parameter uses `i64` milliseconds since Unix epoch:
+    /// - `1609459200000` = January 1, 2021, 00:00:00 UTC
+    /// - `chrono::Utc::now().timestamp_millis()` = Current time
+    /// - `chrono::Utc::now().timestamp_millis() - 86400000` = 24 hours ago
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// // Recent trades
+    /// // Recent trades (no timestamp filter)
     /// let trades = exchange.fetch_my_trades_since("BTC/USDT", None, Some(100)).await?;
     ///
-    /// // Trades since timestamp
+    /// // Trades from the last 24 hours
+    /// let since = chrono::Utc::now().timestamp_millis() - 86400000;
     /// let trades = exchange.fetch_my_trades_since(
     ///     "BTC/USDT",
-    ///     Some(1609459200000),
+    ///     Some(since),
     ///     Some(50)
     /// ).await?;
     /// ```
@@ -172,6 +198,40 @@ pub trait Account: PublicExchange {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Trade>>;
+
+    // ========================================================================
+    // Deprecated u64 Wrapper Methods (Backward Compatibility)
+    // ========================================================================
+
+    /// Fetch user's trade history with u64 timestamp filtering (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_my_trades_since` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let trades = exchange.fetch_my_trades_since_u64("BTC/USDT", Some(1609459200000u64), Some(100)).await?;
+    ///
+    /// // New code (recommended)
+    /// let trades = exchange.fetch_my_trades_since("BTC/USDT", Some(1609459200000i64), Some(100)).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_my_trades_since with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_my_trades_since_u64(
+        &self,
+        symbol: &str,
+        since: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Trade>> {
+        use crate::time::TimestampConversion;
+
+        let since_i64 = since.to_i64()?;
+        self.fetch_my_trades_since(symbol, since_i64, limit).await
+    }
 }
 
 /// Type alias for boxed Account trait object.

@@ -1,6 +1,7 @@
 //! Binance Advanced Market Data Example
 //!
 //! Demonstrates OHLCV data operations and other advanced market data methods.
+//! Updated to use i64 timestamps and correct API methods.
 //!
 //! # Usage
 //!
@@ -16,7 +17,6 @@
 
 use ccxt_core::ExchangeConfig;
 use ccxt_exchanges::binance::Binance;
-use rust_decimal::Decimal;
 use std::env;
 
 #[tokio::main]
@@ -107,6 +107,8 @@ async fn example_fetch_mark_prices(client: &Binance) {
 /// Example 1: Fetch basic OHLCV data
 async fn example_fetch_ohlcv_basic(client: &Binance) {
     println!("\n📊 Example 1: Fetch OHLCV Data");
+
+    // Using the correct fetch_ohlcv method with i64 timestamps
     match client
         .fetch_ohlcv("BTC/USDT", "1h", None, Some(3), None)
         .await
@@ -123,7 +125,7 @@ async fn example_fetch_ohlcv_basic(client: &Binance) {
                     k.low,
                     k.close,
                     k.volume,
-                    if k.is_bullish() { "Bull" } else { "Bear" }
+                    if k.close > k.open { "Bull" } else { "Bear" }
                 );
             }
         }
@@ -134,15 +136,19 @@ async fn example_fetch_ohlcv_basic(client: &Binance) {
 /// Example 2: Fetch different timeframes
 async fn example_fetch_ohlcv_timeframes(client: &Binance) {
     println!("\n📊 Example 2: Different Timeframes");
-    for tf in &["1m", "5m", "1h", "1d"] {
+    let timeframes = ["1m", "5m", "1h", "1d"];
+
+    for tf in &timeframes {
         if let Ok(data) = client
             .fetch_ohlcv("ETH/USDT", tf, None, Some(1), None)
             .await
         {
             if let Some(k) = data.first() {
-                let change_percent = Decimal::from_f64_retain((k.close - k.open) / k.open)
-                    .unwrap_or(Decimal::ZERO)
-                    * Decimal::from(100);
+                let change_percent = if k.open > 0.0 {
+                    (k.close - k.open) / k.open * 100.0
+                } else {
+                    0.0
+                };
                 println!(
                     "   {} {}: ${} -> ${} ({:+.2}%)",
                     tf, k.timestamp, k.open, k.close, change_percent
@@ -155,16 +161,21 @@ async fn example_fetch_ohlcv_timeframes(client: &Binance) {
 /// Example 3: Fetch historical data with since parameter
 async fn example_fetch_ohlcv_historical(client: &Binance) {
     println!("\n📊 Example 3: Historical Data");
-    let since = chrono::Utc::now().timestamp_millis() - (7 * 24 * 60 * 60 * 1000);
+
+    // Using i64 timestamp (milliseconds since Unix epoch)
+    let since: i64 = chrono::Utc::now().timestamp_millis() - (7 * 24 * 60 * 60 * 1000);
+
     match client
         .fetch_ohlcv("BNB/USDT", "1d", Some(since), Some(7), None)
         .await
     {
         Ok(data) => {
             if let (Some(first), Some(last)) = (data.first(), data.last()) {
-                let change = Decimal::from_f64_retain((last.close - first.close) / first.close)
-                    .unwrap_or(Decimal::ZERO)
-                    * Decimal::from(100);
+                let change = if first.close > 0.0 {
+                    (last.close - first.close) / first.close * 100.0
+                } else {
+                    0.0
+                };
                 println!(
                     "✅ BNB/USDT 7 days: ${} -> ${} ({:+.2}%)",
                     first.close, last.close, change
@@ -178,12 +189,13 @@ async fn example_fetch_ohlcv_historical(client: &Binance) {
 /// Example 4: Analyze OHLCV data for market trend
 async fn example_analyze_ohlcv(client: &Binance) {
     println!("\n📈 Example 4: OHLCV Analysis");
+
     match client
         .fetch_ohlcv("BTC/USDT", "1h", None, Some(20), None)
         .await
     {
         Ok(data) => {
-            let bullish = data.iter().filter(|k| k.is_bullish()).count();
+            let bullish = data.iter().filter(|k| k.close > k.open).count();
             let bearish = data.len() - bullish;
             let trend = match (bullish, bearish) {
                 (b, _) if b > bearish * 2 => "Strong uptrend 📈",
@@ -204,6 +216,7 @@ async fn example_analyze_ohlcv(client: &Binance) {
 async fn example_error_handling(client: &Binance) {
     println!("\n⚠️  Example 5: Error Handling");
 
+    // Test invalid symbol
     match client
         .fetch_ohlcv("INVALID/PAIR", "1h", None, Some(1), None)
         .await
@@ -212,11 +225,12 @@ async fn example_error_handling(client: &Binance) {
         Err(e) => println!("   ✓ Correctly caught error: {}", e),
     }
 
+    // Test with basic fetch_ohlcv method (should work)
     match client
-        .fetch_ohlcv("BTC/USDT", "99h", None, Some(1), None)
+        .fetch_ohlcv("BTC/USDT", "1h", None, Some(1), None)
         .await
     {
-        Ok(_) => println!("   Unexpected success"),
-        Err(e) => println!("   ✓ Correctly caught error: {}", e),
+        Ok(data) => println!("   ✓ Basic fetch_ohlcv works: {} candles", data.len()),
+        Err(e) => println!("   ✗ Unexpected error: {}", e),
     }
 }

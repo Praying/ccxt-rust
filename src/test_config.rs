@@ -6,7 +6,7 @@
 //! - Test data configuration
 //! - Logging level configuration
 
-use serde::Deserialize;
+use ccxt_core::serde::Deserialize;
 use std::env;
 
 /// Test configuration loaded from environment variables.

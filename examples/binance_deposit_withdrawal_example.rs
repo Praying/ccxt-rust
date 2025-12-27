@@ -39,18 +39,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Code examples (not executable until methods are migrated):");
     println!(
         r#"
-// Fetch deposits
+// Fetch deposits (using i64 timestamps)
 let deposits = binance.fetch_deposits(
     Some("BTC"),   // Currency filter
-    None,          // Since timestamp
+    None,          // Since timestamp (Option<i64> - milliseconds since Unix epoch)
     Some(100),     // Limit
     None,          // Optional parameters
 ).await?;
 
-// Fetch withdrawals
+// Fetch withdrawals (using i64 timestamps)
 let withdrawals = binance.fetch_withdrawals(
     Some("USDT"),  // Currency filter
-    None,          // Since timestamp
+    None,          // Since timestamp (Option<i64> - milliseconds since Unix epoch)
     Some(100),     // Limit
     None,          // Optional parameters
 ).await?;

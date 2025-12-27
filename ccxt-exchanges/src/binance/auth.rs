@@ -108,7 +108,7 @@ impl BinanceAuth {
     pub fn sign_with_timestamp(
         &self,
         params: &HashMap<String, String>,
-        timestamp: u64,
+        timestamp: i64,
         recv_window: Option<u64>,
     ) -> Result<HashMap<String, String>> {
         let mut params_with_time = params.clone();
@@ -230,7 +230,7 @@ mod tests {
     fn test_sign_with_timestamp() {
         let auth = BinanceAuth::new("test_key", "test_secret");
         let params = HashMap::new();
-        let timestamp = 1234567890u64;
+        let timestamp = 1234567890i64;
 
         let signed = auth.sign_with_timestamp(&params, timestamp, Some(5000));
         assert!(signed.is_ok());

@@ -17,7 +17,7 @@ pub struct Transfer {
     pub id: Option<String>,
 
     /// Timestamp in milliseconds.
-    pub timestamp: u64,
+    pub timestamp: i64,
 
     /// ISO 8601 datetime string.
     pub datetime: String,
@@ -48,7 +48,7 @@ impl Transfer {
     /// Creates a new transfer record.
     pub fn new(
         id: Option<String>,
-        timestamp: u64,
+        timestamp: i64,
         datetime: String,
         currency: String,
         amount: f64,

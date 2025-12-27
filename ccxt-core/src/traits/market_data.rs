@@ -4,6 +4,13 @@
 //! that doesn't require authentication. This includes markets, tickers,
 //! order books, trades, and OHLCV candlestick data.
 //!
+//! # Timestamp Format
+//!
+//! All timestamp parameters and return values in this trait use the standardized format:
+//! - **Type**: `i64`
+//! - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+//! - **Range**: Supports dates from 1970 to approximately year 294,276
+//!
 //! # Object Safety
 //!
 //! This trait is designed to be object-safe, allowing for dynamic dispatch via
@@ -23,10 +30,11 @@
 //!     // Fetch ticker
 //!     let ticker = exchange.fetch_ticker("BTC/USDT").await?;
 //!     
-//!     // Fetch OHLCV with parameters
+//!     // Fetch OHLCV with i64 timestamp parameters
+//!     let since: i64 = chrono::Utc::now().timestamp_millis() - 3600000; // 1 hour ago
 //!     let candles = exchange.fetch_ohlcv_with_params(
 //!         "BTC/USDT",
-//!         OhlcvParams::new(Timeframe::H1).limit(100)
+//!         OhlcvParams::new(Timeframe::H1).since(since).limit(100)
 //!     ).await?;
 //!     
 //!     Ok(())
@@ -48,6 +56,13 @@ use crate::types::{
 /// This trait provides methods for accessing public market information
 /// that doesn't require authentication. All methods are async and return
 /// `Result<T>` for proper error handling.
+///
+/// # Timestamp Format
+///
+/// All timestamp parameters and fields in returned data structures use:
+/// - **Type**: `i64`
+/// - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+/// - **Example**: `1609459200000` represents January 1, 2021, 00:00:00 UTC
 ///
 /// # Supertrait
 ///
@@ -243,17 +258,137 @@ pub trait MarketData: PublicExchange {
     /// }
     /// ```
     async fn fetch_trades(&self, symbol: &str) -> Result<Vec<Trade>> {
-        self.fetch_trades_with_limit(symbol, None).await
+        self.fetch_trades_with_limit(symbol, None, None).await
     }
 
-    /// Fetch recent trades with limit.
+    /// Fetch recent trades with limit only.
     ///
     /// # Arguments
     ///
     /// * `symbol` - The trading pair symbol
     /// * `limit` - Maximum number of trades to return
-    async fn fetch_trades_with_limit(&self, symbol: &str, limit: Option<u32>)
-    -> Result<Vec<Trade>>;
+    async fn fetch_trades_with_limit_only(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<Trade>> {
+        self.fetch_trades_with_limit(symbol, None, limit).await
+    }
+
+    /// Fetch recent trades with limit and optional timestamp filtering.
+    ///
+    /// Returns recent trades for the specified symbol, optionally filtered by timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - The trading pair symbol (e.g., "BTC/USDT")
+    /// * `since` - Optional start timestamp in milliseconds (i64) since Unix epoch
+    /// * `limit` - Maximum number of trades to return
+    ///
+    /// # Timestamp Format
+    ///
+    /// The `since` parameter uses `i64` milliseconds since Unix epoch:
+    /// - `1609459200000` = January 1, 2021, 00:00:00 UTC
+    /// - `chrono::Utc::now().timestamp_millis()` = Current time
+    /// - `chrono::Utc::now().timestamp_millis() - 3600000` = 1 hour ago
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Fetch recent trades without timestamp filter
+    /// let trades = exchange.fetch_trades_with_limit("BTC/USDT", None, Some(100)).await?;
+    ///
+    /// // Fetch trades from the last hour
+    /// let since = chrono::Utc::now().timestamp_millis() - 3600000;
+    /// let trades = exchange.fetch_trades_with_limit("BTC/USDT", Some(since), Some(50)).await?;
+    /// ```
+    async fn fetch_trades_with_limit(
+        &self,
+        symbol: &str,
+        since: Option<i64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Trade>>;
+
+    // ========================================================================
+    // Deprecated u64 Wrapper Methods (Backward Compatibility)
+    // ========================================================================
+
+    /// Fetch OHLCV candlestick data with u64 timestamps (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_ohlcv_with_params` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let candles = exchange.fetch_ohlcv_u64("BTC/USDT", Timeframe::H1, Some(1609459200000u64), Some(100), None).await?;
+    ///
+    /// // New code (recommended)
+    /// let params = OhlcvParams::new(Timeframe::H1).since(1609459200000i64).limit(100);
+    /// let candles = exchange.fetch_ohlcv_with_params("BTC/USDT", params).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_ohlcv_with_params with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_ohlcv_u64(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+        since: Option<u64>,
+        limit: Option<u32>,
+        until: Option<u64>,
+    ) -> Result<Vec<Ohlcv>> {
+        use crate::time::TimestampConversion;
+        use crate::types::params::OhlcvParams;
+
+        let since_i64 = since.to_i64()?;
+        let until_i64 = until.to_i64()?;
+
+        let mut params = OhlcvParams::new(timeframe);
+        if let Some(ts) = since_i64 {
+            params = params.since(ts);
+        }
+        if let Some(ts) = until_i64 {
+            params = params.until(ts);
+        }
+        if let Some(n) = limit {
+            params = params.limit(n);
+        }
+
+        self.fetch_ohlcv_with_params(symbol, params).await
+    }
+
+    /// Fetch recent trades with u64 timestamp filtering (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_trades_with_limit` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let trades = exchange.fetch_trades_u64("BTC/USDT", Some(1609459200000u64), Some(100)).await?;
+    ///
+    /// // New code (recommended)
+    /// let trades = exchange.fetch_trades_with_limit("BTC/USDT", Some(1609459200000i64), Some(100)).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_trades_with_limit with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_trades_u64(
+        &self,
+        symbol: &str,
+        since: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Trade>> {
+        use crate::time::TimestampConversion;
+
+        let since_i64 = since.to_i64()?;
+        self.fetch_trades_with_limit(symbol, since_i64, limit).await
+    }
 
     // ========================================================================
     // OHLCV (Candlesticks)
@@ -289,19 +424,36 @@ pub trait MarketData: PublicExchange {
     ///
     /// # Arguments
     ///
-    /// * `symbol` - The trading pair symbol
+    /// * `symbol` - The trading pair symbol (e.g., "BTC/USDT")
     /// * `params` - OHLCV parameters including timeframe, since, limit, until
+    ///
+    /// # Timestamp Format
+    ///
+    /// All timestamp parameters in `OhlcvParams` use `i64` milliseconds since Unix epoch:
+    /// - `since`: Start time for historical data
+    /// - `until`: End time for historical data
+    /// - Returned `Ohlcv` structures have `timestamp` field as `i64`
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// use ccxt_core::types::params::OhlcvParams;
     ///
+    /// // Fetch recent candles
     /// let candles = exchange.fetch_ohlcv_with_params(
     ///     "BTC/USDT",
-    ///     OhlcvParams::new(Timeframe::H1)
-    ///         .since(1609459200000)
-    ///         .limit(100)
+    ///     OhlcvParams::new(Timeframe::H1).limit(100)
+    /// ).await?;
+    ///
+    /// // Fetch historical candles with timestamp range
+    /// let since = chrono::Utc::now().timestamp_millis() - (7 * 24 * 60 * 60 * 1000); // 7 days ago
+    /// let until = chrono::Utc::now().timestamp_millis();
+    /// let candles = exchange.fetch_ohlcv_with_params(
+    ///     "BTC/USDT",
+    ///     OhlcvParams::new(Timeframe::D1)
+    ///         .since(since)
+    ///         .until(until)
+    ///         .limit(7)
     /// ).await?;
     /// ```
     async fn fetch_ohlcv_with_params(
@@ -374,6 +526,7 @@ mod tests {
         async fn fetch_trades_with_limit(
             &self,
             _symbol: &str,
+            _since: Option<i64>,
             _limit: Option<u32>,
         ) -> Result<Vec<Trade>> {
             Ok(vec![])

@@ -4,6 +4,13 @@
 //! including position management, leverage configuration, and funding rate queries.
 //! These operations require authentication.
 //!
+//! # Timestamp Format
+//!
+//! All timestamp parameters and return values in this trait use the standardized format:
+//! - **Type**: `i64`
+//! - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+//! - **Range**: Supports dates from 1970 to approximately year 294,276
+//!
 //! # Object Safety
 //!
 //! This trait is designed to be object-safe, allowing for dynamic dispatch via
@@ -22,8 +29,9 @@
 //!     // Set leverage
 //!     exchange.set_leverage("BTC/USDT:USDT", 10).await?;
 //!     
-//!     // Fetch funding rate
-//!     let rate = exchange.fetch_funding_rate("BTC/USDT:USDT").await?;
+//!     // Fetch funding rate history with i64 timestamp
+//!     let since: i64 = chrono::Utc::now().timestamp_millis() - 604800000; // 7 days ago
+//!     let history = exchange.fetch_funding_rate_history("BTC/USDT:USDT", Some(since), Some(100)).await?;
 //!     
 //!     Ok(())
 //! }
@@ -42,6 +50,13 @@ use crate::types::{
 ///
 /// This trait provides methods for managing positions, leverage, margin mode,
 /// and funding rates. All methods require authentication and are async.
+///
+/// # Timestamp Format
+///
+/// All timestamp parameters and fields in returned data structures use:
+/// - **Type**: `i64`
+/// - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+/// - **Example**: `1609459200000` represents January 1, 2021, 00:00:00 UTC
 ///
 /// # Supertrait
 ///
@@ -214,17 +229,33 @@ pub trait Margin: PublicExchange {
     ///
     /// # Arguments
     ///
-    /// * `symbol` - Trading pair symbol
-    /// * `since` - Optional start timestamp in milliseconds
+    /// * `symbol` - Trading pair symbol (e.g., "BTC/USDT:USDT" for futures)
+    /// * `since` - Optional start timestamp in milliseconds (i64) since Unix epoch
     /// * `limit` - Optional maximum number of records to return
+    ///
+    /// # Timestamp Format
+    ///
+    /// The `since` parameter uses `i64` milliseconds since Unix epoch:
+    /// - `1609459200000` = January 1, 2021, 00:00:00 UTC
+    /// - `chrono::Utc::now().timestamp_millis()` = Current time
+    /// - `chrono::Utc::now().timestamp_millis() - 604800000` = 7 days ago
     ///
     /// # Example
     ///
     /// ```rust,ignore
+    /// // Fetch recent funding rate history
     /// let history = exchange.fetch_funding_rate_history(
     ///     "BTC/USDT:USDT",
-    ///     Some(1609459200000),
+    ///     None,
     ///     Some(100)
+    /// ).await?;
+    ///
+    /// // Fetch funding rate history from the last 7 days
+    /// let since = chrono::Utc::now().timestamp_millis() - 604800000;
+    /// let history = exchange.fetch_funding_rate_history(
+    ///     "BTC/USDT:USDT",
+    ///     Some(since),
+    ///     Some(50)
     /// ).await?;
     /// ```
     async fn fetch_funding_rate_history(
@@ -233,6 +264,41 @@ pub trait Margin: PublicExchange {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<FundingRateHistory>>;
+
+    // ========================================================================
+    // Deprecated u64 Wrapper Methods (Backward Compatibility)
+    // ========================================================================
+
+    /// Fetch funding rate history with u64 timestamp filtering (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_funding_rate_history` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let history = exchange.fetch_funding_rate_history_u64("BTC/USDT:USDT", Some(1609459200000u64), Some(100)).await?;
+    ///
+    /// // New code (recommended)
+    /// let history = exchange.fetch_funding_rate_history("BTC/USDT:USDT", Some(1609459200000i64), Some(100)).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_funding_rate_history with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_funding_rate_history_u64(
+        &self,
+        symbol: &str,
+        since: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<FundingRateHistory>> {
+        use crate::time::TimestampConversion;
+
+        let since_i64 = since.to_i64()?;
+        self.fetch_funding_rate_history(symbol, since_i64, limit)
+            .await
+    }
 }
 
 /// Type alias for boxed Margin trait object.

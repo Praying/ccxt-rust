@@ -33,7 +33,7 @@ pub struct FundingRate {
     pub funding_rate: Option<f64>,
 
     /// Next funding rate timestamp.
-    pub funding_timestamp: Option<u64>,
+    pub funding_timestamp: Option<i64>,
 
     /// Next funding rate time in ISO 8601 format.
     pub funding_datetime: Option<String>,
@@ -42,13 +42,13 @@ pub struct FundingRate {
     pub previous_funding_rate: Option<f64>,
 
     /// Previous funding rate timestamp.
-    pub previous_funding_timestamp: Option<u64>,
+    pub previous_funding_timestamp: Option<i64>,
 
     /// Previous funding rate time in ISO 8601 format.
     pub previous_funding_datetime: Option<String>,
 
     /// Data timestamp.
-    pub timestamp: Option<u64>,
+    pub timestamp: Option<i64>,
 
     /// Data time in ISO 8601 format.
     pub datetime: Option<String>,
@@ -90,7 +90,7 @@ pub struct FundingRateHistory {
     pub funding_rate: Option<f64>,
 
     /// Timestamp.
-    pub timestamp: Option<u64>,
+    pub timestamp: Option<i64>,
 
     /// Datetime string in ISO 8601 format.
     pub datetime: Option<String>,
@@ -129,7 +129,7 @@ pub struct FundingHistory {
     pub code: Option<String>,
 
     /// Timestamp.
-    pub timestamp: Option<u64>,
+    pub timestamp: Option<i64>,
 
     /// Datetime string in ISO 8601 format.
     pub datetime: Option<String>,
@@ -167,7 +167,7 @@ pub struct FundingFee {
     pub asset: String,
 
     /// Timestamp.
-    pub time: u64,
+    pub time: i64,
 
     /// Datetime string in ISO 8601 format.
     pub datetime: Option<String>,
@@ -218,7 +218,7 @@ pub struct NextFundingRate {
     pub next_funding_rate: f64,
 
     /// Next settlement timestamp.
-    pub next_funding_time: u64,
+    pub next_funding_time: i64,
 
     /// Next settlement time in ISO 8601 format.
     pub next_funding_datetime: Option<String>,

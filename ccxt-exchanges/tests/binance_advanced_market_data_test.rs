@@ -238,19 +238,33 @@ mod server_time_tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "fetch_time not yet migrated to new modular structure"]
     async fn test_fetch_time() {
-        let _client = create_binance_client();
-        // TODO: Re-enable when fetch_time is migrated from rest_old.rs
-        // let result = client.fetch_time().await;
-        // assert!(result.is_ok(), "Should successfully fetch server time");
+        let client = create_binance_client();
+        let result = client.fetch_time().await;
+        assert!(result.is_ok(), "Should successfully fetch server time");
     }
 
     #[tokio::test]
-    #[ignore = "fetch_time not yet migrated to new modular structure"]
     async fn test_fetch_time_multiple_calls() {
-        let _client = create_binance_client();
-        // TODO: Re-enable when fetch_time is migrated from rest_old.rs
+        let client = create_binance_client();
+
+        let result1 = client.fetch_time().await;
+        assert!(result1.is_ok(), "第一次调用应该成功");
+        let time1 = result1.unwrap();
+
+        // 等待1秒
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        // 第二次调用
+        let result2 = client.fetch_time().await;
+        assert!(result2.is_ok(), "第二次调用应该成功");
+        let time2 = result2.unwrap();
+
+        // 第二次的时间应该晚于第一次
+        assert!(
+            time2.server_time > time1.server_time,
+            "第二次获取的时间应该晚于第一次"
+        );
     }
 
     #[test]

@@ -450,15 +450,15 @@ pub struct LastPrice {
     /// Latest price.
     pub price: Decimal,
     /// Timestamp in milliseconds.
-    pub timestamp: u64,
+    pub timestamp: i64,
     /// Datetime string.
     pub datetime: String,
 }
 
 impl LastPrice {
     /// Creates a new last price instance.
-    pub fn new(symbol: String, price: Decimal, timestamp: u64) -> Self {
-        let datetime = chrono::DateTime::from_timestamp_millis(timestamp as i64)
+    pub fn new(symbol: String, price: Decimal, timestamp: i64) -> Self {
+        let datetime = chrono::DateTime::from_timestamp_millis(timestamp)
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
             .unwrap_or_default();
 

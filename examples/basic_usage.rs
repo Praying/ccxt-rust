@@ -1,7 +1,8 @@
 //! Basic usage example for CCXT Rust
 //!
 //! This example demonstrates creating basic data structures
-//! and working with the type system.
+//! and working with the type system. Updated to showcase
+//! i64 timestamp usage throughout the library.
 
 use anyhow::Result;
 use ccxt_core::prelude::*;
@@ -51,11 +52,9 @@ fn main() -> Result<()> {
     println!("  Status: {:?}", order.status);
     println!();
 
-    // Create a ticker
-    let mut ticker = Ticker::new(
-        "BTC/USDT".to_string(),
-        chrono::Utc::now().timestamp_millis(),
-    );
+    // Create a ticker with i64 timestamp (milliseconds since Unix epoch)
+    let timestamp_ms: i64 = chrono::Utc::now().timestamp_millis();
+    let mut ticker = Ticker::new("BTC/USDT".to_string(), timestamp_ms);
     ticker.bid = Some(dec!(49950.0).into());
     ticker.ask = Some(dec!(50050.0).into());
     ticker.last = Some(dec!(50000.0).into());
@@ -71,11 +70,9 @@ fn main() -> Result<()> {
     }
     println!();
 
-    // Create an order book
-    let mut orderbook = OrderBook::new(
-        "BTC/USDT".to_string(),
-        chrono::Utc::now().timestamp_millis(),
-    );
+    // Create an order book with i64 timestamp
+    let timestamp_ms: i64 = chrono::Utc::now().timestamp_millis();
+    let mut orderbook = OrderBook::new("BTC/USDT".to_string(), timestamp_ms);
 
     orderbook.bids = vec![
         OrderBookEntry::new(dec!(50000.0).into(), dec!(1.0).into()),
@@ -104,13 +101,14 @@ fn main() -> Result<()> {
     println!("  Total Ask Volume: {}", orderbook.ask_volume());
     println!();
 
-    // Create a trade
+    // Create a trade with i64 timestamp
+    let timestamp_ms: i64 = chrono::Utc::now().timestamp_millis();
     let trade = Trade::new(
         "BTC/USDT".to_string(),
         OrderSide::Buy,
         dec!(50000.0).into(),
         dec!(0.5).into(),
-        chrono::Utc::now().timestamp_millis(),
+        timestamp_ms,
     );
     println!("Created Trade:");
     println!("  Symbol: {}", trade.symbol);
@@ -120,9 +118,10 @@ fn main() -> Result<()> {
     println!("  Cost: {:?}", trade.cost);
     println!();
 
-    // Create OHLCV data
+    // Create OHLCV data with i64 timestamp
+    let timestamp_ms: i64 = chrono::Utc::now().timestamp_millis();
     let ohlcv = Ohlcv::new(
-        chrono::Utc::now().timestamp_millis(),
+        timestamp_ms,
         dec!(49000.0).into(), // open
         dec!(51000.0).into(), // high
         dec!(48500.0).into(), // low
@@ -147,6 +146,18 @@ fn main() -> Result<()> {
             timeframe.as_seconds()
         );
     }
+    println!();
+
+    // Demonstrate timestamp utilities
+    println!("Timestamp Utilities:");
+    let current_timestamp = chrono::Utc::now().timestamp_millis();
+    println!("  Current timestamp (i64): {} ms", current_timestamp);
+    println!(
+        "  Timestamp represents: {}",
+        chrono::DateTime::from_timestamp_millis(current_timestamp)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default()
+    );
     println!();
 
     // Demonstrate error handling

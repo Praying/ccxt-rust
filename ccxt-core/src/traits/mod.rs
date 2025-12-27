@@ -233,6 +233,7 @@ mod tests {
         async fn fetch_trades_with_limit(
             &self,
             _symbol: &str,
+            _since: Option<i64>,
             _limit: Option<u32>,
         ) -> Result<Vec<Trade>> {
             Ok(vec![])
