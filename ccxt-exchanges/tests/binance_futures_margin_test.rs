@@ -117,7 +117,7 @@ mod integration_tests {
     async fn test_modify_margin_integration() {
         let _config = ExchangeConfig {
             api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_SECRET").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
             sandbox: false,
             ..Default::default()
         };
@@ -130,7 +130,7 @@ mod integration_tests {
     async fn test_fetch_position_risk_integration() {
         let _config = ExchangeConfig {
             api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_SECRET").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
             sandbox: false,
             ..Default::default()
         };
@@ -143,7 +143,7 @@ mod integration_tests {
     async fn test_fetch_leverage_bracket_integration() {
         let _config = ExchangeConfig {
             api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_SECRET").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
             sandbox: false,
             ..Default::default()
         };
@@ -156,7 +156,7 @@ mod integration_tests {
     async fn test_margin_management_workflow() {
         let _config = ExchangeConfig {
             api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_SECRET").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
             sandbox: false,
             ..Default::default()
         };

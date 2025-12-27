@@ -18,7 +18,7 @@ use std::env;
 fn get_api_credentials() -> ExchangeConfig {
     dotenvy::dotenv().ok();
     let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_SECRET_KEY").ok();
+    let secret = env::var("BINANCE_API_SECRET").ok();
 
     let mut config = ExchangeConfig::default();
     config.api_key = api_key;

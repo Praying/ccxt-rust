@@ -9,7 +9,7 @@ use ccxt_core::{
     types::{Balance, Currency, FeeTradingFee, MarketType, Trade},
 };
 use reqwest::header::HeaderMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
 impl Binance {
@@ -25,15 +25,20 @@ impl Binance {
     pub async fn fetch_balance_simple(&self) -> Result<Balance> {
         self.check_required_credentials()?;
 
-        let params = HashMap::new();
-        let timestamp = self.fetch_time_raw().await?;
+        let params = BTreeMap::new();
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
 
-        let mut url = format!("{}/account?", self.urls().private);
+        let base_url = self.urls().private;
+        let mut url = format!("{}/account?", base_url);
         for (key, value) in &signed_params {
             url.push_str(&format!("{}={}&", key, value));
+        }
+        // Remove trailing '&'
+        if url.ends_with('&') {
+            url.pop();
         }
 
         let mut headers = HeaderMap::new();
@@ -87,7 +92,7 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), market.id.clone());
 
         if let Some(s) = since {
@@ -98,7 +103,7 @@ impl Binance {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -185,7 +190,7 @@ impl Binance {
 
         self.check_required_credentials()?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
 
         if let Some(s) = since {
@@ -203,7 +208,7 @@ impl Binance {
         }
 
         let url = format!("{}/myTrades", self.urls().private);
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -257,8 +262,8 @@ impl Binance {
         // Private API requires signature
         self.check_required_credentials()?;
 
-        let params = HashMap::new();
-        let timestamp = self.fetch_time_raw().await?;
+        let params = BTreeMap::new();
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -320,7 +325,7 @@ impl Binance {
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
 
         let is_portfolio_margin = params
@@ -366,7 +371,7 @@ impl Binance {
             }
         };
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -429,7 +434,7 @@ impl Binance {
 
         self.load_markets(false).await?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         if let Some(syms) = &symbols {
             let mut market_ids: Vec<String> = Vec::new();
@@ -451,7 +456,7 @@ impl Binance {
 
         let url = format!("{}/asset/tradeFee", self.urls().sapi);
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;

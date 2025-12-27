@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
     let mut config = ExchangeConfig::default();
     config.verbose = true; // Enable verbose logging to see HTTP requests/responses
     let exchange = Binance::new(config).context("Failed to initialize Binance exchange")?;
-
+    exchange.load_markets(false).await?;
     // Example 1: Fetch all markets
     println!("1. Fetching markets...");
     match exchange.fetch_markets().await {

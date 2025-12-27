@@ -314,7 +314,7 @@ Key configuration options:
 ```bash
 # API Credentials
 BINANCE_API_KEY=your_api_key_here
-BINANCE_SECRET=your_secret_here
+BINANCE_API_SECRET=your_secret_here
 
 # Testing
 ENABLE_PRIVATE_TESTS=false

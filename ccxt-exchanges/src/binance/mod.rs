@@ -7,6 +7,8 @@ use ccxt_core::{BaseExchange, ExchangeConfig, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub mod auth;
 pub mod builder;
@@ -15,11 +17,13 @@ mod exchange_impl;
 pub mod parser;
 pub mod rest;
 pub mod symbol;
+pub mod time_sync;
 pub mod traits;
 pub mod ws;
 mod ws_exchange_impl;
 
 pub use builder::BinanceBuilder;
+pub use time_sync::{TimeSyncConfig, TimeSyncManager};
 
 /// Binance exchange structure.
 #[derive(Debug)]
@@ -28,6 +32,8 @@ pub struct Binance {
     base: BaseExchange,
     /// Binance-specific options.
     options: BinanceOptions,
+    /// Time synchronization manager for caching server time offset.
+    time_sync: Arc<TimeSyncManager>,
 }
 
 /// Binance-specific options.
@@ -67,6 +73,27 @@ pub struct BinanceOptions {
     pub default_sub_type: Option<DefaultSubType>,
     /// Enables testnet mode.
     pub test: bool,
+    /// Time sync interval in seconds.
+    ///
+    /// Controls how often the time offset is refreshed when auto sync is enabled.
+    /// Default: 30 seconds.
+    #[serde(default = "default_sync_interval")]
+    pub time_sync_interval_secs: u64,
+    /// Enable automatic periodic time sync.
+    ///
+    /// When enabled, the time offset will be automatically refreshed
+    /// based on `time_sync_interval_secs`.
+    /// Default: true.
+    #[serde(default = "default_auto_sync")]
+    pub auto_time_sync: bool,
+}
+
+fn default_sync_interval() -> u64 {
+    30
+}
+
+fn default_auto_sync() -> bool {
+    true
 }
 
 /// Custom deserializer for DefaultType that accepts both enum values and strings.
@@ -111,6 +138,8 @@ impl Default for BinanceOptions {
             default_type: DefaultType::default(), // Defaults to Spot
             default_sub_type: None,
             test: false,
+            time_sync_interval_secs: default_sync_interval(),
+            auto_time_sync: default_auto_sync(),
         }
     }
 }
@@ -161,8 +190,13 @@ impl Binance {
     pub fn new(config: ExchangeConfig) -> Result<Self> {
         let base = BaseExchange::new(config)?;
         let options = BinanceOptions::default();
+        let time_sync = Arc::new(TimeSyncManager::new());
 
-        Ok(Self { base, options })
+        Ok(Self {
+            base,
+            options,
+            time_sync,
+        })
     }
 
     /// Creates a new Binance instance with custom options.
@@ -191,7 +225,20 @@ impl Binance {
     /// ```
     pub fn new_with_options(config: ExchangeConfig, options: BinanceOptions) -> Result<Self> {
         let base = BaseExchange::new(config)?;
-        Ok(Self { base, options })
+
+        // Create TimeSyncManager with configuration from options
+        let time_sync_config = TimeSyncConfig {
+            sync_interval: Duration::from_secs(options.time_sync_interval_secs),
+            auto_sync: options.auto_time_sync,
+            max_offset_drift: options.recv_window as i64,
+        };
+        let time_sync = Arc::new(TimeSyncManager::with_config(time_sync_config));
+
+        Ok(Self {
+            base,
+            options,
+            time_sync,
+        })
     }
 
     /// Creates a new Binance futures instance for perpetual contracts.
@@ -214,7 +261,19 @@ impl Binance {
         let mut options = BinanceOptions::default();
         options.default_type = DefaultType::Swap; // Perpetual futures
 
-        Ok(Self { base, options })
+        // Create TimeSyncManager with configuration from options
+        let time_sync_config = TimeSyncConfig {
+            sync_interval: Duration::from_secs(options.time_sync_interval_secs),
+            auto_sync: options.auto_time_sync,
+            max_offset_drift: options.recv_window as i64,
+        };
+        let time_sync = Arc::new(TimeSyncManager::with_config(time_sync_config));
+
+        Ok(Self {
+            base,
+            options,
+            time_sync,
+        })
     }
 
     /// Returns a reference to the base exchange.
@@ -235,6 +294,25 @@ impl Binance {
     /// Sets the Binance options.
     pub fn set_options(&mut self, options: BinanceOptions) {
         self.options = options;
+    }
+
+    /// Returns a reference to the time synchronization manager.
+    ///
+    /// The `TimeSyncManager` caches the time offset between local system time
+    /// and Binance server time, reducing network round-trips for signed requests.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// let binance = Binance::new(ExchangeConfig::default()).unwrap();
+    /// let time_sync = binance.time_sync();
+    /// println!("Time sync initialized: {}", time_sync.is_initialized());
+    /// ```
+    pub fn time_sync(&self) -> &Arc<TimeSyncManager> {
+        &self.time_sync
     }
 
     /// Returns the exchange ID.
@@ -775,6 +853,8 @@ mod tests {
         assert!(!options.adjust_for_time_difference);
         assert_eq!(options.recv_window, 5000);
         assert!(!options.test);
+        assert_eq!(options.time_sync_interval_secs, 30);
+        assert!(options.auto_time_sync);
     }
 
     #[test]
@@ -798,6 +878,8 @@ mod tests {
         let json = serde_json::to_string(&options).unwrap();
         assert!(json.contains("\"default_type\":\"swap\""));
         assert!(json.contains("\"default_sub_type\":\"linear\""));
+        assert!(json.contains("\"time_sync_interval_secs\":30"));
+        assert!(json.contains("\"auto_time_sync\":true"));
     }
 
     #[test]
@@ -808,11 +890,14 @@ mod tests {
             "default_type": "swap",
             "default_sub_type": "linear",
             "test": false,
-            "demo": false
+            "time_sync_interval_secs": 60,
+            "auto_time_sync": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Swap);
         assert_eq!(options.default_sub_type, Some(DefaultSubType::Linear));
+        assert_eq!(options.time_sync_interval_secs, 60);
+        assert!(!options.auto_time_sync);
     }
 
     #[test]
@@ -822,11 +907,13 @@ mod tests {
             "adjust_for_time_difference": false,
             "recv_window": 5000,
             "default_type": "future",
-            "test": false,
-            "demo": false
+            "test": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Swap);
+        // Verify defaults are applied for missing fields
+        assert_eq!(options.time_sync_interval_secs, 30);
+        assert!(options.auto_time_sync);
     }
 
     #[test]
@@ -836,8 +923,7 @@ mod tests {
             "adjust_for_time_difference": false,
             "recv_window": 5000,
             "default_type": "delivery",
-            "test": false,
-            "demo": false
+            "test": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Futures);
@@ -849,8 +935,7 @@ mod tests {
             "adjust_for_time_difference": false,
             "recv_window": 5000,
             "default_type": "spot",
-            "test": false,
-            "demo": false
+            "test": false
         }"#;
         let options: BinanceOptions = serde_json::from_str(json).unwrap();
         assert_eq!(options.default_type, DefaultType::Spot);

@@ -7,13 +7,13 @@
 //! # Environment Variables
 //!
 //! - `BINANCE_API_KEY`: API key for authenticated endpoints (optional)
-//! - `BINANCE_SECRET`: API secret for authenticated endpoints (optional)
+//! - `BINANCE_API_SECRET`: API secret for authenticated endpoints (optional)
 //!
 //! # Examples
 //!
 //! ```bash
 //! # Run with authentication
-//! BINANCE_API_KEY=your_key BINANCE_SECRET=your_secret cargo run --example binance_fee_example
+//! BINANCE_API_KEY=your_key BINANCE_API_SECRET=your_secret cargo run --example binance_fee_example
 //! ```
 
 use ccxt_core::ExchangeConfig;
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         sandbox: false,
         ..Default::default()
     };
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else {
         println!("⚠️  No API credentials set, skipping authenticated endpoints");
-        println!("   Set environment variables: BINANCE_API_KEY and BINANCE_SECRET\n");
+        println!("   Set environment variables: BINANCE_API_KEY and BINANCE_API_SECRET\n");
     }
 
     // Note: The following methods are not yet migrated to the new modular structure:

@@ -11,7 +11,7 @@ use ccxt_exchanges::binance::Binance;
 async fn main() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
         println!("let result = binance.cancel_all_orders(\"BTC/USDT\").await?;");
     } else {
         println!(
-            "\nNote: Set BINANCE_API_KEY and BINANCE_SECRET environment variables to test private APIs"
+            "\nNote: Set BINANCE_API_KEY and BINANCE_API_SECRET environment variables to test private APIs"
         );
     }
 

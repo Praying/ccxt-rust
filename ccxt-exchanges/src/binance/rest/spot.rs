@@ -9,7 +9,7 @@ use ccxt_core::{
     types::{Order, OrderSide, OrderType},
 };
 use reqwest::header::HeaderMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
 impl Binance {
@@ -43,7 +43,7 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         request_params.insert("symbol".to_string(), market.id.clone());
         request_params.insert(
@@ -132,7 +132,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -175,11 +175,11 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), market.id.clone());
         params.insert("orderId".to_string(), id.to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -222,11 +222,11 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), market.id.clone());
         params.insert("orderId".to_string(), id.to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -260,7 +260,7 @@ impl Binance {
     pub async fn fetch_open_orders(&self, symbol: Option<&str>) -> Result<Vec<Order>> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         let market = if let Some(sym) = symbol {
             let m = self.base().market(sym).await?;
             params.insert("symbol".to_string(), m.id.clone());
@@ -269,7 +269,7 @@ impl Binance {
             None
         };
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -356,10 +356,10 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), market.id.clone());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -420,7 +420,7 @@ impl Binance {
 
         let market = self.base().market(symbol).await?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), market.id.clone());
 
         let order_ids_json = serde_json::to_string(&ids).map_err(|e| {
@@ -431,7 +431,7 @@ impl Binance {
         })?;
         params.insert("orderIdList".to_string(), order_ids_json);
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -496,7 +496,7 @@ impl Binance {
     ) -> Result<Vec<Order>> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         let market = if let Some(sym) = symbol {
             let m = self.base().market(sym).await?;
             params.insert("symbol".to_string(), m.id.clone());
@@ -513,7 +513,7 @@ impl Binance {
             params.insert("limit".to_string(), l.to_string());
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;

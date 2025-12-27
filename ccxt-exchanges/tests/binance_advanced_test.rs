@@ -11,7 +11,7 @@ use ccxt_exchanges::binance::Binance;
 async fn test_fetch_currencies() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -35,7 +35,7 @@ async fn test_fetch_currencies() -> Result<()> {
 async fn test_fetch_trading_fees() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -60,7 +60,7 @@ async fn test_fetch_trading_fees() -> Result<()> {
 async fn test_fetch_trading_fee() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -83,7 +83,7 @@ async fn test_fetch_trading_fee() -> Result<()> {
 async fn test_fetch_orders() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -110,7 +110,7 @@ async fn test_fetch_orders() -> Result<()> {
 async fn test_fetch_closed_orders() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -142,7 +142,7 @@ async fn test_fetch_closed_orders() -> Result<()> {
 async fn test_cancel_orders() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -168,7 +168,7 @@ async fn test_cancel_orders() -> Result<()> {
 async fn test_cancel_all_orders() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
@@ -190,7 +190,7 @@ async fn test_cancel_all_orders() -> Result<()> {
 async fn test_order_management_flow() -> Result<()> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 

@@ -9,7 +9,7 @@ use ccxt_exchanges::binance::Binance;
 /// Create a Binance instance for testing.
 fn create_binance_instance() -> Binance {
     let api_key = std::env::var("BINANCE_API_KEY").ok();
-    let secret = std::env::var("BINANCE_SECRET").ok();
+    let secret = std::env::var("BINANCE_API_SECRET").ok();
 
     let config = ExchangeConfig {
         api_key,
@@ -22,7 +22,7 @@ fn create_binance_instance() -> Binance {
 
 /// Check if API credentials are configured.
 fn has_api_credentials() -> bool {
-    std::env::var("BINANCE_API_KEY").is_ok() && std::env::var("BINANCE_SECRET").is_ok()
+    std::env::var("BINANCE_API_KEY").is_ok() && std::env::var("BINANCE_API_SECRET").is_ok()
 }
 
 // ============================================================================

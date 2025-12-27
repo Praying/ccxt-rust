@@ -331,7 +331,7 @@ cp .env.example .env
 ```bash
 # API 凭证
 BINANCE_API_KEY=your_api_key_here
-BINANCE_SECRET=your_secret_here
+BINANCE_API_SECRET=your_secret_here
 
 # 测试
 ENABLE_PRIVATE_TESTS=false

@@ -16,14 +16,14 @@ fn create_test_binance() -> Binance {
     let mut config = ExchangeConfig::default();
     config.testnet = true;
     config.api_key = std::env::var("BINANCE_API_KEY").ok();
-    config.secret = std::env::var("BINANCE_SECRET").ok();
+    config.secret = std::env::var("BINANCE_API_SECRET").ok();
     
     Binance::new(config).expect("Failed to create Binance instance")
 }
 
 /// 检查是否配置了API凭证
 fn has_credentials() -> bool {
-    std::env::var("BINANCE_API_KEY").is_ok() && std::env::var("BINANCE_SECRET").is_ok()
+    std::env::var("BINANCE_API_KEY").is_ok() && std::env::var("BINANCE_API_SECRET").is_ok()
 }
 
 #[tokio::test]

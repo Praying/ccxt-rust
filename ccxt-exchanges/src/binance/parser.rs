@@ -619,7 +619,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
 ///
 /// # Returns
 ///
-/// Returns a CCXT [`Balance`] structure with all non-zero balances.
+/// Returns a CCXT [`Balance`] structure with all balances (including zero balances).
 pub fn parse_balance(data: &Value) -> Result<Balance> {
     let mut balances = HashMap::new();
 
@@ -634,16 +634,14 @@ pub fn parse_balance(data: &Value) -> Result<Balance> {
             let locked = parse_decimal(balance, "locked").unwrap_or(Decimal::ZERO);
             let total = free + locked;
 
-            if !total.is_zero() {
-                balances.insert(
-                    currency,
-                    BalanceEntry {
-                        free,
-                        used: locked,
-                        total,
-                    },
-                );
-            }
+            balances.insert(
+                currency,
+                BalanceEntry {
+                    free,
+                    used: locked,
+                    total,
+                },
+            );
         }
     }
 

@@ -20,7 +20,6 @@ use std::env;
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("=== Timestamp Migration Example ===\n");
-
     // Initialize exchange
     let config = ExchangeConfig {
         api_key: env::var("BINANCE_API_KEY").ok(),

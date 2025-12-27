@@ -10,7 +10,7 @@ use std::collections::HashMap;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         sandbox: true,
         ..Default::default()
     };
