@@ -103,10 +103,9 @@
 //! ```
 
 use super::super::Binance;
+use super::super::signed_request::HttpMethod;
 use ccxt_core::{Error, ParseError, Result};
-use reqwest::header::HeaderMap;
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 impl Binance {
     // ==================== DAPI Position Mode Methods ====================
@@ -179,51 +178,15 @@ impl Binance {
         dual_side: bool,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-        request_params.insert("dualSidePosition".to_string(), dual_side.to_string());
-
-        // Merge additional parameters if provided
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
         // Use DAPI endpoint for coin-margined futures
         let url = format!("{}/positionSide/dual", self.urls().dapi_private);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
-        let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
-            .await?;
-
-        Ok(data)
+        self.signed_request(url)
+            .method(HttpMethod::Post)
+            .param("dualSidePosition", dual_side)
+            .merge_json_params(params)
+            .execute()
+            .await
     }
 
     /// Fetch current position mode for coin-margined futures (DAPI).
@@ -291,43 +254,14 @@ impl Binance {
     /// # }
     /// ```
     pub async fn fetch_position_mode_dapi(&self, params: Option<Value>) -> Result<bool> {
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-
-        // Merge additional parameters if provided
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
         // Use DAPI endpoint for coin-margined futures
-        let url = format!(
-            "{}/positionSide/dual?{}",
-            self.urls().dapi_private,
-            query_string
-        );
+        let url = format!("{}/positionSide/dual", self.urls().dapi_private);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .merge_json_params(params)
+            .execute()
+            .await?;
 
         // Parse the response to extract the dualSidePosition value
         if let Some(dual_side) = data.get("dualSidePosition") {
@@ -428,43 +362,14 @@ impl Binance {
     /// # }
     /// ```
     pub async fn fetch_dapi_account(&self, params: Option<Value>) -> Result<Value> {
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-
-        // Merge additional parameters if provided
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
         // Use DAPI endpoint for coin-margined futures account
-        let url = format!("{}/account?{}", self.urls().dapi_private, query_string);
+        let url = format!("{}/account", self.urls().dapi_private);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .merge_json_params(params)
+            .execute()
+            .await?;
 
         // Check for API errors in response
         if let Some(code) = data.get("code") {
@@ -597,68 +502,30 @@ impl Binance {
         limit: Option<u32>,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
+        // Use DAPI endpoint for coin-margined futures income
+        let url = format!("{}/income", self.urls().dapi_private);
 
-        let mut request_params = BTreeMap::new();
+        let mut builder = self.signed_request(url);
 
         // Add symbol parameter if provided
         if let Some(sym) = symbol {
             // Load markets to convert unified symbol to exchange symbol
             self.load_markets(false).await?;
             let market = self.base().market(sym).await?;
-            request_params.insert("symbol".to_string(), market.id.clone());
+            builder = builder.param("symbol", &market.id);
         }
 
         // Add income type filter if provided
         if let Some(income_t) = income_type {
-            request_params.insert("incomeType".to_string(), income_t.to_string());
+            builder = builder.param("incomeType", income_t);
         }
 
-        // Add start time (since) parameter if provided
-        if let Some(s) = since {
-            request_params.insert("startTime".to_string(), s.to_string());
-        }
-
-        // Add limit parameter if provided
-        if let Some(l) = limit {
-            request_params.insert("limit".to_string(), l.to_string());
-        }
-
-        // Merge additional parameters if provided (including endTime)
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_u64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        // Use DAPI endpoint for coin-margined futures income
-        let url = format!("{}/income?{}", self.urls().dapi_private, query_string);
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = builder
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .merge_json_params(params)
+            .execute()
+            .await?;
 
         // Check for API errors in response
         if let Some(code) = data.get("code") {
@@ -757,52 +624,19 @@ impl Binance {
         symbol: &str,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
-
         // Load markets to convert unified symbol to exchange symbol
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
-
-        // Merge additional parameters if provided
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
         // Use DAPI endpoint for coin-margined futures commission rate
-        let url = format!(
-            "{}/commissionRate?{}",
-            self.urls().dapi_private,
-            query_string
-        );
+        let url = format!("{}/commissionRate", self.urls().dapi_private);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("symbol", &market.id)
+            .merge_json_params(params)
+            .execute()
+            .await?;
 
         // Check for API errors in response
         if let Some(code) = data.get("code") {
@@ -927,51 +761,20 @@ impl Binance {
         symbol: Option<&str>,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
+        // Use DAPI endpoint for coin-margined futures ADL quantile
+        let url = format!("{}/adlQuantile", self.urls().dapi_private);
 
-        let mut request_params = BTreeMap::new();
+        let mut builder = self.signed_request(url);
 
         // Add symbol parameter if provided
         if let Some(sym) = symbol {
             // Load markets to convert unified symbol to exchange symbol
             self.load_markets(false).await?;
             let market = self.base().market(sym).await?;
-            request_params.insert("symbol".to_string(), market.id.clone());
+            builder = builder.param("symbol", &market.id);
         }
 
-        // Merge additional parameters if provided
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        // Use DAPI endpoint for coin-margined futures ADL quantile
-        let url = format!("{}/adlQuantile?{}", self.urls().dapi_private, query_string);
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = builder.merge_json_params(params).execute().await?;
 
         // Check for API errors in response
         if let Some(code) = data.get("code") {
@@ -1130,68 +933,30 @@ impl Binance {
         limit: Option<u32>,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
+        // Use DAPI endpoint for coin-margined futures force orders
+        let url = format!("{}/forceOrders", self.urls().dapi_private);
 
-        let mut request_params = BTreeMap::new();
+        let mut builder = self.signed_request(url);
 
         // Add symbol parameter if provided
         if let Some(sym) = symbol {
             // Load markets to convert unified symbol to exchange symbol
             self.load_markets(false).await?;
             let market = self.base().market(sym).await?;
-            request_params.insert("symbol".to_string(), market.id.clone());
+            builder = builder.param("symbol", &market.id);
         }
 
         // Add auto close type filter if provided (LIQUIDATION or ADL)
         if let Some(close_type) = auto_close_type {
-            request_params.insert("autoCloseType".to_string(), close_type.to_string());
+            builder = builder.param("autoCloseType", close_type);
         }
 
-        // Add start time (since) parameter if provided
-        if let Some(s) = since {
-            request_params.insert("startTime".to_string(), s.to_string());
-        }
-
-        // Add limit parameter if provided (default 50, max 100)
-        if let Some(l) = limit {
-            request_params.insert("limit".to_string(), l.to_string());
-        }
-
-        // Merge additional parameters if provided (including endTime)
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_u64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        // Use DAPI endpoint for coin-margined futures force orders
-        let url = format!("{}/forceOrders?{}", self.urls().dapi_private, query_string);
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = builder
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .merge_json_params(params)
+            .execute()
+            .await?;
 
         // Check for API errors in response
         if let Some(code) = data.get("code") {

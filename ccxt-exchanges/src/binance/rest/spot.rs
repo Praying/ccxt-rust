@@ -3,12 +3,11 @@
 //! This module contains all spot trading methods including order creation,
 //! cancellation, and order management.
 
-use super::super::{Binance, parser};
+use super::super::{Binance, parser, signed_request::HttpMethod};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{Order, OrderSide, OrderType},
 };
-use reqwest::header::HeaderMap;
 use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
@@ -40,8 +39,6 @@ impl Binance {
         price: Option<f64>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Order> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
         let mut request_params = BTreeMap::new();
 
@@ -132,26 +129,12 @@ impl Binance {
             }
         }
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/order", self.urls().private);
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
         let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .params(request_params)
+            .execute()
             .await?;
 
         parser::parse_order(&data, Some(&market))
@@ -172,33 +155,15 @@ impl Binance {
     ///
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_order(&self, id: &str, symbol: &str) -> Result<Order> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-        let mut params = BTreeMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
-        params.insert("orderId".to_string(), id.to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/order", self.urls().private);
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
 
         let data = self
-            .base()
-            .http_client
-            .delete(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Delete)
+            .param("symbol", &market.id)
+            .param("orderId", id)
+            .execute()
             .await?;
 
         parser::parse_order(&data, Some(&market))
@@ -219,27 +184,15 @@ impl Binance {
     ///
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn fetch_order(&self, id: &str, symbol: &str) -> Result<Order> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-        let mut params = BTreeMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
-        params.insert("orderId".to_string(), id.to_string());
+        let url = format!("{}/order", self.urls().private);
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let mut url = format!("{}/order?", self.urls().private);
-        for (key, value) in &signed_params {
-            url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("symbol", &market.id)
+            .param("orderId", id)
+            .execute()
+            .await?;
 
         parser::parse_order(&data, Some(&market))
     }
@@ -258,31 +211,19 @@ impl Binance {
     ///
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_open_orders(&self, symbol: Option<&str>) -> Result<Vec<Order>> {
-        self.check_required_credentials()?;
-
-        let mut params = BTreeMap::new();
         let market = if let Some(sym) = symbol {
-            let m = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), m.id.clone());
-            Some(m)
+            Some(self.base().market(sym).await?)
         } else {
             None
         };
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
+        let url = format!("{}/openOrders", self.urls().private);
 
-        let mut url = format!("{}/openOrders?", self.urls().private);
-        for (key, value) in &signed_params {
-            url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .optional_param("symbol", market.as_ref().map(|m| &m.id))
+            .execute()
+            .await?;
 
         let orders_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -353,32 +294,14 @@ impl Binance {
     ///
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_all_orders(&self, symbol: &str) -> Result<Vec<Order>> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-        let mut params = BTreeMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/openOrders", self.urls().private);
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
 
         let data = self
-            .base()
-            .http_client
-            .delete(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Delete)
+            .param("symbol", &market.id)
+            .execute()
             .await?;
 
         let orders_array = data.as_array().ok_or_else(|| {
@@ -416,12 +339,7 @@ impl Binance {
     ///
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_orders(&self, ids: Vec<String>, symbol: &str) -> Result<Vec<Order>> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-
-        let mut params = BTreeMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
 
         let order_ids_json = serde_json::to_string(&ids).map_err(|e| {
             Error::from(ParseError::invalid_format(
@@ -429,28 +347,15 @@ impl Binance {
                 format!("Failed to serialize order IDs: {}", e),
             ))
         })?;
-        params.insert("orderIdList".to_string(), order_ids_json);
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
 
         let url = format!("{}/openOrders", self.urls().private);
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
 
         let data = self
-            .base()
-            .http_client
-            .delete(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Delete)
+            .param("symbol", &market.id)
+            .param("orderIdList", order_ids_json)
+            .execute()
             .await?;
 
         let orders_array = data.as_array().ok_or_else(|| {
@@ -494,39 +399,21 @@ impl Binance {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
-        self.check_required_credentials()?;
-
-        let mut params = BTreeMap::new();
         let market = if let Some(sym) = symbol {
-            let m = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), m.id.clone());
-            Some(m)
+            Some(self.base().market(sym).await?)
         } else {
             None
         };
 
-        if let Some(s) = since {
-            params.insert("startTime".to_string(), s.to_string());
-        }
+        let url = format!("{}/allOrders", self.urls().private);
 
-        if let Some(l) = limit {
-            params.insert("limit".to_string(), l.to_string());
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let mut url = format!("{}/allOrders?", self.urls().private);
-        for (key, value) in &signed_params {
-            url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .optional_param("symbol", market.as_ref().map(|m| &m.id))
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .execute()
+            .await?;
 
         let orders_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(

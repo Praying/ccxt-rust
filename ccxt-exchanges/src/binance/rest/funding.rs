@@ -60,33 +60,14 @@ impl Binance {
         code: &str,
         params: Option<BTreeMap<String, String>>,
     ) -> Result<DepositAddress> {
-        self.check_required_credentials()?;
+        let url = format!("{}/capital/deposit/address", self.urls().sapi);
 
-        let mut request_params = params.unwrap_or_default();
-
-        request_params
-            .entry("coin".to_string())
-            .or_insert_with(|| code.to_uppercase());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: Vec<String> = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let url = format!(
-            "{}/capital/deposit/address?{}",
-            self.urls().sapi,
-            query_string.join("&")
-        );
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("coin", code.to_uppercase())
+            .params(params.unwrap_or_default())
+            .execute()
+            .await?;
 
         parser::parse_deposit_address(&data)
     }
@@ -142,41 +123,23 @@ impl Binance {
         address: &str,
         params: Option<BTreeMap<String, String>>,
     ) -> Result<Transaction> {
-        self.check_required_credentials()?;
+        let url = format!("{}/capital/withdraw/apply", self.urls().sapi);
 
         let mut request_params = params.unwrap_or_default();
-
-        request_params.insert("coin".to_string(), code.to_uppercase());
-        request_params.insert("address".to_string(), address.to_string());
-        request_params.insert("amount".to_string(), amount.to_string());
 
         // Handle optional tag parameter (supports both 'tag' and 'addressTag' names)
         if let Some(tag) = request_params.get("tag").cloned() {
             request_params.insert("addressTag".to_string(), tag);
         }
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: Vec<String> = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let url = format!(
-            "{}/capital/withdraw/apply?{}",
-            self.urls().sapi,
-            query_string.join("&")
-        );
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
         let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), None)
+            .signed_request(url)
+            .method(super::super::signed_request::HttpMethod::Post)
+            .param("coin", code.to_uppercase())
+            .param("address", address)
+            .param("amount", amount)
+            .params(request_params)
+            .execute()
             .await?;
 
         parser::parse_transaction(&data, TransactionType::Withdrawal)
@@ -232,45 +195,16 @@ impl Binance {
         limit: Option<i64>,
         params: Option<BTreeMap<String, String>>,
     ) -> Result<Vec<Transaction>> {
-        self.check_required_credentials()?;
+        let url = format!("{}/capital/deposit/hisrec", self.urls().sapi);
 
-        let mut request_params = params.unwrap_or_default();
-
-        if let Some(coin) = code {
-            request_params
-                .entry("coin".to_string())
-                .or_insert_with(|| coin.to_uppercase());
-        }
-
-        if let Some(start_time) = since {
-            request_params
-                .entry("startTime".to_string())
-                .or_insert_with(|| start_time.to_string());
-        }
-
-        if let Some(lim) = limit {
-            request_params.insert("limit".to_string(), lim.to_string());
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: Vec<String> = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let url = format!(
-            "{}/capital/deposit/hisrec?{}",
-            self.urls().sapi,
-            query_string.join("&")
-        );
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .optional_param("coin", code.map(|c| c.to_uppercase()))
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .params(params.unwrap_or_default())
+            .execute()
+            .await?;
 
         if let Some(arr) = data.as_array() {
             arr.iter()
@@ -330,45 +264,16 @@ impl Binance {
         limit: Option<i64>,
         params: Option<BTreeMap<String, String>>,
     ) -> Result<Vec<Transaction>> {
-        self.check_required_credentials()?;
+        let url = format!("{}/capital/withdraw/history", self.urls().sapi);
 
-        let mut request_params = params.unwrap_or_default();
-
-        if let Some(coin) = code {
-            request_params
-                .entry("coin".to_string())
-                .or_insert_with(|| coin.to_uppercase());
-        }
-
-        if let Some(start_time) = since {
-            request_params
-                .entry("startTime".to_string())
-                .or_insert_with(|| start_time.to_string());
-        }
-
-        if let Some(lim) = limit {
-            request_params.insert("limit".to_string(), lim.to_string());
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: Vec<String> = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let url = format!(
-            "{}/capital/withdraw/history?{}",
-            self.urls().sapi,
-            query_string.join("&")
-        );
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .optional_param("coin", code.map(|c| c.to_uppercase()))
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .params(params.unwrap_or_default())
+            .execute()
+            .await?;
 
         if let Some(arr) = data.as_array() {
             arr.iter()
@@ -413,32 +318,16 @@ impl Binance {
         currency: Option<&str>,
         params: Option<BTreeMap<String, String>>,
     ) -> Result<Vec<DepositWithdrawFee>> {
-        self.check_required_credentials()?;
-
-        let request_params = params.unwrap_or_default();
-
         // Note: Binance /sapi/v1/capital/config/getall endpoint returns all currencies
         // If currency is specified, client-side filtering is required
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
+        let url = format!("{}/capital/config/getall", self.urls().sapi);
 
-        let query_string: Vec<String> = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let url = format!(
-            "{}/capital/config/getall?{}",
-            self.urls().sapi,
-            query_string.join("&")
-        );
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .params(params.unwrap_or_default())
+            .execute()
+            .await?;
 
         let all_fees = parser::parse_deposit_withdraw_fees(&data)?;
 

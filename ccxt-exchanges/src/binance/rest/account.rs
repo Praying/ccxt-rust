@@ -4,13 +4,100 @@
 //! trade history, account configuration, and user data stream management.
 
 use super::super::{Binance, parser};
+use ccxt_core::types::AccountType;
 use ccxt_core::{
     Error, ParseError, Result,
     types::{Balance, Currency, FeeTradingFee, MarketType, Trade},
 };
 use reqwest::header::HeaderMap;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use tracing::warn;
+
+/// Balance fetch parameters for Binance.
+#[derive(Debug, Clone, Default)]
+pub struct BalanceFetchParams {
+    /// Account type to query (spot, margin, futures, etc.).
+    pub account_type: Option<AccountType>,
+    /// Margin mode: "cross" or "isolated".
+    pub margin_mode: Option<String>,
+    /// Symbols for isolated margin (e.g., `["BTC/USDT", "ETH/USDT"]`).
+    pub symbols: Option<Vec<String>>,
+    /// Whether to use Portfolio Margin API.
+    pub portfolio_margin: bool,
+    /// Sub-type for futures: "linear" or "inverse".
+    pub sub_type: Option<String>,
+}
+
+impl BalanceFetchParams {
+    /// Create params for spot balance.
+    pub fn spot() -> Self {
+        Self {
+            account_type: Some(AccountType::Spot),
+            ..Default::default()
+        }
+    }
+
+    /// Create params for cross margin balance.
+    pub fn cross_margin() -> Self {
+        Self {
+            account_type: Some(AccountType::Margin),
+            margin_mode: Some("cross".to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Create params for isolated margin balance.
+    pub fn isolated_margin(symbols: Option<Vec<String>>) -> Self {
+        Self {
+            account_type: Some(AccountType::IsolatedMargin),
+            margin_mode: Some("isolated".to_string()),
+            symbols,
+            ..Default::default()
+        }
+    }
+
+    /// Create params for USDT-margined futures (linear).
+    pub fn linear_futures() -> Self {
+        Self {
+            account_type: Some(AccountType::Futures),
+            sub_type: Some("linear".to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Create params for coin-margined futures (inverse/delivery).
+    pub fn inverse_futures() -> Self {
+        Self {
+            account_type: Some(AccountType::Delivery),
+            sub_type: Some("inverse".to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Create params for funding wallet.
+    pub fn funding() -> Self {
+        Self {
+            account_type: Some(AccountType::Funding),
+            ..Default::default()
+        }
+    }
+
+    /// Create params for options account.
+    pub fn option() -> Self {
+        Self {
+            account_type: Some(AccountType::Option),
+            ..Default::default()
+        }
+    }
+
+    /// Create params for portfolio margin.
+    pub fn portfolio_margin() -> Self {
+        Self {
+            portfolio_margin: true,
+            ..Default::default()
+        }
+    }
+}
 
 impl Binance {
     /// Fetch account balance.
@@ -23,37 +110,25 @@ impl Binance {
     ///
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_balance_simple(&self) -> Result<Balance> {
-        self.check_required_credentials()?;
-
-        let params = BTreeMap::new();
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let base_url = self.urls().private;
-        let mut url = format!("{}/account?", base_url);
-        for (key, value) in &signed_params {
-            url.push_str(&format!("{}={}&", key, value));
-        }
-        // Remove trailing '&'
-        if url.ends_with('&') {
-            url.pop();
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
-
+        let url = format!("{}/account", self.urls().private);
+        let data = self.signed_request(url).execute().await?;
         parser::parse_balance(&data)
     }
 
     /// Fetch account balance with optional account type parameter.
     ///
+    /// Query for balance and get the amount of funds available for trading or funds locked in orders.
+    ///
     /// # Arguments
     ///
-    /// * `account_type` - Optional account type (e.g., "spot", "margin", "futures").
+    /// * `account_type` - Optional account type. Supported values:
+    ///   - `Spot` - Spot trading account (default)
+    ///   - `Margin` - Cross margin account
+    ///   - `IsolatedMargin` - Isolated margin account
+    ///   - `Futures` - USDT-margined futures (linear)
+    ///   - `Delivery` - Coin-margined futures (inverse)
+    ///   - `Funding` - Funding wallet
+    ///   - `Option` - Options account
     ///
     /// # Returns
     ///
@@ -62,10 +137,236 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if authentication fails or the API request fails.
-    pub async fn fetch_balance(&self, _account_type: Option<&str>) -> Result<Balance> {
-        // For now, delegate to the simple implementation
-        // TODO: Add support for different account types (margin, futures)
-        self.fetch_balance_simple().await
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # use ccxt_core::types::AccountType;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let mut config = ExchangeConfig::default();
+    /// config.api_key = Some("your_api_key".to_string());
+    /// config.secret = Some("your_secret".to_string());
+    /// let binance = Binance::new(config)?;
+    ///
+    /// // Fetch spot balance (default)
+    /// let balance = binance.fetch_balance(None).await?;
+    ///
+    /// // Fetch futures balance
+    /// let futures_balance = binance.fetch_balance(Some(AccountType::Futures)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn fetch_balance(&self, account_type: Option<AccountType>) -> Result<Balance> {
+        let params = BalanceFetchParams {
+            account_type,
+            ..Default::default()
+        };
+        self.fetch_balance_with_params(params).await
+    }
+
+    /// Fetch account balance with detailed parameters.
+    ///
+    /// This method provides full control over balance fetching, supporting all Binance account types
+    /// and margin modes.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Balance fetch parameters including:
+    ///   - `account_type` - Account type (spot, margin, futures, etc.)
+    ///   - `margin_mode` - "cross" or "isolated" for margin trading
+    ///   - `symbols` - Symbols for isolated margin queries
+    ///   - `portfolio_margin` - Use Portfolio Margin API
+    ///   - `sub_type` - "linear" or "inverse" for futures
+    ///
+    /// # Returns
+    ///
+    /// Returns the account [`Balance`] information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails or the API request fails.
+    ///
+    /// # API Endpoints
+    ///
+    /// - Spot: `GET /api/v3/account`
+    /// - Cross Margin: `GET /sapi/v1/margin/account`
+    /// - Isolated Margin: `GET /sapi/v1/margin/isolated/account`
+    /// - Funding Wallet: `POST /sapi/v1/asset/get-funding-asset`
+    /// - USDT-M Futures: `GET /fapi/v2/balance`
+    /// - COIN-M Futures: `GET /dapi/v1/balance`
+    /// - Options: `GET /eapi/v1/account`
+    /// - Portfolio Margin: `GET /papi/v1/balance`
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_exchanges::binance::rest::account::BalanceFetchParams;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let mut config = ExchangeConfig::default();
+    /// config.api_key = Some("your_api_key".to_string());
+    /// config.secret = Some("your_secret".to_string());
+    /// let binance = Binance::new(config)?;
+    ///
+    /// // Fetch cross margin balance
+    /// let margin_balance = binance.fetch_balance_with_params(
+    ///     BalanceFetchParams::cross_margin()
+    /// ).await?;
+    ///
+    /// // Fetch isolated margin balance for specific symbols
+    /// let isolated_balance = binance.fetch_balance_with_params(
+    ///     BalanceFetchParams::isolated_margin(Some(vec!["BTC/USDT".to_string()]))
+    /// ).await?;
+    ///
+    /// // Fetch USDT-margined futures balance
+    /// let futures_balance = binance.fetch_balance_with_params(
+    ///     BalanceFetchParams::linear_futures()
+    /// ).await?;
+    ///
+    /// // Fetch portfolio margin balance
+    /// let pm_balance = binance.fetch_balance_with_params(
+    ///     BalanceFetchParams::portfolio_margin()
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn fetch_balance_with_params(&self, params: BalanceFetchParams) -> Result<Balance> {
+        // Handle portfolio margin first
+        if params.portfolio_margin {
+            return self.fetch_portfolio_margin_balance().await;
+        }
+
+        let account_type = params.account_type.unwrap_or(AccountType::Spot);
+
+        match account_type {
+            AccountType::Spot => self.fetch_spot_balance().await,
+            AccountType::Margin => {
+                let margin_mode = params.margin_mode.as_deref().unwrap_or("cross");
+                if margin_mode == "isolated" {
+                    self.fetch_isolated_margin_balance(params.symbols).await
+                } else {
+                    self.fetch_cross_margin_balance().await
+                }
+            }
+            AccountType::IsolatedMargin => self.fetch_isolated_margin_balance(params.symbols).await,
+            AccountType::Futures => {
+                let sub_type = params.sub_type.as_deref().unwrap_or("linear");
+                if sub_type == "inverse" {
+                    self.fetch_delivery_balance().await
+                } else {
+                    self.fetch_futures_balance().await
+                }
+            }
+            AccountType::Delivery => self.fetch_delivery_balance().await,
+            AccountType::Funding => self.fetch_funding_balance().await,
+            AccountType::Option => self.fetch_option_balance().await,
+        }
+    }
+
+    /// Fetch spot account balance.
+    ///
+    /// Uses the `/api/v3/account` endpoint.
+    async fn fetch_spot_balance(&self) -> Result<Balance> {
+        let url = format!("{}/account", self.urls().private);
+        let data = self.signed_request(url).execute().await?;
+        parser::parse_balance_with_type(&data, "spot")
+    }
+
+    /// Fetch cross margin account balance.
+    ///
+    /// Uses the `/sapi/v1/margin/account` endpoint.
+    async fn fetch_cross_margin_balance(&self) -> Result<Balance> {
+        let url = format!("{}/margin/account", self.urls().sapi);
+        let data = self.signed_request(url).execute().await?;
+        parser::parse_balance_with_type(&data, "margin")
+    }
+
+    /// Fetch isolated margin account balance.
+    ///
+    /// Uses the `/sapi/v1/margin/isolated/account` endpoint.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbols` - Optional list of symbols to query. If None, fetches all isolated margin pairs.
+    async fn fetch_isolated_margin_balance(&self, symbols: Option<Vec<String>>) -> Result<Balance> {
+        let url = format!("{}/margin/isolated/account", self.urls().sapi);
+
+        let mut request = self.signed_request(url);
+
+        // Add symbols parameter if provided
+        if let Some(syms) = symbols {
+            // Convert unified symbols to market IDs
+            let mut market_ids = Vec::new();
+            for sym in &syms {
+                if let Ok(market) = self.base().market(sym).await {
+                    market_ids.push(market.id.clone());
+                } else {
+                    // If market not found, use the symbol as-is (might be already in exchange format)
+                    market_ids.push(sym.replace('/', ""));
+                }
+            }
+            if !market_ids.is_empty() {
+                request = request.param("symbols", market_ids.join(","));
+            }
+        }
+
+        let data = request.execute().await?;
+        parser::parse_balance_with_type(&data, "isolated")
+    }
+
+    /// Fetch funding wallet balance.
+    ///
+    /// Uses the `/sapi/v1/asset/get-funding-asset` endpoint.
+    async fn fetch_funding_balance(&self) -> Result<Balance> {
+        use super::super::signed_request::HttpMethod;
+
+        let url = format!("{}/asset/get-funding-asset", self.urls().sapi);
+        let data = self
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .execute()
+            .await?;
+        parser::parse_balance_with_type(&data, "funding")
+    }
+
+    /// Fetch USDT-margined futures balance.
+    ///
+    /// Uses the `/fapi/v2/balance` endpoint.
+    async fn fetch_futures_balance(&self) -> Result<Balance> {
+        // Use v2 endpoint for better data
+        let url = format!("{}/balance", self.urls().fapi_private.replace("/v1", "/v2"));
+        let data = self.signed_request(url).execute().await?;
+        parser::parse_balance_with_type(&data, "linear")
+    }
+
+    /// Fetch coin-margined futures (delivery) balance.
+    ///
+    /// Uses the `/dapi/v1/balance` endpoint.
+    async fn fetch_delivery_balance(&self) -> Result<Balance> {
+        let url = format!("{}/balance", self.urls().dapi_private);
+        let data = self.signed_request(url).execute().await?;
+        parser::parse_balance_with_type(&data, "inverse")
+    }
+
+    /// Fetch options account balance.
+    ///
+    /// Uses the `/eapi/v1/account` endpoint.
+    async fn fetch_option_balance(&self) -> Result<Balance> {
+        let url = format!("{}/account", self.urls().eapi_private);
+        let data = self.signed_request(url).execute().await?;
+        parser::parse_balance_with_type(&data, "option")
+    }
+
+    /// Fetch portfolio margin account balance.
+    ///
+    /// Uses the `/papi/v1/balance` endpoint.
+    async fn fetch_portfolio_margin_balance(&self) -> Result<Balance> {
+        let url = format!("{}/balance", self.urls().papi);
+        let data = self.signed_request(url).execute().await?;
+        parser::parse_balance_with_type(&data, "portfolio")
     }
 
     /// Fetch user's trade history.
@@ -89,34 +390,16 @@ impl Binance {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Trade>> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-        let mut params = BTreeMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
+        let url = format!("{}/myTrades", self.urls().private);
 
-        if let Some(s) = since {
-            params.insert("startTime".to_string(), s.to_string());
-        }
-
-        if let Some(l) = limit {
-            params.insert("limit".to_string(), l.to_string());
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let mut url = format!("{}/myTrades?", self.urls().private);
-        for (key, value) in &signed_params {
-            url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("symbol", &market.id)
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .execute()
+            .await?;
 
         let trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -187,44 +470,24 @@ impl Binance {
         params: Option<HashMap<String, String>>,
     ) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
-
-        self.check_required_credentials()?;
-
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
-
-        if let Some(s) = since {
-            request_params.insert("startTime".to_string(), s.to_string());
-        }
-
-        if let Some(l) = limit {
-            request_params.insert("limit".to_string(), l.to_string());
-        }
-
-        if let Some(p) = params {
-            for (k, v) in p {
-                request_params.insert(k, v);
-            }
-        }
-
         let url = format!("{}/myTrades", self.urls().private);
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        // Convert HashMap to serde_json::Value for merge_json_params
+        let json_params = params.map(|p| {
+            serde_json::Value::Object(
+                p.into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::String(v)))
+                    .collect(),
+            )
+        });
 
         let data = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .param("symbol", &market.id)
+            .optional_param("startTime", since)
+            .optional_param("limit", limit)
+            .merge_json_params(json_params)
+            .execute()
             .await?;
 
         let trades_array = data.as_array().ok_or_else(|| {
@@ -258,30 +521,7 @@ impl Binance {
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_currencies(&self) -> Result<Vec<Currency>> {
         let url = format!("{}/capital/config/getall", self.urls().sapi);
-
-        // Private API requires signature
-        self.check_required_credentials()?;
-
-        let params = BTreeMap::new();
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
-            .await?;
-
+        let data = self.signed_request(url).execute().await?;
         parser::parse_currencies(&data)
     }
 
@@ -320,28 +560,14 @@ impl Binance {
         symbol: &str,
         params: Option<HashMap<String, String>>,
     ) -> Result<FeeTradingFee> {
-        self.check_required_credentials()?;
-
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
-
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
 
         let is_portfolio_margin = params
             .as_ref()
             .and_then(|p| p.get("portfolioMargin"))
             .map(|v| v == "true")
             .unwrap_or(false);
-
-        if let Some(p) = params {
-            for (key, value) in p {
-                // Do not pass portfolioMargin parameter to API
-                if key != "portfolioMargin" {
-                    request_params.insert(key, value);
-                }
-            }
-        }
 
         // Select API endpoint based on market type and Portfolio Margin mode
         let url = match market.market_type {
@@ -371,23 +597,21 @@ impl Binance {
             }
         };
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        // Convert HashMap to serde_json::Value, filtering out portfolioMargin
+        let json_params = params.map(|p| {
+            serde_json::Value::Object(
+                p.into_iter()
+                    .filter(|(k, _)| k != "portfolioMargin")
+                    .map(|(k, v)| (k, serde_json::Value::String(v)))
+                    .collect(),
+            )
+        });
 
         let response = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .param("symbol", &market.id)
+            .merge_json_params(json_params)
+            .execute()
             .await?;
 
         parser::parse_trading_fee(&response)
@@ -430,13 +654,12 @@ impl Binance {
         symbols: Option<Vec<String>>,
         params: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, FeeTradingFee>> {
-        self.check_required_credentials()?;
-
         self.load_markets(false).await?;
 
-        let mut request_params = BTreeMap::new();
+        let url = format!("{}/asset/tradeFee", self.urls().sapi);
 
-        if let Some(syms) = &symbols {
+        // Build symbols parameter if provided
+        let symbols_param = if let Some(syms) = &symbols {
             let mut market_ids: Vec<String> = Vec::new();
             for s in syms {
                 if let Ok(market) = self.base().market(s).await {
@@ -444,35 +667,28 @@ impl Binance {
                 }
             }
             if !market_ids.is_empty() {
-                request_params.insert("symbols".to_string(), market_ids.join(","));
+                Some(market_ids.join(","))
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
-        if let Some(p) = params {
-            for (key, value) in p {
-                request_params.insert(key, value);
-            }
-        }
-
-        let url = format!("{}/asset/tradeFee", self.urls().sapi);
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &signed_params {
-            request_url.push_str(&format!("{}={}&", key, value));
-        }
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        // Convert HashMap to serde_json::Value for merge_json_params
+        let json_params = params.map(|p| {
+            serde_json::Value::Object(
+                p.into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::String(v)))
+                    .collect(),
+            )
+        });
 
         let response = self
-            .base()
-            .http_client
-            .get(&request_url, Some(headers))
+            .signed_request(url)
+            .optional_param("symbols", symbols_param)
+            .merge_json_params(json_params)
+            .execute()
             .await?;
 
         let fees_array = response.as_array().ok_or_else(|| {

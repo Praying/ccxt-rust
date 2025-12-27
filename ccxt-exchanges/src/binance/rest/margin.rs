@@ -3,14 +3,13 @@
 //! This module contains all margin trading methods including borrowing, repaying,
 //! and margin-specific account operations.
 
+use super::super::signed_request::HttpMethod;
 use super::super::{Binance, parser};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{MarginAdjustment, MarginLoan, MarginRepay},
 };
-use reqwest::header::HeaderMap;
 use rust_decimal::Decimal;
-use std::collections::BTreeMap;
 
 impl Binance {
     // ==================== Borrow Methods ====================
@@ -46,33 +45,14 @@ impl Binance {
     /// # }
     /// ```
     pub async fn borrow_cross_margin(&self, currency: &str, amount: f64) -> Result<MarginLoan> {
-        self.check_required_credentials()?;
-
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-        params.insert("amount".to_string(), amount.to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/sapi/v1/margin/loan", self.urls().sapi);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
         let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("asset", currency)
+            .param("amount", amount)
+            .execute()
             .await?;
 
         parser::parse_margin_loan(&data)
@@ -115,37 +95,19 @@ impl Binance {
         currency: &str,
         amount: f64,
     ) -> Result<MarginLoan> {
-        self.check_required_credentials()?;
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-        params.insert("amount".to_string(), amount.to_string());
-        params.insert("symbol".to_string(), market.id.clone());
-        params.insert("isIsolated".to_string(), "TRUE".to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/sapi/v1/margin/loan", self.urls().sapi);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
         let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("asset", currency)
+            .param("amount", amount)
+            .param("symbol", &market.id)
+            .param("isIsolated", "TRUE")
+            .execute()
             .await?;
 
         parser::parse_margin_loan(&data)
@@ -184,33 +146,14 @@ impl Binance {
     /// # }
     /// ```
     pub async fn repay_cross_margin(&self, currency: &str, amount: f64) -> Result<MarginRepay> {
-        self.check_required_credentials()?;
-
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-        params.insert("amount".to_string(), amount.to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/sapi/v1/margin/repay", self.urls().sapi);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
         let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("asset", currency)
+            .param("amount", amount)
+            .execute()
             .await?;
 
         let loan = parser::parse_margin_loan(&data)?;
@@ -266,37 +209,19 @@ impl Binance {
         currency: &str,
         amount: Decimal,
     ) -> Result<MarginRepay> {
-        self.check_required_credentials()?;
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-        params.insert("amount".to_string(), amount.to_string());
-        params.insert("symbol".to_string(), market.id.clone());
-        params.insert("isIsolated".to_string(), "TRUE".to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
         let url = format!("{}/sapi/v1/margin/repay", self.urls().sapi);
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
         let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("asset", currency)
+            .param("amount", amount)
+            .param("symbol", &market.id)
+            .param("isIsolated", "TRUE")
+            .execute()
             .await?;
 
         let loan = parser::parse_margin_loan(&data)?;
@@ -339,46 +264,24 @@ impl Binance {
         since: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<MarginAdjustment>> {
-        self.check_required_credentials()?;
-
-        let mut params = BTreeMap::new();
-
-        if let Some(sym) = symbol {
+        let market_id = if let Some(sym) = symbol {
             self.load_markets(false).await?;
             let market = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), market.id.clone());
-            params.insert("isolatedSymbol".to_string(), market.id.clone());
-        }
+            Some(market.id.clone())
+        } else {
+            None
+        };
 
-        if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
-        }
+        let url = format!("{}/sapi/v1/margin/forceLiquidationRec", self.urls().sapi);
 
-        if let Some(size) = limit {
-            params.insert("size".to_string(), size.to_string());
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!(
-            "{}/sapi/v1/margin/forceLiquidationRec?{}",
-            self.urls().sapi,
-            query_string
-        );
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .optional_param("symbol", market_id.as_ref())
+            .optional_param("isolatedSymbol", market_id.as_ref())
+            .optional_param("startTime", since)
+            .optional_param("size", limit)
+            .execute()
+            .await?;
 
         let rows = data["rows"].as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -411,32 +314,13 @@ impl Binance {
     ///
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_cross_margin_max_borrowable(&self, currency: &str) -> Result<Decimal> {
-        self.check_required_credentials()?;
+        let url = format!("{}/sapi/v1/margin/maxBorrowable", self.urls().sapi);
 
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!(
-            "{}/sapi/v1/margin/maxBorrowable?{}",
-            self.urls().sapi,
-            query_string
-        );
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("asset", currency)
+            .execute()
+            .await?;
 
         let amount_str = data["amount"]
             .as_str()
@@ -469,35 +353,17 @@ impl Binance {
         symbol: &str,
         currency: &str,
     ) -> Result<Decimal> {
-        self.check_required_credentials()?;
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-        params.insert("isolatedSymbol".to_string(), market.id.clone());
+        let url = format!("{}/sapi/v1/margin/maxBorrowable", self.urls().sapi);
 
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!(
-            "{}/sapi/v1/margin/maxBorrowable?{}",
-            self.urls().sapi,
-            query_string
-        );
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("asset", currency)
+            .param("isolatedSymbol", &market.id)
+            .execute()
+            .await?;
 
         let amount_str = data["amount"]
             .as_str()
@@ -525,32 +391,13 @@ impl Binance {
     ///
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_max_transferable(&self, currency: &str) -> Result<Decimal> {
-        self.check_required_credentials()?;
+        let url = format!("{}/sapi/v1/margin/maxTransferable", self.urls().sapi);
 
-        let mut params = BTreeMap::new();
-        params.insert("asset".to_string(), currency.to_string());
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!(
-            "{}/sapi/v1/margin/maxTransferable?{}",
-            self.urls().sapi,
-            query_string
-        );
-
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .signed_request(url)
+            .param("asset", currency)
+            .execute()
+            .await?;
 
         let amount_str = data["amount"]
             .as_str()

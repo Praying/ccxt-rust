@@ -21,6 +21,7 @@
 // Allow clippy warnings for example code - examples prioritize readability over strict linting
 #![allow(clippy::disallowed_methods)]
 #![allow(dead_code)]
+use ccxt_core::types::AccountType;
 use ccxt_exchanges::binance::Binance;
 use ccxt_exchanges::prelude::ExchangeConfig;
 use dotenvy::dotenv;
@@ -60,7 +61,7 @@ async fn example_fetch_spot_balance(binance: &Binance) -> Result<(), Box<dyn std
     println!("----------------------------------------");
 
     // Note: The current implementation uses account_type as a string parameter
-    let balance = binance.fetch_balance(Some("spot")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Spot)).await?;
 
     println!("Spot Account Balance:");
     for (currency, entry) in balance.balances.iter().take(5) {
@@ -81,7 +82,7 @@ async fn example_fetch_margin_balance(binance: &Binance) -> Result<(), Box<dyn s
     println!("📊 Example 2: Fetch Cross Margin Account Balance");
     println!("----------------------------------------");
 
-    let balance = binance.fetch_balance(Some("margin")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Margin)).await?;
 
     println!("Cross Margin Account Balance:");
     for (currency, entry) in balance.balances.iter().take(5) {
@@ -102,7 +103,7 @@ async fn example_fetch_future_balance(binance: &Binance) -> Result<(), Box<dyn s
     println!("📊 Example 3: Fetch Futures Account Balance");
     println!("----------------------------------------");
 
-    let balance = binance.fetch_balance(Some("future")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Futures)).await?;
 
     println!("Futures Account Balance:");
     for (currency, entry) in balance.balances.iter().take(5) {
@@ -125,7 +126,7 @@ async fn example_fetch_funding_balance(
     println!("📊 Example 4: Fetch Funding Account Balance");
     println!("----------------------------------------");
 
-    let balance = binance.fetch_balance(Some("funding")).await?;
+    let balance = binance.fetch_balance(Some(AccountType::Funding)).await?;
 
     println!("Funding Account Balance:");
     for (currency, entry) in balance.balances.iter().take(5) {
