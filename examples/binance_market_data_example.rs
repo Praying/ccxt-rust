@@ -299,10 +299,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    // 10. Query aggregated trades with time range
+    // 10. Query aggregated trades with time range using i64 timestamps
     println!("10. 【Time Range Query】Query aggregated trades for specific time period");
-    let now = chrono::Utc::now().timestamp_millis();
-    let one_hour_ago = now - 3600 * 1000;
+    let now: i64 = chrono::Utc::now().timestamp_millis();
+    let one_hour_ago: i64 = now - 3600 * 1000;
 
     let mut time_params = HashMap::new();
     time_params.insert("startTime".to_string(), one_hour_ago.to_string());

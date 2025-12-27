@@ -322,7 +322,7 @@ impl Binance {
     pub async fn fetch_closed_orders(
         &self,
         symbol: Option<&str>,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let all_orders = self.fetch_orders(symbol, since, None).await?;
@@ -491,7 +491,7 @@ impl Binance {
     pub async fn fetch_orders(
         &self,
         symbol: Option<&str>,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         self.check_required_credentials()?;

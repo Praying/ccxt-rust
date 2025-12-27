@@ -902,6 +902,15 @@ impl Okx {
     ///
     /// # Returns
     ///
+    /// Fetch open orders.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Optional trading pair symbol. If None, fetches all open orders.
+    /// * `since` - Optional start timestamp in milliseconds.
+    /// * `limit` - Optional limit on number of orders (maximum: 100).
+    ///
+    /// # Returns
     /// Returns a vector of open [`Order`] structures.
     pub async fn fetch_open_orders(
         &self,

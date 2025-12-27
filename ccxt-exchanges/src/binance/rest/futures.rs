@@ -1383,7 +1383,7 @@ impl Binance {
     pub async fn fetch_funding_rate_history(
         &self,
         symbol: &str,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Vec<FeeFundingRateHistory>> {
@@ -1465,7 +1465,7 @@ impl Binance {
     pub async fn fetch_funding_history(
         &self,
         symbol: Option<&str>,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Value> {

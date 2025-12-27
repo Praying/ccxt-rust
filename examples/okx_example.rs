@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    // Fetch recent trades
+    // Fetch recent trades (using new API)
     println!("Fetching recent BTC/USDT trades...");
     match exchange.fetch_trades("BTC/USDT", Some(5)).await {
         Ok(trades) => {

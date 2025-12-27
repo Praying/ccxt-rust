@@ -296,8 +296,10 @@ impl HyperLiquid {
             _ => "1h",
         };
 
-        let now = chrono::Utc::now().timestamp_millis();
-        let start_time = since.unwrap_or(now - limit * 3600000); // Default to limit hours ago
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let start_time = since
+            .map(|s| s as u64)
+            .unwrap_or(now - limit as u64 * 3600000); // Default to limit hours ago
         let end_time = now;
 
         let response = self
@@ -378,7 +380,7 @@ impl HyperLiquid {
             previous_funding_rate: None,
             previous_funding_timestamp: None,
             previous_funding_datetime: None,
-            timestamp: Some(timestamp as u64),
+            timestamp: Some(timestamp),
             datetime: parser::timestamp_to_datetime(timestamp),
         })
     }
@@ -497,7 +499,7 @@ impl HyperLiquid {
                 margin_mode,
                 hedged: None,
                 percentage: None,
-                timestamp: Some(chrono::Utc::now().timestamp_millis() as u64),
+                timestamp: Some(chrono::Utc::now().timestamp_millis()),
                 datetime: None,
             });
         }

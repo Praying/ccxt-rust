@@ -4,6 +4,13 @@
 //! including fetching deposit addresses, withdrawing funds, and transferring
 //! between accounts. These operations require authentication.
 //!
+//! # Timestamp Format
+//!
+//! All timestamp parameters and return values in this trait use the standardized format:
+//! - **Type**: `i64`
+//! - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+//! - **Range**: Supports dates from 1970 to approximately year 294,276
+//!
 //! # Object Safety
 //!
 //! This trait is designed to be object-safe, allowing for dynamic dispatch via
@@ -18,6 +25,10 @@
 //! async fn manage_funds(exchange: &dyn Funding) -> Result<(), ccxt_core::Error> {
 //!     // Get deposit address
 //!     let address = exchange.fetch_deposit_address("USDT").await?;
+//!     
+//!     // Fetch deposit history with i64 timestamp
+//!     let since: i64 = chrono::Utc::now().timestamp_millis() - 2592000000; // 30 days ago
+//!     let deposits = exchange.fetch_deposits(Some("USDT"), Some(since), Some(100)).await?;
 //!     
 //!     // Transfer between accounts
 //!     let transfer = exchange.transfer(
@@ -41,6 +52,13 @@ use crate::types::{
 ///
 /// This trait provides methods for managing deposits, withdrawals, and
 /// inter-account transfers. All methods require authentication and are async.
+///
+/// # Timestamp Format
+///
+/// All timestamp parameters and fields in returned data structures use:
+/// - **Type**: `i64`
+/// - **Unit**: Milliseconds since Unix epoch (January 1, 1970, 00:00:00 UTC)
+/// - **Example**: `1609459200000` represents January 1, 2021, 00:00:00 UTC
 ///
 /// # Supertrait
 ///
@@ -147,18 +165,26 @@ pub trait Funding: PublicExchange {
     ///
     /// # Arguments
     ///
-    /// * `code` - Optional currency code to filter by
-    /// * `since` - Optional start timestamp in milliseconds
+    /// * `code` - Optional currency code to filter by (e.g., "USDT", "BTC")
+    /// * `since` - Optional start timestamp in milliseconds (i64) since Unix epoch
     /// * `limit` - Optional maximum number of records to return
+    ///
+    /// # Timestamp Format
+    ///
+    /// The `since` parameter uses `i64` milliseconds since Unix epoch:
+    /// - `1609459200000` = January 1, 2021, 00:00:00 UTC
+    /// - `chrono::Utc::now().timestamp_millis()` = Current time
+    /// - `chrono::Utc::now().timestamp_millis() - 2592000000` = 30 days ago
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// // All deposits
+    /// // All deposits (no filters)
     /// let deposits = exchange.fetch_deposits(None, None, None).await?;
     ///
-    /// // USDT deposits only
-    /// let deposits = exchange.fetch_deposits(Some("USDT"), None, Some(100)).await?;
+    /// // USDT deposits from the last 30 days
+    /// let since = chrono::Utc::now().timestamp_millis() - 2592000000;
+    /// let deposits = exchange.fetch_deposits(Some("USDT"), Some(since), Some(100)).await?;
     /// ```
     async fn fetch_deposits(
         &self,
@@ -171,18 +197,26 @@ pub trait Funding: PublicExchange {
     ///
     /// # Arguments
     ///
-    /// * `code` - Optional currency code to filter by
-    /// * `since` - Optional start timestamp in milliseconds
+    /// * `code` - Optional currency code to filter by (e.g., "BTC", "ETH")
+    /// * `since` - Optional start timestamp in milliseconds (i64) since Unix epoch
     /// * `limit` - Optional maximum number of records to return
+    ///
+    /// # Timestamp Format
+    ///
+    /// The `since` parameter uses `i64` milliseconds since Unix epoch:
+    /// - `1609459200000` = January 1, 2021, 00:00:00 UTC
+    /// - `chrono::Utc::now().timestamp_millis()` = Current time
+    /// - `chrono::Utc::now().timestamp_millis() - 604800000` = 7 days ago
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// // All withdrawals
+    /// // All withdrawals (no filters)
     /// let withdrawals = exchange.fetch_withdrawals(None, None, None).await?;
     ///
-    /// // Recent BTC withdrawals
-    /// let withdrawals = exchange.fetch_withdrawals(Some("BTC"), None, Some(50)).await?;
+    /// // Recent BTC withdrawals from the last 7 days
+    /// let since = chrono::Utc::now().timestamp_millis() - 604800000;
+    /// let withdrawals = exchange.fetch_withdrawals(Some("BTC"), Some(since), Some(50)).await?;
     /// ```
     async fn fetch_withdrawals(
         &self,
@@ -190,6 +224,70 @@ pub trait Funding: PublicExchange {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Transaction>>;
+
+    // ========================================================================
+    // Deprecated u64 Wrapper Methods (Backward Compatibility)
+    // ========================================================================
+
+    /// Fetch deposit history with u64 timestamp filtering (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_deposits` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let deposits = exchange.fetch_deposits_u64(Some("USDT"), Some(1609459200000u64), Some(100)).await?;
+    ///
+    /// // New code (recommended)
+    /// let deposits = exchange.fetch_deposits(Some("USDT"), Some(1609459200000i64), Some(100)).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_deposits with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_deposits_u64(
+        &self,
+        code: Option<&str>,
+        since: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Transaction>> {
+        use crate::time::TimestampConversion;
+
+        let since_i64 = since.to_i64()?;
+        self.fetch_deposits(code, since_i64, limit).await
+    }
+
+    /// Fetch withdrawal history with u64 timestamp filtering (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_withdrawals` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let withdrawals = exchange.fetch_withdrawals_u64(Some("BTC"), Some(1609459200000u64), Some(50)).await?;
+    ///
+    /// // New code (recommended)
+    /// let withdrawals = exchange.fetch_withdrawals(Some("BTC"), Some(1609459200000i64), Some(50)).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_withdrawals with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_withdrawals_u64(
+        &self,
+        code: Option<&str>,
+        since: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Transaction>> {
+        use crate::time::TimestampConversion;
+
+        let since_i64 = since.to_i64()?;
+        self.fetch_withdrawals(code, since_i64, limit).await
+    }
 }
 
 /// Type alias for boxed Funding trait object.

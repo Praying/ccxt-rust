@@ -31,7 +31,7 @@ pub struct AccountConfig {
     pub can_withdraw: bool,
 
     /// Configuration update timestamp in milliseconds.
-    pub update_time: u64,
+    pub update_time: i64,
 }
 
 impl Default for AccountConfig {

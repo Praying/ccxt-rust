@@ -81,7 +81,7 @@ impl Binance {
     pub async fn fetch_my_trades(
         &self,
         symbol: &str,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Trade>> {
         self.check_required_credentials()?;
@@ -177,7 +177,7 @@ impl Binance {
     pub async fn fetch_my_recent_trades(
         &self,
         symbol: &str,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Vec<Trade>> {

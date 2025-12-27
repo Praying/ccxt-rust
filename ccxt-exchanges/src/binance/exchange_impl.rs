@@ -144,6 +144,7 @@ impl Exchange for Binance {
 
         // Convert Timeframe enum to string for existing implementation
         let timeframe_str = timeframe.to_string();
+        // Use i64 directly for the updated method signature
         let ohlcv_data =
             Binance::fetch_ohlcv(self, symbol, &timeframe_str, since, limit, None).await?;
 
@@ -230,9 +231,8 @@ impl Exchange for Binance {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         // Delegate to existing implementation
-        // Convert i64 to u64 for since parameter
-        let since_u64 = since.map(|s| s as u64);
-        Binance::fetch_closed_orders(self, symbol, since_u64, limit).await
+        // Use i64 directly for since parameter
+        Binance::fetch_closed_orders(self, symbol, since, limit).await
     }
 
     // ==================== Account (Private API) ====================
@@ -253,8 +253,8 @@ impl Exchange for Binance {
         let symbol_str = symbol.ok_or_else(|| {
             ccxt_core::Error::invalid_request("Symbol is required for fetch_my_trades on Binance")
         })?;
-        let since_u64 = since.map(|s| s as u64);
-        Binance::fetch_my_trades(self, symbol_str, since_u64, limit).await
+        // Use i64 directly for the updated method signature
+        Binance::fetch_my_trades(self, symbol_str, since, limit).await
     }
 
     // ==================== Helper Methods ====================

@@ -203,8 +203,15 @@ pub trait Trading: PublicExchange {
     /// # Arguments
     ///
     /// * `symbol` - Optional trading pair symbol
-    /// * `since` - Optional start timestamp in milliseconds
+    /// * `since` - Optional start timestamp in milliseconds (i64) since Unix epoch
     /// * `limit` - Optional maximum number of orders to return
+    ///
+    /// # Timestamp Format
+    ///
+    /// The `since` parameter uses `i64` milliseconds since Unix epoch:
+    /// - `1609459200000` = January 1, 2021, 00:00:00 UTC
+    /// - `chrono::Utc::now().timestamp_millis()` = Current time
+    /// - `chrono::Utc::now().timestamp_millis() - 86400000` = 24 hours ago
     ///
     /// # Example
     ///
@@ -215,7 +222,7 @@ pub trait Trading: PublicExchange {
     /// // Closed orders since timestamp
     /// let orders = exchange.fetch_closed_orders(
     ///     Some("BTC/USDT"),
-    ///     Some(1609459200000),
+    ///     Some(1609459200000i64),
     ///     Some(50)
     /// ).await?;
     /// ```
@@ -225,6 +232,40 @@ pub trait Trading: PublicExchange {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>>;
+
+    // ========================================================================
+    // Deprecated u64 Wrapper Methods (Backward Compatibility)
+    // ========================================================================
+
+    /// Fetch closed orders with u64 timestamp filtering (deprecated).
+    ///
+    /// **DEPRECATED**: Use `fetch_closed_orders` with i64 timestamps instead.
+    /// This method is provided for backward compatibility during migration.
+    ///
+    /// # Migration
+    ///
+    /// ```rust,ignore
+    /// // Old code (deprecated)
+    /// let orders = exchange.fetch_closed_orders_u64(Some("BTC/USDT"), Some(1609459200000u64), Some(100)).await?;
+    ///
+    /// // New code (recommended)
+    /// let orders = exchange.fetch_closed_orders(Some("BTC/USDT"), Some(1609459200000i64), Some(100)).await?;
+    /// ```
+    #[deprecated(
+        since = "0.x.0",
+        note = "Use fetch_closed_orders with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
+    )]
+    async fn fetch_closed_orders_u64(
+        &self,
+        symbol: Option<&str>,
+        since: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Order>> {
+        use crate::time::TimestampConversion;
+
+        let since_i64 = since.to_i64()?;
+        self.fetch_closed_orders(symbol, since_i64, limit).await
+    }
 }
 
 /// Type alias for boxed Trading trait object.

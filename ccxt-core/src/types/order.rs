@@ -1143,7 +1143,7 @@ pub struct OrderReport {
     pub client_order_id: Option<String>,
 
     /// Transaction timestamp.
-    pub transact_time: u64,
+    pub transact_time: i64,
 
     /// Price.
     pub price: String,
@@ -1206,7 +1206,7 @@ pub struct OcoOrder {
     pub list_order_status: String,
 
     /// Transaction timestamp in milliseconds.
-    pub transaction_time: u64,
+    pub transaction_time: i64,
 
     /// Datetime in ISO 8601 format.
     pub datetime: String,
@@ -1226,7 +1226,7 @@ impl OcoOrder {
         symbol: String,
         list_status: String,
         list_order_status: String,
-        transaction_time: u64,
+        transaction_time: i64,
         datetime: String,
         orders: Vec<OcoOrderInfo>,
     ) -> Self {

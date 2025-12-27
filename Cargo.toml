@@ -136,6 +136,11 @@ parking_lot = { workspace = true }
 url = { workspace = true }
 regex = { workspace = true }
 lazy_static = { workspace = true }
+paste = { workspace = true }
+
+[[bin]]
+name = "test_u64_since"
+path = "test_u64_since.rs"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

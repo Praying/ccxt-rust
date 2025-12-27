@@ -545,7 +545,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
         .to_string();
 
     let transaction_time = data["transactionTime"]
-        .as_u64()
+        .as_i64()
         .ok_or_else(|| Error::from(ParseError::missing_field("transactionTime")))?;
 
     let datetime = chrono::DateTime::from_timestamp((transaction_time / 1000) as i64, 0)
@@ -576,7 +576,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
                     .ok_or_else(|| Error::from(ParseError::missing_field("orderId")))?,
                 order_list_id: report["orderListId"].as_i64().unwrap_or(order_list_id),
                 client_order_id: report["clientOrderId"].as_str().map(|s| s.to_string()),
-                transact_time: report["transactTime"].as_u64().unwrap_or(transaction_time),
+                transact_time: report["transactTime"].as_i64().unwrap_or(transaction_time),
                 price: report["price"].as_str().unwrap_or("0").to_string(),
                 orig_qty: report["origQty"].as_str().unwrap_or("0").to_string(),
                 executed_qty: report["executedQty"].as_str().unwrap_or("0").to_string(),
@@ -1052,7 +1052,7 @@ pub fn parse_position(data: &Value, market: Option<&Market>) -> Result<Position>
         percentage,
         position_side: None,
         dual_side_position: None,
-        timestamp: update_time.map(|t| t as u64),
+        timestamp: update_time,
         datetime: update_time.map(|t| {
             chrono::DateTime::from_timestamp(t / 1000, 0)
                 .map(|dt| dt.to_rfc3339())
@@ -1150,7 +1150,7 @@ pub fn parse_funding_history(data: &Value, market: Option<&Market>) -> Result<Fu
         symbol,
         code,
         amount,
-        timestamp: timestamp.map(|t| t as u64),
+        timestamp: timestamp,
         datetime: timestamp.map(|t| {
             chrono::DateTime::from_timestamp((t / 1000) as i64, 0)
                 .map(|dt| dt.to_rfc3339())
@@ -1186,7 +1186,7 @@ pub fn parse_funding_fee(data: &Value, market: Option<&Market>) -> Result<Fundin
         .to_string();
 
     let time = data["time"]
-        .as_u64()
+        .as_i64()
         .ok_or_else(|| Error::from(ParseError::missing_field("time")))?;
 
     let funding_rate = parse_f64(data, "fundingRate");
@@ -1235,7 +1235,7 @@ pub fn parse_next_funding_rate(data: &Value, market: &Market) -> Result<NextFund
         .unwrap_or(current_funding_rate);
 
     let next_funding_time = data["nextFundingTime"]
-        .as_u64()
+        .as_i64()
         .ok_or_else(|| Error::from(ParseError::missing_field("nextFundingTime")))?;
 
     let next_funding_datetime = Some(
@@ -1279,7 +1279,7 @@ pub fn parse_account_config(data: &Value) -> Result<AccountConfig> {
 
     let can_withdraw = data["canWithdraw"].as_bool().unwrap_or(true);
 
-    let update_time = data["updateTime"].as_u64().unwrap_or(0);
+    let update_time = data["updateTime"].as_i64().unwrap_or(0);
 
     Ok(AccountConfig {
         info: Some(data.clone()),
@@ -1353,8 +1353,8 @@ pub fn parse_open_interest(data: &Value, market: &Market) -> Result<OpenInterest
         .unwrap_or(0.0);
 
     let timestamp = data["time"]
-        .as_u64()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+        .as_i64()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
     let contract_size = market
         .contract_size
@@ -1422,8 +1422,8 @@ pub fn parse_open_interest_history(
             .unwrap_or(0.0);
 
         let timestamp = item["timestamp"]
-            .as_u64()
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+            .as_i64()
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         result.push(OpenInterestHistory {
             info: Some(item.clone()),
@@ -1537,8 +1537,8 @@ pub fn parse_index_price(data: &Value, market: &Market) -> Result<IndexPrice> {
         .ok_or_else(|| Error::from(ParseError::missing_field("indexPrice")))?;
 
     let timestamp = data["time"]
-        .as_u64()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+        .as_i64()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
     Ok(IndexPrice {
         info: Some(data.clone()),
@@ -1596,12 +1596,12 @@ pub fn parse_premium_index(data: &Value, market: &Market) -> Result<PremiumIndex
         .unwrap_or(0.0);
 
     // 解析下次资金费率时间
-    let next_funding_time = data["nextFundingTime"].as_u64().unwrap_or(0);
+    let next_funding_time = data["nextFundingTime"].as_i64().unwrap_or(0);
 
     // 解析当前时间
     let time = data["time"]
-        .as_u64()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+        .as_i64()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
     Ok(PremiumIndex {
         info: Some(data.clone()),
@@ -1634,7 +1634,7 @@ pub fn parse_liquidation(data: &Value, market: &Market) -> Result<Liquidation> {
     let order_type = data["type"].as_str().unwrap_or("LIMIT").to_string();
 
     let time = data["time"]
-        .as_u64()
+        .as_i64()
         .ok_or_else(|| Error::from(ParseError::missing_field("time")))?;
 
     let price = data["price"]
@@ -2000,7 +2000,7 @@ pub fn parse_transfer(data: &Value) -> Result<Transfer> {
 
     Ok(Transfer {
         id,
-        timestamp: timestamp as u64,
+        timestamp: timestamp,
         datetime,
         currency,
         amount,
@@ -2452,10 +2452,10 @@ pub fn parse_last_price(data: &Value) -> Result<ccxt_core::types::LastPrice> {
     let price = parse_decimal(data, "price").unwrap_or(Decimal::ZERO);
 
     let timestamp = data["time"]
-        .as_u64()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+        .as_i64()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    let datetime = chrono::DateTime::from_timestamp_millis(timestamp as i64)
+    let datetime = chrono::DateTime::from_timestamp_millis(timestamp)
         .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
         .unwrap_or_default();
 

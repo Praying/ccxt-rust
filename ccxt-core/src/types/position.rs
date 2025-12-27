@@ -159,7 +159,7 @@ pub struct Position {
     pub percentage: Option<f64>,
 
     /// Timestamp in milliseconds.
-    pub timestamp: Option<u64>,
+    pub timestamp: Option<i64>,
 
     /// ISO 8601 datetime string.
     pub datetime: Option<String>,

@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     }
     println!();
 
-    // Example 4: Fetch recent trades
+    // Example 4: Fetch recent trades (using new API)
     println!("4. Fetching recent BTC/USDT trades...");
     match exchange.fetch_trades("BTC/USDT", Some(5)).await {
         Ok(trades) => {

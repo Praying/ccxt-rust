@@ -2377,7 +2377,7 @@ impl BinanceWs {
             percentage: None,
             position_side: None,
             dual_side_position: None,
-            timestamp: Some(chrono::Utc::now().timestamp_millis() as u64),
+            timestamp: Some(chrono::Utc::now().timestamp_millis()),
             datetime: Some(chrono::Utc::now().to_rfc3339()),
         })
     }

@@ -18,7 +18,7 @@ pub struct IndexPrice {
     /// Index price value.
     pub index_price: f64,
     /// Timestamp in milliseconds.
-    pub timestamp: u64,
+    pub timestamp: i64,
 }
 
 impl Default for IndexPrice {
@@ -51,9 +51,9 @@ pub struct PremiumIndex {
     /// Last applied funding rate.
     pub last_funding_rate: f64,
     /// Next funding rate settlement time in milliseconds.
-    pub next_funding_time: u64,
+    pub next_funding_time: i64,
     /// Current timestamp in milliseconds.
-    pub time: u64,
+    pub time: i64,
 }
 
 impl Default for PremiumIndex {
@@ -85,7 +85,7 @@ pub struct Liquidation {
     /// Order type ("LIMIT" or "MARKET").
     pub order_type: String,
     /// Liquidation timestamp in milliseconds.
-    pub time: u64,
+    pub time: i64,
     /// Liquidation price.
     pub price: f64,
     /// Liquidation quantity.

@@ -73,6 +73,7 @@ dotenvy = { workspace = true }
 envy = { workspace = true }
 paste = { workspace = true }
 proptest = { workspace = true }
+criterion = { workspace = true }
 
 [features]
 default = ["rustls-tls", "websocket"]
@@ -103,3 +104,7 @@ test-utils = ["dotenvy", "envy"]
 
 # Enable backtrace capture in errors (for debugging)
 backtrace = []
+
+[[bench]]
+name = "timestamp_benchmark"
+harness = false

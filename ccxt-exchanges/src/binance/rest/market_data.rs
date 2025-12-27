@@ -25,12 +25,12 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if the request fails or the response is malformed.
-    pub(crate) async fn fetch_time_raw(&self) -> Result<u64> {
+    pub(crate) async fn fetch_time_raw(&self) -> Result<i64> {
         let url = format!("{}/time", self.urls().public);
         let response = self.base().http_client.get(&url, None).await?;
 
         response["serverTime"]
-            .as_u64()
+            .as_i64()
             .ok_or_else(|| ParseError::missing_field("serverTime").into())
     }
 
@@ -432,7 +432,7 @@ impl Binance {
     pub async fn fetch_agg_trades(
         &self,
         symbol: &str,
-        since: Option<u64>,
+        since: Option<i64>,
         limit: Option<u32>,
         params: Option<std::collections::HashMap<String, String>>,
     ) -> Result<Vec<AggTrade>> {
@@ -501,7 +501,7 @@ impl Binance {
     pub async fn fetch_historical_trades(
         &self,
         symbol: &str,
-        _since: Option<u64>,
+        _since: Option<i64>,
         limit: Option<u32>,
         params: Option<std::collections::HashMap<String, String>>,
     ) -> Result<Vec<Trade>> {
@@ -890,7 +890,7 @@ impl Binance {
     /// ```
     pub async fn fetch_time(&self) -> Result<ServerTime> {
         let timestamp = self.fetch_time_raw().await?;
-        Ok(ServerTime::new(timestamp as i64))
+        Ok(ServerTime::new(timestamp))
     }
 
     /// Fetch best bid/ask prices.
