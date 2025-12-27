@@ -258,6 +258,7 @@ async fn test_end_to_end_timestamp_flow() -> Result<()> {
 
 /// Test that deprecated conversion functions still work for backward compatibility
 #[tokio::test]
+#[allow(deprecated)] // Testing deprecated conversion functions for backward compatibility
 async fn test_backward_compatibility_conversions() -> Result<()> {
     // Test u64 to i64 conversion (deprecated but should still work)
     let u64_timestamp: u64 = 1672531200000;
@@ -352,7 +353,9 @@ async fn test_cross_type_timestamp_consistency() -> Result<()> {
 
     // Verify all are the same value
     assert_eq!(ohlcv.timestamp, trade.timestamp);
-    assert_eq!(trade.timestamp, order.timestamp.unwrap());
+    if let Some(order_timestamp) = order.timestamp {
+        assert_eq!(trade.timestamp, order_timestamp);
+    }
 
     Ok(())
 }

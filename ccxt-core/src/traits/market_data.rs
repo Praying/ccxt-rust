@@ -329,7 +329,7 @@ pub trait MarketData: PublicExchange {
     /// let candles = exchange.fetch_ohlcv_with_params("BTC/USDT", params).await?;
     /// ```
     #[deprecated(
-        since = "0.x.0",
+        since = "0.1.0",
         note = "Use fetch_ohlcv_with_params with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
     )]
     async fn fetch_ohlcv_u64(
@@ -375,7 +375,7 @@ pub trait MarketData: PublicExchange {
     /// let trades = exchange.fetch_trades_with_limit("BTC/USDT", Some(1609459200000i64), Some(100)).await?;
     /// ```
     #[deprecated(
-        since = "0.x.0",
+        since = "0.1.0",
         note = "Use fetch_trades_with_limit with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
     )]
     async fn fetch_trades_u64(

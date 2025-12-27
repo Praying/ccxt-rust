@@ -284,7 +284,7 @@ pub trait Margin: PublicExchange {
     /// let history = exchange.fetch_funding_rate_history("BTC/USDT:USDT", Some(1609459200000i64), Some(100)).await?;
     /// ```
     #[deprecated(
-        since = "0.x.0",
+        since = "0.1.0",
         note = "Use fetch_funding_rate_history with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
     )]
     async fn fetch_funding_rate_history_u64(

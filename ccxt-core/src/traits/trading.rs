@@ -252,7 +252,7 @@ pub trait Trading: PublicExchange {
     /// let orders = exchange.fetch_closed_orders(Some("BTC/USDT"), Some(1609459200000i64), Some(100)).await?;
     /// ```
     #[deprecated(
-        since = "0.x.0",
+        since = "0.1.0",
         note = "Use fetch_closed_orders with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
     )]
     async fn fetch_closed_orders_u64(

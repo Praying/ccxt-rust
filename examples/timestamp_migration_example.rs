@@ -12,8 +12,6 @@
 use ccxt_core::{
     prelude::*,
     time::{TimestampConversion, TimestampUtils},
-    traits::MarketData,
-    types::{Timeframe, params::OhlcvParams},
 };
 use ccxt_exchanges::binance::Binance;
 use rust_decimal_macros::dec;
@@ -226,6 +224,7 @@ async fn example_trades_migration(
 }
 
 /// Example 5: Conversion utilities
+#[allow(deprecated)] // Demonstrating deprecated conversion functions
 async fn example_conversion_utilities() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Example 5: Conversion Utilities");
     println!("----------------------------------");
@@ -285,6 +284,7 @@ async fn example_conversion_utilities() -> std::result::Result<(), Box<dyn std::
 }
 
 /// Example 6: Error handling
+#[allow(deprecated)] // Demonstrating error handling with deprecated conversion functions
 async fn example_error_handling() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("⚠️  Example 6: Error Handling");
     println!("-----------------------------");
