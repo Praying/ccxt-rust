@@ -73,18 +73,17 @@ The project follows a clean, modular workspace architecture with a unified Excha
 ccxt-rust/
 ├── ccxt-core/              # Core types, traits, and error handling
 │   ├── types/              # Market, Order, Trade, Ticker, etc.
-│   ├── exchange.rs         # Unified Exchange trait (NEW)
-│   ├── ws_exchange.rs      # WebSocket Exchange trait (NEW)
+│   ├── exchange.rs         # Unified Exchange trait
+│   ├── ws_exchange.rs      # WebSocket Exchange trait
 │   ├── error.rs            # Comprehensive error types
 │   └── base_exchange.rs    # Base exchange functionality
 ├── ccxt-exchanges/         # Exchange-specific implementations
-│   ├── exchange.rs         # Re-exports from ccxt-core (deprecated)
 │   └── binance/            # Binance exchange implementation
 │       ├── mod.rs          # Main Binance struct
-│       ├── builder.rs      # BinanceBuilder (NEW)
+│       ├── builder.rs      # BinanceBuilder
 │       ├── exchange_impl.rs # Exchange trait implementation
 │       ├── ws_exchange_impl.rs # WsExchange trait implementation
-│       ├── rest.rs         # REST API client
+│       ├── rest/           # REST API client modules
 │       ├── ws.rs           # WebSocket client
 │       ├── parser.rs       # Response parsing
 │       └── auth.rs         # Authentication
@@ -103,7 +102,7 @@ use ccxt_core::exchange::{Exchange, ExchangeCapabilities, BoxedExchange};
 // Use any exchange through the unified interface
 async fn fetch_price(exchange: &dyn Exchange, symbol: &str) -> Result<Decimal, Error> {
     // Check capability before calling
-    if !exchange.capabilities().fetch_ticker {
+    if !exchange.capabilities().fetch_ticker() {
         return Err(Error::not_implemented("fetch_ticker"));
     }
     
@@ -226,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Capabilities: {:?}", exchange.capabilities());
     
     // Check capabilities before calling methods
-    if exchange.capabilities().fetch_ticker {
+    if exchange.capabilities().fetch_ticker() {
         let ticker = exchange.fetch_ticker("BTC/USDT").await?;
         println!("Price: {:?}", ticker.last);
     }
@@ -239,23 +238,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use ccxt_exchanges::binance::Binance;
+use ccxt_core::ws_exchange::WsExchange;
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize exchange
     let exchange = Binance::builder().build()?;
-    
-    // Create WebSocket client
-    let ws_client = exchange.create_ws();
-    ws_client.connect().await?;
 
-    // Subscribe to real-time trades
-    let mut stream = ws_client.watch_trades("BTC/USDT").await?;
+    // Watch real-time ticker updates using the WsExchange trait
+    let mut stream = exchange.watch_ticker("BTC/USDT").await?;
     
-    while let Some(trade_result) = stream.next().await {
-        match trade_result {
-            Ok(trade) => println!("Trade: {} @ {}", trade.amount, trade.price),
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(ticker) => println!("Price: {:?}", ticker.last),
             Err(e) => eprintln!("Error: {}", e),
         }
     }
@@ -469,6 +465,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Status**: 🚧 Active Development | **Version**: 0.1.0-alpha | **Updated**: 2025-12
+**Status**: 🚧 Active Development | **Version**: 0.1.1 | **Updated**: 2025-12
 
 ⚠️ **Note**: This library is under active development. APIs may change before v1.0. Not recommended for production use yet.
