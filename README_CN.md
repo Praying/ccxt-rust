@@ -73,18 +73,17 @@ CCXT (CryptoCurrency eXchange Trading) 库的专业级 Rust 实现，提供统�
 ccxt-rust/
 ├── ccxt-core/              # 核心类型、trait 和错误处理
 │   ├── types/              # Market、Order、Trade、Ticker 等
-│   ├── exchange.rs         # 统一 Exchange trait (新)
-│   ├── ws_exchange.rs      # WebSocket Exchange trait (新)
+│   ├── exchange.rs         # 统一 Exchange trait
+│   ├── ws_exchange.rs      # WebSocket Exchange trait
 │   ├── error.rs            # 全面的错误类型
 │   └── base_exchange.rs    # 基础交易所功能
 ├── ccxt-exchanges/         # 交易所特定实现
-│   ├── exchange.rs         # 从 ccxt-core 重新导出 (已弃用)
 │   └── binance/            # Binance 交易所实现
 │       ├── mod.rs          # Binance 主结构体
-│       ├── builder.rs      # BinanceBuilder (新)
+│       ├── builder.rs      # BinanceBuilder
 │       ├── exchange_impl.rs # Exchange trait 实现
 │       ├── ws_exchange_impl.rs # WsExchange trait 实现
-│       ├── rest.rs         # REST API 客户端
+│       ├── rest/           # REST API 客户端模块
 │       ├── ws.rs           # WebSocket 客户端
 │       ├── parser.rs       # 响应解析
 │       └── auth.rs         # 认证
@@ -103,7 +102,7 @@ use ccxt_core::exchange::{Exchange, ExchangeCapabilities, BoxedExchange};
 // 通过统一接口使用任何交易所
 async fn fetch_price(exchange: &dyn Exchange, symbol: &str) -> Result<Decimal, Error> {
     // 调用前检查功能支持情况
-    if !exchange.capabilities().fetch_ticker {
+    if !exchange.capabilities().fetch_ticker() {
         return Err(Error::not_implemented("fetch_ticker"));
     }
     
@@ -244,7 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Capabilities: {:?}", exchange.capabilities());
     
     // 调用方法前检查功能支持
-    if exchange.capabilities().fetch_ticker {
+    if exchange.capabilities().fetch_ticker() {
         let ticker = exchange.fetch_ticker("BTC/USDT").await?;
         println!("Price: {:?}", ticker.last);
     }
@@ -257,23 +256,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use ccxt_exchanges::binance::Binance;
+use ccxt_core::ws_exchange::WsExchange;
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化交易所
     let exchange = Binance::builder().build()?;
-    
-    // 创建 WebSocket 客户端
-    let ws_client = exchange.create_ws();
-    ws_client.connect().await?;
 
-    // 订阅实时交易
-    let mut stream = ws_client.watch_trades("BTC/USDT").await?;
+    // 使用 WsExchange trait 监听实时行情更新
+    let mut stream = exchange.watch_ticker("BTC/USDT").await?;
     
-    while let Some(trade_result) = stream.next().await {
-        match trade_result {
-            Ok(trade) => println!("Trade: {} @ {}", trade.amount, trade.price),
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(ticker) => println!("Price: {:?}", ticker.last),
             Err(e) => eprintln!("Error: {}", e),
         }
     }
@@ -485,6 +481,6 @@ cargo check --all-features
 
 ---
 
-**状态**: 🚧 积极开发中 | **版本**: 0.1.0-alpha | **更新时间**: 2025-12
+**状态**: 🚧 积极开发中 | **版本**: 0.1.1 | **更新时间**: 2025-12
 
 ⚠️ **注意**: 本库正处于积极开发阶段。API 在 v1.0 之前可能会发生变化。暂不建议用于生产环境。
