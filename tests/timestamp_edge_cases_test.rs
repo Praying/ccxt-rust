@@ -3,7 +3,7 @@
 //! These tests verify that the timestamp system handles edge cases correctly,
 //! including overflow/underflow scenarios and invalid input validation.
 
-use ccxt_core::{Error, Result, time::TimestampUtils, types::Timestamp};
+use ccxt_core::{Result, time::TimestampUtils};
 
 /// Test timestamp overflow scenarios
 #[tokio::test]
@@ -91,6 +91,7 @@ async fn test_valid_edge_case_parsing() -> Result<()> {
 
 /// Test conversion edge cases
 #[tokio::test]
+#[allow(deprecated)] // Testing deprecated conversion functions for edge cases
 async fn test_conversion_edge_cases() -> Result<()> {
     // Test u64 to i64 conversion at boundary
     let max_safe_u64 = (i64::MAX as u64).min(TimestampUtils::YEAR_2100_MS as u64);
@@ -238,7 +239,7 @@ async fn test_concurrent_timestamp_operations() -> Result<()> {
     let mut handles = vec![];
 
     // Spawn multiple tasks to test concurrent access
-    for i in 0..10 {
+    for _i in 0..10 {
         let timestamps = Arc::clone(&test_timestamps);
         let handle = task::spawn(async move {
             for &ts in timestamps.iter() {
@@ -261,7 +262,9 @@ async fn test_concurrent_timestamp_operations() -> Result<()> {
 
     // Wait for all tasks to complete
     for handle in handles {
-        handle.await.unwrap()?;
+        if let Err(e) = handle.await {
+            return Err(ccxt_core::Error::network(format!("Task join error: {}", e)));
+        }
     }
 
     Ok(())

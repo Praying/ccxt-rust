@@ -646,7 +646,7 @@ impl TimestampUtils {
     /// assert!(!TimestampUtils::is_reasonable_timestamp(-1)); // Before 1970
     /// ```
     pub fn is_reasonable_timestamp(timestamp: i64) -> bool {
-        timestamp >= Self::UNIX_EPOCH_MS && timestamp <= Self::YEAR_2100_MS
+        (Self::UNIX_EPOCH_MS..=Self::YEAR_2100_MS).contains(&timestamp)
     }
 
     /// Convert u64 to i64 with overflow checking
@@ -676,7 +676,7 @@ impl TimestampUtils {
     /// let new_timestamp = TimestampUtils::u64_to_i64(old_timestamp).unwrap();
     /// assert_eq!(new_timestamp, 1704110400000i64);
     /// ```
-    #[deprecated(since = "0.x.0", note = "Use i64 timestamps directly")]
+    #[deprecated(since = "0.1.0", note = "Use i64 timestamps directly")]
     pub fn u64_to_i64(timestamp: u64) -> Result<i64> {
         if timestamp > i64::MAX as u64 {
             return Err(Error::invalid_request(format!(
@@ -824,6 +824,7 @@ pub trait TimestampConversion {
 }
 
 impl TimestampConversion for Option<u64> {
+    #[allow(deprecated)]
     fn to_i64(self) -> Result<Option<i64>> {
         match self {
             Some(ts) => Ok(Some(TimestampUtils::u64_to_i64(ts)?)),

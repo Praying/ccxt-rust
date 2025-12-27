@@ -5,7 +5,7 @@ use ccxt_exchanges::binance::Binance;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建一个 Binance 实例
     let config = ExchangeConfig::default();
-    let binance = Binance::new(config)?;
+    let _binance = Binance::new(config)?;
 
     // 测试 u64 类型的 since 参数
     let since: Option<u64> = Some(1609459200000); // 2021-01-01 00:00:00 UTC

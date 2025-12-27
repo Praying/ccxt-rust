@@ -244,7 +244,7 @@ pub trait Funding: PublicExchange {
     /// let deposits = exchange.fetch_deposits(Some("USDT"), Some(1609459200000i64), Some(100)).await?;
     /// ```
     #[deprecated(
-        since = "0.x.0",
+        since = "0.1.0",
         note = "Use fetch_deposits with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
     )]
     async fn fetch_deposits_u64(
@@ -274,7 +274,7 @@ pub trait Funding: PublicExchange {
     /// let withdrawals = exchange.fetch_withdrawals(Some("BTC"), Some(1609459200000i64), Some(50)).await?;
     /// ```
     #[deprecated(
-        since = "0.x.0",
+        since = "0.1.0",
         note = "Use fetch_withdrawals with i64 timestamps. Convert using TimestampUtils::u64_to_i64()"
     )]
     async fn fetch_withdrawals_u64(
