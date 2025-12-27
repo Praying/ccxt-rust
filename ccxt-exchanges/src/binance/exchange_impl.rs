@@ -379,6 +379,356 @@ impl Binance {
 
         Ok(super::auth::BinanceAuth::new(api_key, secret))
     }
+
+    // ==================== Time Sync Helper Methods ====================
+
+    /// Gets the server timestamp for signing requests.
+    ///
+    /// This method uses the cached time offset if available, otherwise fetches
+    /// the server time directly. It also triggers a background resync if needed.
+    ///
+    /// # Optimization
+    ///
+    /// By caching the time offset between local and server time, this method
+    /// reduces the number of network round-trips for signed API requests from 2 to 1.
+    /// Instead of fetching server time before every signed request, we calculate
+    /// the server timestamp locally using: `server_timestamp = local_time + cached_offset`
+    ///
+    /// # Returns
+    ///
+    /// Returns the estimated server timestamp in milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The time sync manager is not initialized and the server time fetch fails
+    /// - Network errors occur during time synchronization
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Get timestamp for signing (uses cached offset if available)
+    /// let timestamp = binance.get_signing_timestamp().await?;
+    /// println!("Server timestamp: {}", timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// _Requirements: 1.2, 2.3, 6.4_
+    pub async fn get_signing_timestamp(&self) -> ccxt_core::Result<i64> {
+        // Check if we need to sync (not initialized or sync interval elapsed)
+        if self.time_sync.needs_resync() {
+            // Attempt to sync time
+            if let Err(e) = self.sync_time().await {
+                // If sync fails and we're not initialized, we must fail
+                if !self.time_sync.is_initialized() {
+                    return Err(e);
+                }
+                // If sync fails but we have a cached offset, log and continue
+                tracing::warn!(
+                    error = %e,
+                    "Time sync failed, using cached offset"
+                );
+            }
+        }
+
+        // If still not initialized after sync attempt, fall back to direct fetch
+        if !self.time_sync.is_initialized() {
+            return self.fetch_time_raw().await;
+        }
+
+        // Return the estimated server timestamp using cached offset
+        Ok(self.time_sync.get_server_timestamp())
+    }
+
+    /// Synchronizes local time with Binance server time.
+    ///
+    /// This method fetches the current server time from Binance and updates
+    /// the cached time offset. The offset is calculated as:
+    /// `offset = server_time - local_time`
+    ///
+    /// # When to Use
+    ///
+    /// - Called automatically by `get_signing_timestamp()` when resync is needed
+    /// - Can be called manually to force a time synchronization
+    /// - Useful after receiving timestamp-related errors from the API
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful synchronization.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the server time fetch fails due to network issues.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Manually sync time with server
+    /// binance.sync_time().await?;
+    ///
+    /// // Check the current offset
+    /// let offset = binance.time_sync().get_offset();
+    /// println!("Time offset: {}ms", offset);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// _Requirements: 2.1, 2.2, 6.3_
+    pub async fn sync_time(&self) -> ccxt_core::Result<()> {
+        let server_time = self.fetch_time_raw().await?;
+        self.time_sync.update_offset(server_time);
+        tracing::debug!(
+            server_time = server_time,
+            offset = self.time_sync.get_offset(),
+            "Time synchronized with Binance server"
+        );
+        Ok(())
+    }
+
+    /// Checks if an error is related to timestamp validation.
+    ///
+    /// Binance returns specific error codes and messages when the request
+    /// timestamp is outside the acceptable window (recvWindow). This method
+    /// detects such errors to enable automatic retry with a fresh timestamp.
+    ///
+    /// # Binance Timestamp Error Codes
+    ///
+    /// | Error Code | Message | Meaning |
+    /// |------------|---------|---------|
+    /// | -1021 | "Timestamp for this request is outside of the recvWindow" | Timestamp too old or too new |
+    /// | -1022 | "Signature for this request is not valid" | May be caused by wrong timestamp |
+    ///
+    /// # Arguments
+    ///
+    /// * `error` - The error to check
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the error is related to timestamp validation, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::{ExchangeConfig, Error};
+    ///
+    /// let binance = Binance::new(ExchangeConfig::default()).unwrap();
+    ///
+    /// // Simulate a timestamp error
+    /// let err = Error::exchange("-1021", "Timestamp for this request is outside of the recvWindow");
+    /// assert!(binance.is_timestamp_error(&err));
+    ///
+    /// // Non-timestamp error
+    /// let err = Error::exchange("-1100", "Illegal characters found in parameter");
+    /// assert!(!binance.is_timestamp_error(&err));
+    /// ```
+    ///
+    /// _Requirements: 4.1_
+    pub fn is_timestamp_error(&self, error: &ccxt_core::Error) -> bool {
+        let error_str = error.to_string().to_lowercase();
+
+        // Check for timestamp-related keywords in the error message
+        let has_timestamp_keyword = error_str.contains("timestamp");
+        let has_recv_window = error_str.contains("recvwindow");
+        let has_ahead = error_str.contains("ahead");
+        let has_behind = error_str.contains("behind");
+
+        // Timestamp error if it mentions timestamp AND one of the time-related issues
+        if has_timestamp_keyword && (has_recv_window || has_ahead || has_behind) {
+            return true;
+        }
+
+        // Also check for specific Binance error codes
+        // -1021: Timestamp for this request is outside of the recvWindow
+        // -1022: Signature for this request is not valid (may be timestamp-related)
+        if error_str.contains("-1021") {
+            return true;
+        }
+
+        // Check for error code in Exchange variant
+        if let ccxt_core::Error::Exchange(details) = error {
+            if details.code == "-1021" {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Executes a signed request with automatic timestamp error recovery.
+    ///
+    /// This method wraps a signed request operation and automatically handles
+    /// timestamp-related errors by resyncing time and retrying the request once.
+    ///
+    /// # Error Recovery Flow
+    ///
+    /// 1. Execute the request with the current timestamp
+    /// 2. If the request fails with a timestamp error:
+    ///    a. Resync time with the server
+    ///    b. Retry the request with a fresh timestamp
+    /// 3. If the retry also fails, return the error
+    ///
+    /// # Retry Limit
+    ///
+    /// To prevent infinite retry loops, this method limits automatic retries to
+    /// exactly 1 retry per request. If the retry also fails, the error is returned.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The return type of the request
+    /// * `F` - The async function that performs the signed request
+    ///
+    /// # Arguments
+    ///
+    /// * `request_fn` - An async function that takes a timestamp (i64) and returns
+    ///   a `Result<T>`. This function should perform the actual signed API request.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(T)` on success, or `Err` if the request fails after retry.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Execute a signed request with automatic retry on timestamp error
+    /// let result = binance.execute_signed_request_with_retry(|timestamp| {
+    ///     Box::pin(async move {
+    ///         // Perform signed request using the provided timestamp
+    ///         // ... actual request logic here ...
+    ///         Ok(())
+    ///     })
+    /// }).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// _Requirements: 4.1, 4.2, 4.3, 4.4_
+    pub async fn execute_signed_request_with_retry<T, F, Fut>(
+        &self,
+        request_fn: F,
+    ) -> ccxt_core::Result<T>
+    where
+        F: Fn(i64) -> Fut,
+        Fut: std::future::Future<Output = ccxt_core::Result<T>>,
+    {
+        // Get the initial timestamp
+        let timestamp = self.get_signing_timestamp().await?;
+
+        // Execute the request
+        match request_fn(timestamp).await {
+            Ok(result) => Ok(result),
+            Err(e) if self.is_timestamp_error(&e) => {
+                // Log the timestamp error and retry
+                tracing::warn!(
+                    error = %e,
+                    "Timestamp error detected, resyncing time and retrying request"
+                );
+
+                // Force resync time with server
+                if let Err(sync_err) = self.sync_time().await {
+                    tracing::error!(
+                        error = %sync_err,
+                        "Failed to resync time after timestamp error"
+                    );
+                    // Return the original error if sync fails
+                    return Err(e);
+                }
+
+                // Get fresh timestamp after resync
+                let new_timestamp = self.time_sync.get_server_timestamp();
+
+                tracing::debug!(
+                    old_timestamp = timestamp,
+                    new_timestamp = new_timestamp,
+                    offset = self.time_sync.get_offset(),
+                    "Retrying request with fresh timestamp"
+                );
+
+                // Retry the request once with the new timestamp
+                request_fn(new_timestamp).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Helper method to handle timestamp errors and trigger resync.
+    ///
+    /// This method checks if an error is a timestamp error and, if so,
+    /// triggers a time resync. It's useful for manual error handling
+    /// when you want more control over the retry logic.
+    ///
+    /// # Arguments
+    ///
+    /// * `error` - The error to check
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the error was a timestamp error and resync was triggered,
+    /// `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Manual error handling with resync
+    /// let result = some_signed_request().await;
+    /// if let Err(ref e) = result {
+    ///     if binance.handle_timestamp_error_and_resync(e).await {
+    ///         // Timestamp error detected and resync triggered
+    ///         // You can now retry the request
+    ///     }
+    /// }
+    /// # async fn some_signed_request() -> ccxt_core::Result<()> { Ok(()) }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// _Requirements: 4.1, 4.2_
+    pub async fn handle_timestamp_error_and_resync(&self, error: &ccxt_core::Error) -> bool {
+        if self.is_timestamp_error(error) {
+            tracing::warn!(
+                error = %error,
+                "Timestamp error detected, triggering time resync"
+            );
+
+            if let Err(sync_err) = self.sync_time().await {
+                tracing::error!(
+                    error = %sync_err,
+                    "Failed to resync time after timestamp error"
+                );
+                return false;
+            }
+
+            tracing::debug!(
+                offset = self.time_sync.get_offset(),
+                "Time resync completed after timestamp error"
+            );
+
+            return true;
+        }
+
+        false
+    }
 }
 
 #[cfg(test)]
@@ -490,6 +840,239 @@ mod tests {
         assert_eq!(exchange.rate_limit(), public_exchange.rate_limit());
         assert_eq!(exchange.has_websocket(), public_exchange.has_websocket());
         assert_eq!(exchange.timeframes(), public_exchange.timeframes());
+    }
+
+    // ==================== Time Sync Helper Tests ====================
+
+    #[test]
+    fn test_is_timestamp_error_with_recv_window_message() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test with recvWindow error message
+        let err = ccxt_core::Error::exchange(
+            "-1021",
+            "Timestamp for this request is outside of the recvWindow",
+        );
+        assert!(
+            binance.is_timestamp_error(&err),
+            "Should detect recvWindow timestamp error"
+        );
+    }
+
+    #[test]
+    fn test_is_timestamp_error_with_ahead_message() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test with "ahead" error message
+        let err = ccxt_core::Error::exchange("-1021", "Timestamp is ahead of server time");
+        assert!(
+            binance.is_timestamp_error(&err),
+            "Should detect 'ahead' timestamp error"
+        );
+    }
+
+    #[test]
+    fn test_is_timestamp_error_with_behind_message() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test with "behind" error message
+        let err = ccxt_core::Error::exchange("-1021", "Timestamp is behind server time");
+        assert!(
+            binance.is_timestamp_error(&err),
+            "Should detect 'behind' timestamp error"
+        );
+    }
+
+    #[test]
+    fn test_is_timestamp_error_with_error_code_only() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test with error code -1021 in message
+        let err = ccxt_core::Error::exchange("-1021", "Some error message");
+        assert!(
+            binance.is_timestamp_error(&err),
+            "Should detect error code -1021"
+        );
+    }
+
+    #[test]
+    fn test_is_timestamp_error_non_timestamp_error() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test with non-timestamp error
+        let err = ccxt_core::Error::exchange("-1100", "Illegal characters found in parameter");
+        assert!(
+            !binance.is_timestamp_error(&err),
+            "Should not detect non-timestamp error"
+        );
+
+        // Test with authentication error
+        let err = ccxt_core::Error::authentication("Invalid API key");
+        assert!(
+            !binance.is_timestamp_error(&err),
+            "Should not detect authentication error as timestamp error"
+        );
+
+        // Test with network error
+        let err = ccxt_core::Error::network("Connection refused");
+        assert!(
+            !binance.is_timestamp_error(&err),
+            "Should not detect network error as timestamp error"
+        );
+    }
+
+    #[test]
+    fn test_is_timestamp_error_case_insensitive() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test case insensitivity
+        let err = ccxt_core::Error::exchange(
+            "-1021",
+            "TIMESTAMP for this request is outside of the RECVWINDOW",
+        );
+        assert!(
+            binance.is_timestamp_error(&err),
+            "Should detect timestamp error case-insensitively"
+        );
+    }
+
+    #[test]
+    fn test_time_sync_manager_accessible() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test that time_sync() returns a reference to the manager
+        let time_sync = binance.time_sync();
+        assert!(
+            !time_sync.is_initialized(),
+            "Time sync should not be initialized initially"
+        );
+        assert!(
+            time_sync.needs_resync(),
+            "Time sync should need resync initially"
+        );
+    }
+
+    #[test]
+    fn test_time_sync_manager_update_offset() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Simulate updating the offset
+        let server_time = ccxt_core::time::TimestampUtils::now_ms() + 100;
+        binance.time_sync().update_offset(server_time);
+
+        assert!(
+            binance.time_sync().is_initialized(),
+            "Time sync should be initialized after update"
+        );
+        assert!(
+            !binance.time_sync().needs_resync(),
+            "Time sync should not need resync immediately after update"
+        );
+
+        // Offset should be approximately 100ms
+        let offset = binance.time_sync().get_offset();
+        assert!(
+            offset >= 90 && offset <= 110,
+            "Offset should be approximately 100ms, got {}",
+            offset
+        );
+    }
+
+    // ==================== Error Recovery Tests ====================
+
+    #[tokio::test]
+    async fn test_execute_signed_request_with_retry_success() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Initialize time sync
+        let server_time = ccxt_core::time::TimestampUtils::now_ms();
+        binance.time_sync().update_offset(server_time);
+
+        // Test successful request (no retry needed)
+        let result = binance
+            .execute_signed_request_with_retry(|timestamp| async move {
+                assert!(timestamp > 0, "Timestamp should be positive");
+                Ok::<_, ccxt_core::Error>(42)
+            })
+            .await;
+
+        assert!(result.is_ok(), "Request should succeed");
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_execute_signed_request_with_retry_non_timestamp_error() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Initialize time sync
+        let server_time = ccxt_core::time::TimestampUtils::now_ms();
+        binance.time_sync().update_offset(server_time);
+
+        // Test non-timestamp error (should not retry)
+        let result = binance
+            .execute_signed_request_with_retry(|_timestamp| async move {
+                Err::<i32, _>(ccxt_core::Error::exchange("-1100", "Invalid parameter"))
+            })
+            .await;
+
+        assert!(result.is_err(), "Request should fail");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("-1100"),
+            "Error should contain original error code"
+        );
+    }
+
+    #[test]
+    fn test_handle_timestamp_error_detection() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Test various timestamp error formats
+        let timestamp_errors = vec![
+            ccxt_core::Error::exchange(
+                "-1021",
+                "Timestamp for this request is outside of the recvWindow",
+            ),
+            ccxt_core::Error::exchange("-1021", "Timestamp is ahead of server time"),
+            ccxt_core::Error::exchange("-1021", "Timestamp is behind server time"),
+            ccxt_core::Error::exchange("-1021", "Some error with timestamp and recvwindow"),
+        ];
+
+        for err in timestamp_errors {
+            assert!(
+                binance.is_timestamp_error(&err),
+                "Should detect timestamp error: {}",
+                err
+            );
+        }
+
+        // Test non-timestamp errors
+        let non_timestamp_errors = vec![
+            ccxt_core::Error::exchange("-1100", "Invalid parameter"),
+            ccxt_core::Error::exchange("-1000", "Unknown error"),
+            ccxt_core::Error::authentication("Invalid API key"),
+            ccxt_core::Error::network("Connection refused"),
+            ccxt_core::Error::timeout("Request timed out"),
+        ];
+
+        for err in non_timestamp_errors {
+            assert!(
+                !binance.is_timestamp_error(&err),
+                "Should not detect as timestamp error: {}",
+                err
+            );
+        }
     }
 
     // ==================== Property-Based Tests ====================

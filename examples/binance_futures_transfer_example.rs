@@ -11,7 +11,7 @@
 //! ```bash
 //! # Set environment variables
 //! export BINANCE_API_KEY="your_api_key"
-//! export BINANCE_SECRET="your_secret"
+//! export BINANCE_API_SECRET="your_secret"
 //!
 //! # Run the example
 //! cargo run --example binance_futures_transfer_example
@@ -34,11 +34,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=========================================\n");
 
     let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_SECRET").ok();
+    let secret = env::var("BINANCE_API_SECRET").ok();
 
     if api_key.is_none() || secret.is_none() {
         println!("⚠️  Warning: API keys not set, demonstrating code structure only");
-        println!("Please set environment variables: BINANCE_API_KEY and BINANCE_SECRET");
+        println!("Please set environment variables: BINANCE_API_KEY and BINANCE_API_SECRET");
     }
 
     let config = ExchangeConfig {

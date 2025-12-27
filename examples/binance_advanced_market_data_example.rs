@@ -30,6 +30,7 @@ async fn main() {
         ..Default::default()
     };
     let client = Binance::new(config).unwrap();
+    client.load_markets(false).await.unwrap();
 
     // Fetch server time
     example_fetch_time(&client).await;

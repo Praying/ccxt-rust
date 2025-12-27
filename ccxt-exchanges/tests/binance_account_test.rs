@@ -16,12 +16,52 @@ use ccxt_core::error::Result;
 use ccxt_exchanges::binance::Binance;
 
 /// Create Binance client for testing.
+///
+/// Supports both production and testnet environments based on environment variables:
+/// - `BINANCE_USE_TESTNET=true`: Uses testnet API keys and URLs
+/// - `BINANCE_USE_TESTNET=false` or unset: Uses production API keys and URLs
+///
+/// Note: If testnet credentials are not set, falls back to production credentials.
 fn create_binance_client() -> Binance {
-    let api_key = std::env::var("BINANCE_API_KEY").unwrap_or_default();
-    let secret = std::env::var("BINANCE_SECRET").unwrap_or_default();
+    dotenvy::dotenv().ok();
+
+    // Check if testnet mode is enabled
+    let use_testnet = std::env::var("BINANCE_USE_TESTNET")
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false);
+
+    let (api_key, secret, sandbox) = if use_testnet {
+        // Try testnet credentials first
+        let testnet_key = std::env::var("BINANCE_TESTNET_API_KEY").unwrap_or_default();
+        let testnet_secret = std::env::var("BINANCE_TESTNET_API_SECRET").unwrap_or_default();
+
+        // If testnet credentials are empty, fall back to production
+        if testnet_key.is_empty() || testnet_secret.is_empty() {
+            eprintln!(
+                "Warning: BINANCE_USE_TESTNET=true but testnet credentials not set, using production"
+            );
+            (
+                std::env::var("BINANCE_API_KEY").unwrap_or_default(),
+                std::env::var("BINANCE_API_SECRET").unwrap_or_default(),
+                false,
+            )
+        } else {
+            (testnet_key, testnet_secret, true)
+        }
+    } else {
+        // Use production credentials
+        (
+            std::env::var("BINANCE_API_KEY").unwrap_or_default(),
+            std::env::var("BINANCE_API_SECRET").unwrap_or_default(),
+            false,
+        )
+    };
+
     let mut config = ExchangeConfig::default();
     config.api_key = Some(api_key);
     config.secret = Some(secret);
+    config.sandbox = sandbox;
+
     Binance::new(config).unwrap()
 }
 
@@ -36,6 +76,11 @@ async fn test_fetch_spot_balance() -> Result<()> {
     assert!(
         !balance.balances.is_empty(),
         "Balance data should not be empty"
+    );
+
+    println!(
+        "Spot balance query successful, currencies: {}",
+        balance.balances.len()
     );
 
     if let Some(btc) = balance.balances.get("BTC") {

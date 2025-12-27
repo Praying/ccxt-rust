@@ -10,7 +10,7 @@ use ccxt_core::{
 };
 use reqwest::header::HeaderMap;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 impl Binance {
     // ==================== Borrow Methods ====================
@@ -48,11 +48,11 @@ impl Binance {
     pub async fn borrow_cross_margin(&self, currency: &str, amount: f64) -> Result<MarginLoan> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
         params.insert("amount".to_string(), amount.to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -119,13 +119,13 @@ impl Binance {
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
         params.insert("amount".to_string(), amount.to_string());
         params.insert("symbol".to_string(), market.id.clone());
         params.insert("isIsolated".to_string(), "TRUE".to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -186,11 +186,11 @@ impl Binance {
     pub async fn repay_cross_margin(&self, currency: &str, amount: f64) -> Result<MarginRepay> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
         params.insert("amount".to_string(), amount.to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -270,13 +270,13 @@ impl Binance {
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
         params.insert("amount".to_string(), amount.to_string());
         params.insert("symbol".to_string(), market.id.clone());
         params.insert("isIsolated".to_string(), "TRUE".to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -341,7 +341,7 @@ impl Binance {
     ) -> Result<Vec<MarginAdjustment>> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
 
         if let Some(sym) = symbol {
             self.load_markets(false).await?;
@@ -358,7 +358,7 @@ impl Binance {
             params.insert("size".to_string(), size.to_string());
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -413,10 +413,10 @@ impl Binance {
     pub async fn fetch_cross_margin_max_borrowable(&self, currency: &str) -> Result<Decimal> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -473,11 +473,11 @@ impl Binance {
         self.load_markets(false).await?;
         let market = self.base().market(symbol).await?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
         params.insert("isolatedSymbol".to_string(), market.id.clone());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;
@@ -527,10 +527,10 @@ impl Binance {
     pub async fn fetch_max_transferable(&self, currency: &str) -> Result<Decimal> {
         self.check_required_credentials()?;
 
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("asset".to_string(), currency.to_string());
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params, timestamp, Some(self.options().recv_window))?;

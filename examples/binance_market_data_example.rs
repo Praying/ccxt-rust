@@ -39,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     let exchange = Binance::new(config)?;
+    exchange.load_markets(false).await?;
 
     println!("=== Binance Market Data API Example ===\n");
 

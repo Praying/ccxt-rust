@@ -17,14 +17,14 @@
 //!
 //! Set the following environment variables:
 //! - `BINANCE_API_KEY`: Your Binance API key
-//! - `BINANCE_SECRET`: Your Binance API secret
+//! - `BINANCE_API_SECRET`: Your Binance API secret
 //!
 //! # Examples
 //!
 //! ```bash
 //! # Set environment variables
 //! export BINANCE_API_KEY="your_api_key"
-//! export BINANCE_SECRET="your_secret"
+//! export BINANCE_API_SECRET="your_secret"
 //!
 //! # Run the example
 //! cargo run --example binance_ledger_example
@@ -36,7 +36,7 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<()> {
     let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_SECRET").ok();
+    let secret = env::var("BINANCE_API_SECRET").ok();
 
     let _exchange = ccxt_exchanges::binance::Binance::new(ExchangeConfig {
         api_key,

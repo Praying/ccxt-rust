@@ -6,7 +6,7 @@ use ccxt_core::{Error, Result};
 use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -80,7 +80,10 @@ impl BinanceAuth {
     /// # Errors
     ///
     /// Returns an error if signature generation fails.
-    pub fn sign_params(&self, params: &HashMap<String, String>) -> Result<HashMap<String, String>> {
+    pub fn sign_params(
+        &self,
+        params: &BTreeMap<String, String>,
+    ) -> Result<BTreeMap<String, String>> {
         let query_string = self.build_query_string(params);
         let signature = self.sign(&query_string)?;
 
@@ -107,10 +110,10 @@ impl BinanceAuth {
     /// Returns an error if signature generation fails.
     pub fn sign_with_timestamp(
         &self,
-        params: &HashMap<String, String>,
+        params: &BTreeMap<String, String>,
         timestamp: i64,
         recv_window: Option<u64>,
-    ) -> Result<HashMap<String, String>> {
+    ) -> Result<BTreeMap<String, String>> {
         let mut params_with_time = params.clone();
         params_with_time.insert("timestamp".to_string(), timestamp.to_string());
 
@@ -130,7 +133,7 @@ impl BinanceAuth {
     /// # Returns
     ///
     /// Returns a URL-encoded query string with parameters sorted by key.
-    pub(crate) fn build_query_string(&self, params: &HashMap<String, String>) -> String {
+    pub(crate) fn build_query_string(&self, params: &BTreeMap<String, String>) -> String {
         let mut pairs: Vec<_> = params.iter().collect();
         pairs.sort_by_key(|(k, _)| *k);
 
@@ -214,7 +217,7 @@ mod tests {
     #[test]
     fn test_sign_params() {
         let auth = BinanceAuth::new("test_key", "test_secret");
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), "BTCUSDT".to_string());
         params.insert("side".to_string(), "BUY".to_string());
 
@@ -229,7 +232,7 @@ mod tests {
     #[test]
     fn test_sign_with_timestamp() {
         let auth = BinanceAuth::new("test_key", "test_secret");
-        let params = HashMap::new();
+        let params = BTreeMap::new();
         let timestamp = 1234567890i64;
 
         let signed = auth.sign_with_timestamp(&params, timestamp, Some(5000));
@@ -246,7 +249,7 @@ mod tests {
     #[test]
     fn test_build_query_string() {
         let auth = BinanceAuth::new("test_key", "test_secret");
-        let mut params = HashMap::new();
+        let mut params = BTreeMap::new();
         params.insert("symbol".to_string(), "BTCUSDT".to_string());
         params.insert("side".to_string(), "BUY".to_string());
 

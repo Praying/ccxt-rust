@@ -14,7 +14,7 @@ use std::sync::Arc;
 async fn main() -> Result<()> {
     let mut config = ccxt_core::ExchangeConfig::default();
     config.api_key = std::env::var("BINANCE_API_KEY").ok();
-    config.secret = std::env::var("BINANCE_SECRET").ok();
+    config.secret = std::env::var("BINANCE_API_SECRET").ok();
 
     let exchange = Arc::new(Binance::new(config)?);
 

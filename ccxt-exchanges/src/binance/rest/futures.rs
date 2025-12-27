@@ -11,7 +11,7 @@ use ccxt_core::{
 use reqwest::header::HeaderMap;
 use rust_decimal::Decimal;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
 impl Binance {
@@ -52,7 +52,7 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
 
         if let Some(params) = params {
@@ -65,7 +65,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -149,7 +149,7 @@ impl Binance {
     ) -> Result<Vec<Position>> {
         self.check_required_credentials()?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         if let Some(ref params) = params {
             if let Some(obj) = params.as_object() {
@@ -161,7 +161,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -286,7 +286,7 @@ impl Binance {
     ) -> Result<Value> {
         self.check_required_credentials()?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
@@ -303,7 +303,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -362,13 +362,13 @@ impl Binance {
         &self,
         symbols: Option<Vec<String>>,
         params: Option<Value>,
-    ) -> Result<HashMap<String, ccxt_core::types::Leverage>> {
+    ) -> Result<BTreeMap<String, ccxt_core::types::Leverage>> {
         self.load_markets(false).await?;
 
         let mut params_map = if let Some(p) = params {
-            serde_json::from_value::<HashMap<String, String>>(p).unwrap_or_default()
+            serde_json::from_value::<BTreeMap<String, String>>(p).unwrap_or_default()
         } else {
-            HashMap::new()
+            BTreeMap::new()
         };
 
         let market_type = params_map
@@ -385,7 +385,7 @@ impl Binance {
             .and_then(|v| v.parse::<bool>().ok())
             .unwrap_or(false);
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&params_map, timestamp, Some(self.options().recv_window))?;
@@ -438,7 +438,7 @@ impl Binance {
             vec![]
         };
 
-        let mut leverages = HashMap::new();
+        let mut leverages = BTreeMap::new();
 
         for item in leverages_data {
             if let Ok(leverage) = parser::parse_leverage(&item, None) {
@@ -556,7 +556,7 @@ impl Binance {
             ));
         }
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
         request_params.insert("leverage".to_string(), leverage.to_string());
 
@@ -577,7 +577,7 @@ impl Binance {
             ));
         };
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
 
         let signed_params =
@@ -634,7 +634,7 @@ impl Binance {
     ) -> Result<Value> {
         self.check_required_credentials()?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
@@ -651,7 +651,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -709,12 +709,12 @@ impl Binance {
         &self,
         symbols: Option<Vec<String>>,
         params: Option<HashMap<String, String>>,
-    ) -> Result<HashMap<String, Vec<LeverageTier>>> {
+    ) -> Result<BTreeMap<String, Vec<LeverageTier>>> {
         self.check_required_credentials()?;
 
         self.load_markets(false).await?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         let is_portfolio_margin = params
             .as_ref()
@@ -764,7 +764,7 @@ impl Binance {
             format!("{}/leverageBracket", self.urls().fapi_private)
         };
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -783,7 +783,7 @@ impl Binance {
             .get(&request_url, Some(headers))
             .await?;
 
-        let mut tiers_map: HashMap<String, Vec<LeverageTier>> = HashMap::new();
+        let mut tiers_map: BTreeMap<String, Vec<LeverageTier>> = BTreeMap::new();
 
         // Response can be array of symbols with brackets
         if let Some(symbols_array) = response.as_array() {
@@ -883,7 +883,7 @@ impl Binance {
             ));
         }
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
         request_params.insert("marginType".to_string(), margin_type.to_string());
 
@@ -904,7 +904,7 @@ impl Binance {
             ));
         };
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -939,10 +939,16 @@ impl Binance {
 
     /// Set position mode (hedge mode or one-way mode).
     ///
+    /// This method supports both FAPI (USDT-margined) and DAPI (coin-margined) futures.
+    /// By default, it uses the FAPI endpoint. To set position mode for coin-margined
+    /// futures, pass `type: "delivery"` or `type: "coin_m"` in the params.
+    ///
     /// # Arguments
     ///
     /// * `dual_side` - `true` for hedge mode (dual-side position), `false` for one-way mode.
-    /// * `params` - Optional parameters.
+    /// * `params` - Optional parameters:
+    ///   - `type`: Set to `"delivery"` or `"coin_m"` to use DAPI endpoint for coin-margined futures.
+    ///     Defaults to FAPI endpoint if not specified.
     ///
     /// # Returns
     ///
@@ -957,26 +963,47 @@ impl Binance {
     /// ```no_run
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
+    /// # use serde_json::json;
     /// # async fn example() -> ccxt_core::Result<()> {
     /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
-    /// // Enable hedge mode
+    /// // Enable hedge mode for USDT-margined futures (FAPI)
     /// let result = binance.set_position_mode(true, None).await?;
     ///
-    /// // Switch back to one-way mode
+    /// // Switch back to one-way mode for USDT-margined futures
     /// let result = binance.set_position_mode(false, None).await?;
+    ///
+    /// // Enable hedge mode for coin-margined futures (DAPI)
+    /// let params = json!({"type": "delivery"});
+    /// let result = binance.set_position_mode(true, Some(params)).await?;
+    ///
+    /// // Alternative: use "coin_m" type
+    /// let params = json!({"type": "coin_m"});
+    /// let result = binance.set_position_mode(false, Some(params)).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn set_position_mode(&self, dual_side: bool, params: Option<Value>) -> Result<Value> {
         self.check_required_credentials()?;
 
-        let mut request_params = HashMap::new();
+        // Check if we should use DAPI endpoint based on type parameter
+        let use_dapi = params
+            .as_ref()
+            .and_then(|p| p.get("type"))
+            .and_then(|v| v.as_str())
+            .map(|t| t == "delivery" || t == "coin_m")
+            .unwrap_or(false);
+
+        let mut request_params = BTreeMap::new();
         request_params.insert("dualSidePosition".to_string(), dual_side.to_string());
 
         if let Some(params) = params {
             if let Some(obj) = params.as_object() {
                 for (key, value) in obj {
+                    // Skip the "type" parameter as it's only used for routing
+                    if key == "type" {
+                        continue;
+                    }
                     if let Some(v) = value.as_str() {
                         request_params.insert(key.clone(), v.to_string());
                     } else if let Some(v) = value.as_bool() {
@@ -988,12 +1015,17 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
-        let url = format!("{}/positionSide/dual", self.urls().fapi_private);
+        // Route to DAPI or FAPI endpoint based on type parameter
+        let url = if use_dapi {
+            format!("{}/positionSide/dual", self.urls().dapi_private)
+        } else {
+            format!("{}/positionSide/dual", self.urls().fapi_private)
+        };
 
         let mut headers = HeaderMap::new();
         auth.add_auth_headers_reqwest(&mut headers);
@@ -1016,9 +1048,15 @@ impl Binance {
 
     /// Fetch current position mode.
     ///
+    /// This method supports both FAPI (USDT-margined) and DAPI (coin-margined) futures.
+    /// By default, it uses the FAPI endpoint. To fetch position mode for coin-margined
+    /// futures, pass `type: "delivery"` or `type: "coin_m"` in the params.
+    ///
     /// # Arguments
     ///
-    /// * `params` - Optional parameters.
+    /// * `params` - Optional parameters:
+    ///   - `type`: Set to `"delivery"` or `"coin_m"` to use DAPI endpoint for coin-margined futures.
+    ///     Defaults to FAPI endpoint if not specified.
     ///
     /// # Returns
     ///
@@ -1035,22 +1073,45 @@ impl Binance {
     /// ```no_run
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
+    /// # use serde_json::json;
     /// # async fn example() -> ccxt_core::Result<()> {
     /// let binance = Binance::new_swap(ExchangeConfig::default())?;
     ///
+    /// // Fetch position mode for USDT-margined futures (FAPI)
     /// let dual_side = binance.fetch_position_mode(None).await?;
-    /// println!("Hedge mode enabled: {}", dual_side);
+    /// println!("FAPI Hedge mode enabled: {}", dual_side);
+    ///
+    /// // Fetch position mode for coin-margined futures (DAPI)
+    /// let params = json!({"type": "delivery"});
+    /// let dual_side = binance.fetch_position_mode(Some(params)).await?;
+    /// println!("DAPI Hedge mode enabled: {}", dual_side);
+    ///
+    /// // Alternative: use "coin_m" type
+    /// let params = json!({"type": "coin_m"});
+    /// let dual_side = binance.fetch_position_mode(Some(params)).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn fetch_position_mode(&self, params: Option<Value>) -> Result<bool> {
         self.check_required_credentials()?;
 
-        let mut request_params = HashMap::new();
+        // Check if we should use DAPI endpoint based on type parameter
+        let use_dapi = params
+            .as_ref()
+            .and_then(|p| p.get("type"))
+            .and_then(|v| v.as_str())
+            .map(|t| t == "delivery" || t == "coin_m")
+            .unwrap_or(false);
+
+        let mut request_params = BTreeMap::new();
 
         if let Some(params) = params {
             if let Some(obj) = params.as_object() {
                 for (key, value) in obj {
+                    // Skip the "type" parameter as it's only used for routing
+                    if key == "type" {
+                        continue;
+                    }
                     if let Some(v) = value.as_str() {
                         request_params.insert(key.clone(), v.to_string());
                     }
@@ -1058,7 +1119,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -1069,11 +1130,20 @@ impl Binance {
             .collect::<Vec<_>>()
             .join("&");
 
-        let url = format!(
-            "{}/positionSide/dual?{}",
-            self.urls().fapi_private,
-            query_string
-        );
+        // Route to DAPI or FAPI endpoint based on type parameter
+        let url = if use_dapi {
+            format!(
+                "{}/positionSide/dual?{}",
+                self.urls().dapi_private,
+                query_string
+            )
+        } else {
+            format!(
+                "{}/positionSide/dual?{}",
+                self.urls().fapi_private,
+                query_string
+            )
+        };
 
         let mut headers = HeaderMap::new();
         auth.add_auth_headers_reqwest(&mut headers);
@@ -1121,7 +1191,7 @@ impl Binance {
         self.check_required_credentials()?;
 
         let market = self.base().market(symbol).await?;
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
         request_params.insert("amount".to_string(), amount.abs().to_string());
         request_params.insert(
@@ -1143,7 +1213,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
@@ -1218,7 +1288,7 @@ impl Binance {
             ));
         }
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
 
         if let Some(p) = params {
@@ -1288,11 +1358,11 @@ impl Binance {
     pub async fn fetch_funding_rates(
         &self,
         symbols: Option<Vec<String>>,
-        params: Option<HashMap<String, String>>,
-    ) -> Result<HashMap<String, FeeFundingRate>> {
+        params: Option<BTreeMap<String, String>>,
+    ) -> Result<BTreeMap<String, FeeFundingRate>> {
         self.load_markets(false).await?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         if let Some(p) = params {
             for (key, value) in p {
@@ -1312,7 +1382,7 @@ impl Binance {
 
         let response = self.base().http_client.get(&request_url, None).await?;
 
-        let mut rates = HashMap::new();
+        let mut rates = BTreeMap::new();
 
         if let Some(rates_array) = response.as_array() {
             for rate_data in rates_array {
@@ -1396,7 +1466,7 @@ impl Binance {
             ));
         }
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
         request_params.insert("symbol".to_string(), market.id.clone());
 
         if let Some(s) = since {
@@ -1472,7 +1542,7 @@ impl Binance {
         self.check_required_credentials()?;
         self.load_markets(false).await?;
 
-        let mut request_params = HashMap::new();
+        let mut request_params = BTreeMap::new();
 
         if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
@@ -1493,7 +1563,7 @@ impl Binance {
             }
         }
 
-        let timestamp = self.fetch_time_raw().await?;
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
         let signed_params =
             auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;

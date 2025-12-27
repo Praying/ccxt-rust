@@ -8,7 +8,7 @@ use ccxt_core::{
     Error, Result,
     types::{DepositAddress, DepositWithdrawFee, Transaction, TransactionType},
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 impl Binance {
     // ==================== Deposit Address Methods ====================
@@ -39,7 +39,7 @@ impl Binance {
     /// ```no_run
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
-    /// # use std::collections::HashMap;
+    /// # use std::collections::BTreeMap;
     /// # async fn example() -> ccxt_core::Result<()> {
     /// let binance = Binance::new(ExchangeConfig::default())?;
     ///
@@ -48,7 +48,7 @@ impl Binance {
     /// println!("BTC address: {}", addr.address);
     ///
     /// // Fetch USDT deposit address on TRX network
-    /// let mut params = HashMap::new();
+    /// let mut params = BTreeMap::new();
     /// params.insert("network".to_string(), "TRX".to_string());
     /// let addr = binance.fetch_deposit_address("USDT", Some(params)).await?;
     /// println!("USDT-TRX address: {}", addr.address);
@@ -58,7 +58,7 @@ impl Binance {
     pub async fn fetch_deposit_address(
         &self,
         code: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<BTreeMap<String, String>>,
     ) -> Result<DepositAddress> {
         self.check_required_credentials()?;
 
@@ -68,8 +68,10 @@ impl Binance {
             .entry("coin".to_string())
             .or_insert_with(|| code.to_uppercase());
 
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
-        let signed_params = auth.sign_params(&request_params)?;
+        let signed_params =
+            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let query_string: Vec<String> = signed_params
             .iter()
@@ -118,7 +120,7 @@ impl Binance {
     /// ```no_run
     /// # use ccxt_exchanges::binance::Binance;
     /// # use ccxt_core::ExchangeConfig;
-    /// # use std::collections::HashMap;
+    /// # use std::collections::BTreeMap;
     /// # async fn example() -> ccxt_core::Result<()> {
     /// let binance = Binance::new(ExchangeConfig::default())?;
     ///
@@ -127,7 +129,7 @@ impl Binance {
     /// println!("Withdrawal ID: {}", tx.id);
     ///
     /// // Withdrawal with specific network
-    /// let mut params = HashMap::new();
+    /// let mut params = BTreeMap::new();
     /// params.insert("network".to_string(), "TRX".to_string());
     /// let tx = binance.withdraw("USDT", "100.0", "TXxxx...", Some(params)).await?;
     /// # Ok(())
@@ -138,7 +140,7 @@ impl Binance {
         code: &str,
         amount: &str,
         address: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<BTreeMap<String, String>>,
     ) -> Result<Transaction> {
         self.check_required_credentials()?;
 
@@ -153,8 +155,10 @@ impl Binance {
             request_params.insert("addressTag".to_string(), tag);
         }
 
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
-        let signed_params = auth.sign_params(&request_params)?;
+        let signed_params =
+            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let query_string: Vec<String> = signed_params
             .iter()
@@ -226,7 +230,7 @@ impl Binance {
         code: Option<&str>,
         since: Option<i64>,
         limit: Option<i64>,
-        params: Option<HashMap<String, String>>,
+        params: Option<BTreeMap<String, String>>,
     ) -> Result<Vec<Transaction>> {
         self.check_required_credentials()?;
 
@@ -248,8 +252,10 @@ impl Binance {
             request_params.insert("limit".to_string(), lim.to_string());
         }
 
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
-        let signed_params = auth.sign_params(&request_params)?;
+        let signed_params =
+            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let query_string: Vec<String> = signed_params
             .iter()
@@ -322,7 +328,7 @@ impl Binance {
         code: Option<&str>,
         since: Option<i64>,
         limit: Option<i64>,
-        params: Option<HashMap<String, String>>,
+        params: Option<BTreeMap<String, String>>,
     ) -> Result<Vec<Transaction>> {
         self.check_required_credentials()?;
 
@@ -344,8 +350,10 @@ impl Binance {
             request_params.insert("limit".to_string(), lim.to_string());
         }
 
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
-        let signed_params = auth.sign_params(&request_params)?;
+        let signed_params =
+            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let query_string: Vec<String> = signed_params
             .iter()
@@ -403,7 +411,7 @@ impl Binance {
     pub async fn fetch_deposit_withdraw_fees(
         &self,
         currency: Option<&str>,
-        params: Option<HashMap<String, String>>,
+        params: Option<BTreeMap<String, String>>,
     ) -> Result<Vec<DepositWithdrawFee>> {
         self.check_required_credentials()?;
 
@@ -412,8 +420,10 @@ impl Binance {
         // Note: Binance /sapi/v1/capital/config/getall endpoint returns all currencies
         // If currency is specified, client-side filtering is required
 
+        let timestamp = self.get_signing_timestamp().await?;
         let auth = self.get_auth()?;
-        let signed_params = auth.sign_params(&request_params)?;
+        let signed_params =
+            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let query_string: Vec<String> = signed_params
             .iter()

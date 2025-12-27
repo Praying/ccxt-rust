@@ -14,14 +14,15 @@ use ccxt_exchanges::binance::Binance;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
-        sandbox: true,
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         ..Default::default()
     };
 
     let exchange = Binance::new(config)?;
+    exchange.load_markets(false).await?;
 
     println!("=== Binance Order Management Example ===\n");
 

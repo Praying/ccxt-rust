@@ -10,7 +10,7 @@ use std::collections::HashMap;
 fn create_test_binance() -> Binance {
     let config = ExchangeConfig {
         api_key: std::env::var("BINANCE_API_KEY").ok(),
-        secret: std::env::var("BINANCE_SECRET").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
         testnet: true, // 使用测试网
         ..Default::default()
     };
@@ -20,7 +20,7 @@ fn create_test_binance() -> Binance {
 
 /// 检查是否配置了API密钥
 fn has_credentials() -> bool {
-    std::env::var("BINANCE_API_KEY").is_ok() && std::env::var("BINANCE_SECRET").is_ok()
+    std::env::var("BINANCE_API_KEY").is_ok() && std::env::var("BINANCE_API_SECRET").is_ok()
 }
 
 // ============================================================================
@@ -31,7 +31,7 @@ fn has_credentials() -> bool {
 #[ignore] // 需要有效的API密钥才能运行
 async fn test_futures_transfer_spot_to_usdtm() {
     if !has_credentials() {
-        println!("跳过测试：需要设置 BINANCE_API_KEY 和 BINANCE_SECRET");
+        println!("跳过测试：需要设置 BINANCE_API_KEY 和 BINANCE_API_SECRET");
         return;
     }
 

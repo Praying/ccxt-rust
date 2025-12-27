@@ -13,7 +13,7 @@ use ccxt_exchanges::binance::Binance;
 async fn test_set_position_mode_dual() {
     let config = ExchangeConfig {
         api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_SECRET").unwrap_or_default()),
+        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
         sandbox: true,
         ..Default::default()
     };
@@ -27,7 +27,7 @@ async fn test_set_position_mode_dual() {
 async fn test_set_position_mode_single() {
     let config = ExchangeConfig {
         api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_SECRET").unwrap_or_default()),
+        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
         sandbox: true,
         ..Default::default()
     };
@@ -41,7 +41,7 @@ async fn test_set_position_mode_single() {
 async fn test_fetch_position_mode() {
     let config = ExchangeConfig {
         api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_SECRET").unwrap_or_default()),
+        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
         sandbox: true,
         ..Default::default()
     };
@@ -55,7 +55,7 @@ async fn test_fetch_position_mode() {
 async fn test_position_mode_toggle() {
     let config = ExchangeConfig {
         api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_SECRET").unwrap_or_default()),
+        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
         sandbox: true,
         ..Default::default()
     };
@@ -69,7 +69,7 @@ async fn test_position_mode_toggle() {
 async fn test_set_position_mode_with_params() {
     let config = ExchangeConfig {
         api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_SECRET").unwrap_or_default()),
+        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
         sandbox: true,
         ..Default::default()
     };
@@ -113,7 +113,7 @@ mod position_mode_integration_tests {
     async fn test_complete_position_mode_workflow() {
         let config = ExchangeConfig {
             api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-            secret: Some(std::env::var("BINANCE_SECRET").unwrap_or_default()),
+            secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
             sandbox: true,
             ..Default::default()
         };

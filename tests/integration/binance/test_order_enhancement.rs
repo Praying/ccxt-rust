@@ -12,7 +12,7 @@ use std::collections::HashMap;
 async fn test_fetch_order_trades() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     
     let exchange = Binance::new(config);
     
@@ -48,7 +48,7 @@ async fn test_fetch_order_trades() {
 async fn test_fetch_canceled_orders() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     
     let exchange = Binance::new(config);
     
@@ -85,7 +85,7 @@ async fn test_fetch_canceled_orders() {
 async fn test_fetch_canceled_orders_no_symbol() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     
     let exchange = Binance::new(config);
     
@@ -118,7 +118,7 @@ async fn test_fetch_canceled_orders_no_symbol() {
 async fn test_create_market_buy_order_with_cost() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     // 使用测试网
     config.insert("testnet".to_string(), "true".to_string());
     
@@ -155,7 +155,7 @@ async fn test_create_market_buy_order_with_cost() {
 async fn test_create_market_buy_order_with_cost_futures_error() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     
     let exchange = Binance::new(config);
     
@@ -179,7 +179,7 @@ async fn test_create_market_buy_order_with_cost_futures_error() {
 async fn test_create_order_with_cost_param() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     config.insert("testnet".to_string(), "true".to_string());
     
     let exchange = Binance::new(config);
@@ -221,7 +221,7 @@ async fn test_create_order_with_cost_param() {
 async fn test_fetch_order_trades_futures_error() {
     let mut config = HashMap::new();
     config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_SECRET").unwrap());
+    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
     
     let exchange = Binance::new(config);
     

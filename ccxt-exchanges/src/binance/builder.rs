@@ -241,6 +241,52 @@ impl BinanceBuilder {
         self
     }
 
+    /// Sets the time sync interval in seconds.
+    ///
+    /// Controls how often the time offset is refreshed when auto sync is enabled.
+    /// Default is 30 seconds.
+    ///
+    /// # Arguments
+    ///
+    /// * `seconds` - Sync interval in seconds.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::BinanceBuilder;
+    ///
+    /// let builder = BinanceBuilder::new()
+    ///     .time_sync_interval(60); // Sync every 60 seconds
+    /// ```
+    pub fn time_sync_interval(mut self, seconds: u64) -> Self {
+        self.options.time_sync_interval_secs = seconds;
+        self
+    }
+
+    /// Enables or disables automatic periodic time sync.
+    ///
+    /// When enabled, the time offset will be automatically refreshed
+    /// based on the configured sync interval.
+    /// Default is true.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to enable automatic time sync.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::BinanceBuilder;
+    ///
+    /// // Disable automatic sync for manual control
+    /// let builder = BinanceBuilder::new()
+    ///     .auto_time_sync(false);
+    /// ```
+    pub fn auto_time_sync(mut self, enabled: bool) -> Self {
+        self.options.auto_time_sync = enabled;
+        self
+    }
+
     /// Enables or disables rate limiting.
     ///
     /// # Arguments
@@ -482,5 +528,58 @@ mod tests {
             .build();
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_builder_time_sync_interval() {
+        let builder = BinanceBuilder::new().time_sync_interval(60);
+        assert_eq!(builder.options.time_sync_interval_secs, 60);
+    }
+
+    #[test]
+    fn test_builder_auto_time_sync() {
+        let builder = BinanceBuilder::new().auto_time_sync(false);
+        assert!(!builder.options.auto_time_sync);
+    }
+
+    #[test]
+    fn test_builder_time_sync_chaining() {
+        let builder = BinanceBuilder::new()
+            .time_sync_interval(120)
+            .auto_time_sync(false);
+
+        assert_eq!(builder.options.time_sync_interval_secs, 120);
+        assert!(!builder.options.auto_time_sync);
+    }
+
+    #[test]
+    fn test_builder_build_with_time_sync_config() {
+        let result = BinanceBuilder::new()
+            .time_sync_interval(60)
+            .auto_time_sync(true)
+            .build();
+
+        assert!(result.is_ok());
+        let binance = result.unwrap();
+
+        // Verify the TimeSyncManager was created with correct config
+        let time_sync = binance.time_sync();
+        assert_eq!(
+            time_sync.config().sync_interval,
+            std::time::Duration::from_secs(60)
+        );
+        assert!(time_sync.config().auto_sync);
+    }
+
+    #[test]
+    fn test_builder_build_time_sync_disabled() {
+        let result = BinanceBuilder::new().auto_time_sync(false).build();
+
+        assert!(result.is_ok());
+        let binance = result.unwrap();
+
+        // Verify auto_sync is disabled
+        let time_sync = binance.time_sync();
+        assert!(!time_sync.config().auto_sync);
     }
 }
