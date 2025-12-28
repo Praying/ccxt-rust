@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 pub mod auth;
 pub mod builder;
+pub mod endpoint_router;
 pub mod error;
 pub mod parser;
 pub mod rest;
@@ -19,6 +20,7 @@ mod ws_exchange_impl;
 
 pub use auth::BybitAuth;
 pub use builder::BybitBuilder;
+pub use endpoint_router::BybitEndpointRouter;
 pub use error::{BybitErrorCode, is_error_response, parse_error};
 
 /// Bybit exchange structure.

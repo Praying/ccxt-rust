@@ -132,10 +132,10 @@ pub use ws_exchange::{FullExchange, MessageStream, WsExchange};
 pub use error::ErrorContext;
 pub use types::{
     Amount, Balance, BalanceEntry, Cost, Currency, CurrencyNetwork, DefaultSubType, DefaultType,
-    DefaultTypeError, Fee, Market, MarketLimits, MarketPrecision, MarketType, MinMax, Ohlcv, Order,
-    OrderBook, OrderBookEntry, OrderBookSide, OrderSide, OrderStatus, OrderType, PrecisionMode,
-    Price, TakerOrMaker, Ticker, TickerParams, TickerParamsBuilder, Timeframe, Trade,
-    TradingLimits, resolve_market_type,
+    DefaultTypeError, EndpointType, Fee, Market, MarketLimits, MarketPrecision, MarketType, MinMax,
+    Ohlcv, Order, OrderBook, OrderBookEntry, OrderBookSide, OrderSide, OrderStatus, OrderType,
+    PrecisionMode, Price, TakerOrMaker, Ticker, TickerParams, TickerParamsBuilder, Timeframe,
+    Trade, TradingLimits, resolve_market_type,
 };
 // Re-export symbol types for unified symbol format
 pub use symbol::{SymbolError, SymbolFormatter, SymbolParser};
@@ -180,10 +180,10 @@ pub mod prelude {
     };
     pub use crate::types::{
         Amount, Balance, BalanceEntry, Currency, DefaultSubType, DefaultType, DefaultTypeError,
-        Fee, Market, MarketLimits, MarketPrecision, MarketType, Ohlcv, Order, OrderBook,
-        OrderBookEntry, OrderBookSide, OrderSide, OrderStatus, OrderType, PrecisionMode, Price,
-        Symbol, TakerOrMaker, Ticker, TickerParams, TickerParamsBuilder, Timeframe, Timestamp,
-        Trade, TradingLimits, resolve_market_type,
+        EndpointType, Fee, Market, MarketLimits, MarketPrecision, MarketType, Ohlcv, Order,
+        OrderBook, OrderBookEntry, OrderBookSide, OrderSide, OrderStatus, OrderType, PrecisionMode,
+        Price, Symbol, TakerOrMaker, Ticker, TickerParams, TickerParamsBuilder, Timeframe,
+        Timestamp, Trade, TradingLimits, resolve_market_type,
     };
     // Symbol types for unified symbol format
     pub use crate::symbol::{SymbolError, SymbolFormatter, SymbolParser};

@@ -50,6 +50,7 @@ use ccxt_core::{BaseExchange, ExchangeConfig, Result};
 
 pub mod auth;
 pub mod builder;
+pub mod endpoint_router;
 pub mod error;
 mod exchange_impl;
 pub mod parser;
@@ -59,6 +60,7 @@ mod ws_exchange_impl;
 
 pub use auth::HyperLiquidAuth;
 pub use builder::{HyperLiquidBuilder, validate_default_type};
+pub use endpoint_router::HyperLiquidEndpointRouter;
 pub use error::{HyperLiquidErrorCode, is_error_response, parse_error};
 
 /// HyperLiquid exchange structure.
