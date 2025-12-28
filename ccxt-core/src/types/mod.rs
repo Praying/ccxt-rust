@@ -14,6 +14,8 @@ pub mod bid_ask;
 pub mod currency;
 /// Default type configuration for exchange operations
 pub mod default_type;
+/// Endpoint type for public/private API distinction
+pub mod endpoint;
 pub mod fee;
 /// Financial types with enhanced type safety (Price, Amount, Cost)
 pub mod financial;
@@ -47,6 +49,7 @@ pub use balance::{Balance, BalanceEntry, MaxBorrowable, MaxTransferable};
 pub use bid_ask::BidAsk;
 pub use currency::{Currency, CurrencyNetwork, MinMax, PrecisionMode};
 pub use default_type::{DefaultSubType, DefaultType, DefaultTypeError, resolve_market_type};
+pub use endpoint::EndpointType;
 pub use fee::{
     FundingRate as FeeFundingRate, FundingRateHistory as FeeFundingRateHistory, LeverageTier,
     TradingFee as FeeTradingFee,

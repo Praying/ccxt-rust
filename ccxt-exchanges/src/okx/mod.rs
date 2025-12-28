@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 pub mod auth;
 pub mod builder;
+pub mod endpoint_router;
 pub mod error;
 pub mod exchange_impl;
 pub mod parser;
@@ -20,6 +21,7 @@ pub mod ws_exchange_impl;
 
 pub use auth::OkxAuth;
 pub use builder::OkxBuilder;
+pub use endpoint_router::{OkxChannelType, OkxEndpointRouter};
 pub use error::{OkxErrorCode, is_error_response, parse_error};
 
 /// OKX exchange structure.

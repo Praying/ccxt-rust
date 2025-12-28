@@ -2,6 +2,7 @@
 //!
 //! Supports spot trading, futures trading, and options trading with complete REST API and WebSocket support.
 
+use ccxt_core::types::EndpointType;
 use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -12,6 +13,7 @@ use std::time::Duration;
 
 pub mod auth;
 pub mod builder;
+pub mod endpoint_router;
 pub mod error;
 mod exchange_impl;
 pub mod parser;
@@ -23,9 +25,9 @@ pub mod ws;
 mod ws_exchange_impl;
 
 pub use builder::BinanceBuilder;
+pub use endpoint_router::BinanceEndpointRouter;
 pub use signed_request::{HttpMethod, SignedRequestBuilder};
 pub use time_sync::{TimeSyncConfig, TimeSyncManager};
-
 /// Binance exchange structure.
 #[derive(Debug)]
 pub struct Binance {
@@ -488,19 +490,13 @@ impl Binance {
     /// # Returns
     ///
     /// The appropriate WebSocket URL string.
-    fn get_ws_url(&self) -> String {
-        let urls = self.urls();
-        match self.options.default_type {
-            DefaultType::Swap | DefaultType::Futures => {
-                // Check sub-type for FAPI vs DAPI selection
-                match self.options.default_sub_type {
-                    Some(DefaultSubType::Inverse) => urls.ws_dapi,
-                    _ => urls.ws_fapi, // Default to FAPI (Linear) if not specified
-                }
-            }
-            DefaultType::Option => urls.ws_eapi,
-            _ => urls.ws, // Spot and Margin use standard WebSocket
-        }
+    ///
+    /// # Note
+    ///
+    /// This method delegates to `BinanceEndpointRouter::default_ws_endpoint()`.
+    /// The routing logic is centralized in the trait implementation.
+    pub fn get_ws_url(&self) -> String {
+        BinanceEndpointRouter::default_ws_endpoint(self)
     }
 
     /// Returns the public REST API base URL based on default_type and default_sub_type.
@@ -515,6 +511,11 @@ impl Binance {
     /// # Returns
     ///
     /// The appropriate REST API base URL string.
+    ///
+    /// # Note
+    ///
+    /// This method delegates to `BinanceEndpointRouter::default_rest_endpoint(EndpointType::Public)`.
+    /// The routing logic is centralized in the trait implementation.
     ///
     /// # Example
     ///
@@ -533,18 +534,7 @@ impl Binance {
     /// assert!(url.contains("fapi.binance.com"));
     /// ```
     pub fn get_rest_url_public(&self) -> String {
-        let urls = self.urls();
-        match self.options.default_type {
-            DefaultType::Spot => urls.public.clone(),
-            DefaultType::Margin => urls.sapi.clone(),
-            DefaultType::Swap | DefaultType::Futures => {
-                match self.options.default_sub_type {
-                    Some(DefaultSubType::Inverse) => urls.dapi_public.clone(),
-                    _ => urls.fapi_public.clone(), // Default to FAPI (Linear)
-                }
-            }
-            DefaultType::Option => urls.eapi_public.clone(),
-        }
+        BinanceEndpointRouter::default_rest_endpoint(self, EndpointType::Public)
     }
 
     /// Returns the private REST API base URL based on default_type and default_sub_type.
@@ -559,6 +549,11 @@ impl Binance {
     /// # Returns
     ///
     /// The appropriate REST API base URL string.
+    ///
+    /// # Note
+    ///
+    /// This method delegates to `BinanceEndpointRouter::default_rest_endpoint(EndpointType::Private)`.
+    /// The routing logic is centralized in the trait implementation.
     ///
     /// # Example
     ///
@@ -577,18 +572,7 @@ impl Binance {
     /// assert!(url.contains("dapi.binance.com"));
     /// ```
     pub fn get_rest_url_private(&self) -> String {
-        let urls = self.urls();
-        match self.options.default_type {
-            DefaultType::Spot => urls.private.clone(),
-            DefaultType::Margin => urls.sapi.clone(),
-            DefaultType::Swap | DefaultType::Futures => {
-                match self.options.default_sub_type {
-                    Some(DefaultSubType::Inverse) => urls.dapi_private.clone(),
-                    _ => urls.fapi_private.clone(), // Default to FAPI (Linear)
-                }
-            }
-            DefaultType::Option => urls.eapi_private.clone(),
-        }
+        BinanceEndpointRouter::default_rest_endpoint(self, EndpointType::Private)
     }
 
     /// Checks if the current default_type is a contract type (Swap, Futures, or Option).

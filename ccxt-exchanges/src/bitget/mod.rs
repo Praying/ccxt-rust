@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 pub mod auth;
 pub mod builder;
+pub mod endpoint_router;
 pub mod error;
 mod exchange_impl;
 pub mod parser;
@@ -18,6 +19,7 @@ mod ws_exchange_impl;
 
 pub use auth::BitgetAuth;
 pub use builder::BitgetBuilder;
+pub use endpoint_router::BitgetEndpointRouter;
 pub use error::{BitgetErrorCode, is_error_response, parse_error};
 pub use parser::{
     datetime_to_timestamp, parse_balance, parse_market, parse_ohlcv, parse_order,
