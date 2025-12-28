@@ -6,8 +6,9 @@
 use super::super::{Binance, parser, signed_request::HttpMethod};
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Order, OrderSide, OrderType},
+    types::{Amount, Order, OrderSide, OrderType, Price},
 };
+use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
@@ -19,8 +20,8 @@ impl Binance {
     /// * `symbol` - Trading pair symbol.
     /// * `order_type` - Order type (Market, Limit, StopLoss, etc.).
     /// * `side` - Order side (Buy or Sell).
-    /// * `amount` - Order quantity.
-    /// * `price` - Optional price (required for limit orders).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `price` - Optional price as [`Price`] type (required for limit orders).
     /// * `params` - Additional parameters.
     ///
     /// # Returns
@@ -35,8 +36,8 @@ impl Binance {
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: f64,
-        price: Option<f64>,
+        amount: Amount,
+        price: Option<Price>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Order> {
         let market = self.base().market(symbol).await?;
@@ -119,10 +120,15 @@ impl Binance {
             if market.is_spot() {
                 if !request_params.contains_key("trailingDelta") {
                     if let Some(percent_str) = request_params.get("trailingPercent") {
-                        if let Ok(percent) = percent_str.parse::<f64>() {
-                            let delta = (percent * 100.0) as i64;
-                            request_params.insert("trailingDelta".to_string(), delta.to_string());
-                            request_params.remove("trailingPercent");
+                        if let Ok(percent) = percent_str.parse::<Decimal>() {
+                            // Convert percentage to basis points (e.g., 2.0% -> 200)
+                            let delta = (percent * Decimal::from(100)).to_string();
+                            // Parse as integer for the API
+                            if let Ok(delta_int) = delta.parse::<i64>() {
+                                request_params
+                                    .insert("trailingDelta".to_string(), delta_int.to_string());
+                                request_params.remove("trailingPercent");
+                            }
                         }
                     }
                 }
@@ -441,9 +447,9 @@ impl Binance {
     ///
     /// * `symbol` - Trading pair symbol.
     /// * `side` - Order side (Buy/Sell).
-    /// * `amount` - Order quantity.
-    /// * `stop_price` - Stop-loss trigger price.
-    /// * `price` - Optional limit price (if `None`, creates market stop-loss order).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `stop_price` - Stop-loss trigger price as [`Price`] type.
+    /// * `price` - Optional limit price as [`Price`] type (if `None`, creates market stop-loss order).
     /// * `params` - Optional additional parameters.
     ///
     /// # Returns
@@ -457,9 +463,9 @@ impl Binance {
         &self,
         symbol: &str,
         side: OrderSide,
-        amount: f64,
-        stop_price: f64,
-        price: Option<f64>,
+        amount: Amount,
+        stop_price: Price,
+        price: Option<Price>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Order> {
         let mut request_params = params.unwrap_or_default();
@@ -489,9 +495,9 @@ impl Binance {
     ///
     /// * `symbol` - Trading pair symbol.
     /// * `side` - Order side (Buy/Sell).
-    /// * `amount` - Order quantity.
-    /// * `take_profit_price` - Take-profit trigger price.
-    /// * `price` - Optional limit price (if `None`, creates market take-profit order).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `take_profit_price` - Take-profit trigger price as [`Price`] type.
+    /// * `price` - Optional limit price as [`Price`] type (if `None`, creates market take-profit order).
     /// * `params` - Optional additional parameters.
     ///
     /// # Returns
@@ -505,9 +511,9 @@ impl Binance {
         &self,
         symbol: &str,
         side: OrderSide,
-        amount: f64,
-        take_profit_price: f64,
-        price: Option<f64>,
+        amount: Amount,
+        take_profit_price: Price,
+        price: Option<Price>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Order> {
         let mut request_params = params.unwrap_or_default();
@@ -537,9 +543,9 @@ impl Binance {
     ///
     /// * `symbol` - Trading pair symbol.
     /// * `side` - Order side (Buy/Sell).
-    /// * `amount` - Order quantity.
-    /// * `trailing_percent` - Trailing percentage (e.g., 2.0 for 2%).
-    /// * `activation_price` - Optional activation price (not supported for spot markets).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `trailing_percent` - Trailing percentage as [`Decimal`] (e.g., 2.0 for 2%).
+    /// * `activation_price` - Optional activation price as [`Price`] type (not supported for spot markets).
     /// * `params` - Optional additional parameters.
     ///
     /// # Returns
@@ -553,9 +559,9 @@ impl Binance {
         &self,
         symbol: &str,
         side: OrderSide,
-        amount: f64,
-        trailing_percent: f64,
-        activation_price: Option<f64>,
+        amount: Amount,
+        trailing_percent: Decimal,
+        activation_price: Option<Price>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Order> {
         let mut request_params = params.unwrap_or_default();

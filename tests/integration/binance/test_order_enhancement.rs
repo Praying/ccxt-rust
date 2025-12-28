@@ -2,19 +2,37 @@
 //!
 //! 测试新增的3个订单相关方法
 
-use ccxt_exchanges::Binance;
-use ccxt_core::types::{OrderSide, OrderType, OrderStatus};
+use ccxt_core::{ExchangeConfig, types::{Amount, Price, OrderSide, OrderType, OrderStatus}};
+use ccxt_exchanges::binance::Binance;
+use rust_decimal_macros::dec;
 use std::collections::HashMap;
+
+/// 创建测试用的Binance实例
+fn create_test_binance() -> Binance {
+    let config = ExchangeConfig {
+        api_key: std::env::var("BINANCE_API_KEY").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
+        ..Default::default()
+    };
+    Binance::new(config).expect("Failed to create Binance instance")
+}
+
+/// 创建测试网Binance实例
+fn create_testnet_binance() -> Binance {
+    let config = ExchangeConfig {
+        api_key: std::env::var("BINANCE_API_KEY").ok(),
+        secret: std::env::var("BINANCE_API_SECRET").ok(),
+        sandbox: true,
+        ..Default::default()
+    };
+    Binance::new(config).expect("Failed to create Binance instance")
+}
 
 /// 测试 fetch_order_trades() - 查询订单成交记录
 #[tokio::test]
 #[ignore] // 需要有效的API密钥和真实订单ID
 async fn test_fetch_order_trades() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_test_binance();
     
     // 需要一个真实的订单ID
     let order_id = "12345678";
@@ -46,11 +64,7 @@ async fn test_fetch_order_trades() {
 #[tokio::test]
 #[ignore] // 需要有效的API密钥
 async fn test_fetch_canceled_orders() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_test_binance();
     
     let symbol = "BTC/USDT";
     let mut params = HashMap::new();
@@ -83,11 +97,7 @@ async fn test_fetch_canceled_orders() {
 #[tokio::test]
 #[ignore] // 需要有效的API密钥
 async fn test_fetch_canceled_orders_no_symbol() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_test_binance();
     
     let mut params = HashMap::new();
     params.insert("limit".to_string(), "5".to_string());
@@ -116,13 +126,7 @@ async fn test_fetch_canceled_orders_no_symbol() {
 #[tokio::test]
 #[ignore] // 需要有效的API密钥且会产生真实交易
 async fn test_create_market_buy_order_with_cost() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    // 使用测试网
-    config.insert("testnet".to_string(), "true".to_string());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_testnet_binance();
     
     let symbol = "BTC/USDT";
     let cost = 10.0; // 花费10 USDT
@@ -153,11 +157,7 @@ async fn test_create_market_buy_order_with_cost() {
 #[tokio::test]
 #[ignore] // 需要有效的API密钥
 async fn test_create_market_buy_order_with_cost_futures_error() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_test_binance();
     
     // 尝试在合约市场使用此方法
     let symbol = "BTC/USDT:USDT"; // 合约交易对
@@ -177,12 +177,7 @@ async fn test_create_market_buy_order_with_cost_futures_error() {
 #[tokio::test]
 #[ignore] // 需要有效的API密钥且会产生真实交易
 async fn test_create_order_with_cost_param() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    config.insert("testnet".to_string(), "true".to_string());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_testnet_binance();
     
     let symbol = "ETH/USDT";
     let cost = 10.0;
@@ -194,7 +189,7 @@ async fn test_create_order_with_cost_param() {
         symbol,
         OrderType::Market,
         OrderSide::Buy,
-        cost, // 这个参数会被忽略
+        Amount::new(dec!(0.0)), // 这个参数会被忽略，使用cost参数
         None,
         Some(params)
     ).await;
@@ -219,11 +214,7 @@ async fn test_create_order_with_cost_param() {
 #[tokio::test]
 #[ignore] // 需要有效的API密钥
 async fn test_fetch_order_trades_futures_error() {
-    let mut config = HashMap::new();
-    config.insert("apiKey".to_string(), std::env::var("BINANCE_API_KEY").unwrap());
-    config.insert("secret".to_string(), std::env::var("BINANCE_API_SECRET").unwrap());
-    
-    let exchange = Binance::new(config);
+    let exchange = create_test_binance();
     
     // 尝试查询合约订单的成交记录
     let order_id = "12345678";

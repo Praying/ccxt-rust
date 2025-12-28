@@ -5,7 +5,10 @@
 use super::{Okx, OkxAuth, error, parser};
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Ticker, Trade},
+    types::{
+        Amount, Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
+        Trade,
+    },
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -733,8 +736,8 @@ impl Okx {
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: f64,
-        price: Option<f64>,
+        amount: Amount,
+        price: Option<Price>,
     ) -> Result<Order> {
         let market = self.base().market(symbol).await?;
 

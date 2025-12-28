@@ -1,3 +1,4 @@
+use ccxt_core::types::financial::{Amount, Price};
 use ccxt_core::{ExchangeConfig, Order, OrderSide, OrderStatus, OrderType};
 use ccxt_exchanges::binance::Binance;
 use rust_decimal_macros::dec;
@@ -20,8 +21,8 @@ async fn test_create_stop_loss_market_order() {
         .create_stop_loss_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            45000.0,
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(45000.0)),
             None, // Market order
             None,
         )
@@ -65,9 +66,9 @@ async fn test_create_stop_loss_limit_order() {
         .create_stop_loss_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            45000.0,
-            Some(44900.0), // Limit price
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(45000.0)),
+            Some(Price::new(dec!(44900.0))), // Limit price
             None,
         )
         .await;
@@ -109,8 +110,8 @@ async fn test_create_take_profit_market_order() {
         .create_take_profit_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            55000.0,
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(55000.0)),
             None, // Market order
             None,
         )
@@ -154,9 +155,9 @@ async fn test_create_take_profit_limit_order() {
         .create_take_profit_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            55000.0,
-            Some(55100.0), // Limit price
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(55000.0)),
+            Some(Price::new(dec!(55100.0))), // Limit price
             None,
         )
         .await;
@@ -201,8 +202,8 @@ async fn test_create_trailing_stop_order_spot() {
         .create_trailing_stop_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            1.5, // 1.5% callback rate
+            Amount::new(dec!(0.001)),
+            dec!(1.5), // 1.5% callback rate
             None,
             None,
         )
@@ -242,9 +243,9 @@ async fn test_create_trailing_stop_order_with_activation() {
         .create_trailing_stop_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            1.5,           // 1.5% callback rate
-            Some(52000.0), // Activation price
+            Amount::new(dec!(0.001)),
+            dec!(1.5),                       // 1.5% callback rate
+            Some(Price::new(dec!(52000.0))), // Activation price
             None,
         )
         .await;
@@ -292,8 +293,8 @@ async fn test_create_order_with_stop_loss() {
             "BTC/USDT",
             OrderType::StopLossLimit,
             OrderSide::Sell,
-            0.001,
-            Some(44900.0),
+            Amount::new(dec!(0.001)),
+            Some(Price::new(dec!(44900.0))),
             Some(params),
         )
         .await;
@@ -340,7 +341,7 @@ async fn test_create_order_with_trailing_stop() {
             "BTC/USDT",
             OrderType::TrailingStop,
             OrderSide::Sell,
-            0.001,
+            Amount::new(dec!(0.001)),
             None,
             Some(params),
         )
@@ -384,8 +385,8 @@ async fn test_stop_loss_order_validation() {
             "BTC/USDT",
             OrderType::StopLossLimit,
             OrderSide::Sell,
-            0.001,
-            Some(44900.0),
+            Amount::new(dec!(0.001)),
+            Some(Price::new(dec!(44900.0))),
             None, // Missing stopPrice
         )
         .await;
@@ -412,7 +413,7 @@ async fn test_trailing_stop_order_validation() {
             "BTC/USDT",
             OrderType::TrailingStop,
             OrderSide::Sell,
-            0.001,
+            Amount::new(dec!(0.001)),
             None,
             None, // Missing trailingPercent
         )
@@ -446,8 +447,8 @@ async fn test_stop_price_mapping() {
             "BTC/USDT",
             OrderType::StopLossLimit,
             OrderSide::Sell,
-            0.001,
-            Some(44900.0),
+            Amount::new(dec!(0.001)),
+            Some(Price::new(dec!(44900.0))),
             Some(params),
         )
         .await;
@@ -484,8 +485,8 @@ async fn test_trailing_stop_futures() {
         .create_trailing_stop_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            1.5, // 将被转换为callbackRate
+            Amount::new(dec!(0.001)),
+            dec!(1.5), // 将被转换为callbackRate
             None,
             Some(params),
         )
@@ -577,8 +578,8 @@ mod integration_tests {
                 "BTC/USDT",
                 OrderType::Limit,
                 OrderSide::Buy,
-                0.001,
-                Some(50000.0),
+                Amount::new(dec!(0.001)),
+                Some(Price::new(dec!(50000.0))),
                 None,
             )
             .await;
@@ -591,9 +592,9 @@ mod integration_tests {
             .create_stop_loss_order(
                 "BTC/USDT",
                 OrderSide::Sell,
-                0.001,
-                48000.0,       // 止损价格
-                Some(47900.0), // 限价
+                Amount::new(dec!(0.001)),
+                Price::new(dec!(48000.0)),       // 止损价格
+                Some(Price::new(dec!(47900.0))), // 限价
                 None,
             )
             .await;
@@ -606,9 +607,9 @@ mod integration_tests {
             .create_take_profit_order(
                 "BTC/USDT",
                 OrderSide::Sell,
-                0.001,
-                55000.0,       // 止盈价格
-                Some(55100.0), // 限价
+                Amount::new(dec!(0.001)),
+                Price::new(dec!(55000.0)),       // 止盈价格
+                Some(Price::new(dec!(55100.0))), // 限价
                 None,
             )
             .await;

@@ -25,11 +25,11 @@ use ccxt_core::{
     exchange::{Capability, Exchange, ExchangeCapabilities},
     traits::PublicExchange,
     types::{
-        Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Ticker, Timeframe, Trade,
+        Amount, Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
+        Timeframe, Trade,
     },
 };
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 
 use super::Binance;
@@ -169,21 +169,11 @@ impl Exchange for Binance {
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: Decimal,
-        price: Option<Decimal>,
+        amount: Amount,
+        price: Option<Price>,
     ) -> Result<Order> {
-        // Convert Decimal to f64 for existing implementation
-        let amount_f64 = amount
-            .to_f64()
-            .ok_or_else(|| ccxt_core::Error::invalid_request("Failed to convert amount to f64"))?;
-        let price_f64 = match price {
-            Some(p) => Some(p.to_f64().ok_or_else(|| {
-                ccxt_core::Error::invalid_request("Failed to convert price to f64")
-            })?),
-            None => None,
-        };
-
-        Binance::create_order(self, symbol, order_type, side, amount_f64, price_f64, None).await
+        // Direct delegation - no type conversion needed
+        Binance::create_order(self, symbol, order_type, side, amount, price, None).await
     }
 
     async fn cancel_order(&self, id: &str, symbol: Option<&str>) -> Result<Order> {

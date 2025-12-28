@@ -187,11 +187,11 @@
 //! - [`crate::base_exchange::BaseExchange`]: Base implementation utilities
 
 use async_trait::async_trait;
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::Result;
+use crate::types::financial::{Amount, Price};
 use crate::types::*;
 
 // Re-export ExchangeCapabilities and related types from the capability module
@@ -406,8 +406,8 @@ pub trait Exchange: Send + Sync {
     /// * `symbol` - Trading pair symbol
     /// * `order_type` - Order type (limit, market, etc.)
     /// * `side` - Order side (buy or sell)
-    /// * `amount` - Order amount
-    /// * `price` - Optional price (required for limit orders)
+    /// * `amount` - Order amount (type-safe Amount wrapper)
+    /// * `price` - Optional price (required for limit orders, type-safe Price wrapper)
     ///
     /// # Returns
     ///
@@ -421,8 +421,8 @@ pub trait Exchange: Send + Sync {
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: Decimal,
-        price: Option<Decimal>,
+        amount: Amount,
+        price: Option<Price>,
     ) -> Result<Order>;
 
     /// Cancel an existing order

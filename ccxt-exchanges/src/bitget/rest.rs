@@ -5,7 +5,10 @@
 use super::{Bitget, BitgetAuth, error, parser};
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Ticker, Trade},
+    types::{
+        Amount, Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
+        Trade,
+    },
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -800,8 +803,8 @@ impl Bitget {
     /// * `symbol` - Trading pair symbol.
     /// * `order_type` - Order type (Market, Limit).
     /// * `side` - Order side (Buy or Sell).
-    /// * `amount` - Order quantity.
-    /// * `price` - Optional price (required for limit orders).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `price` - Optional price as [`Price`] type (required for limit orders).
     ///
     /// # Returns
     ///
@@ -815,7 +818,8 @@ impl Bitget {
     ///
     /// ```no_run
     /// # use ccxt_exchanges::bitget::Bitget;
-    /// # use ccxt_core::types::{OrderType, OrderSide};
+    /// # use ccxt_core::types::{OrderType, OrderSide, Amount, Price};
+    /// # use rust_decimal_macros::dec;
     /// # async fn example() -> ccxt_core::Result<()> {
     /// let bitget = Bitget::builder()
     ///     .api_key("your-api-key")
@@ -829,8 +833,8 @@ impl Bitget {
     ///     "BTC/USDT",
     ///     OrderType::Limit,
     ///     OrderSide::Buy,
-    ///     0.001,
-    ///     Some(50000.0),
+    ///     Amount::new(dec!(0.001)),
+    ///     Some(Price::new(dec!(50000.0))),
     /// ).await?;
     /// println!("Order created: {}", order.id);
     /// # Ok(())
@@ -841,8 +845,8 @@ impl Bitget {
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: f64,
-        price: Option<f64>,
+        amount: Amount,
+        price: Option<Price>,
     ) -> Result<Order> {
         let market = self.base().market(symbol).await?;
 

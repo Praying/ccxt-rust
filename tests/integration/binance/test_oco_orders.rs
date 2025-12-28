@@ -8,8 +8,9 @@
 //! 5. 创建测试订单
 //! 6. 修改现有订单
 
-use ccxt_core::{ExchangeConfig, types::{OrderSide, OrderType, OrderStatus}};
+use ccxt_core::{ExchangeConfig, types::{Amount, Price, OrderSide, OrderType, OrderStatus}};
 use ccxt_exchanges::binance::Binance;
+use rust_decimal_macros::dec;
 
 /// 创建测试用的Binance实例
 fn create_test_binance() -> Binance {
@@ -284,8 +285,8 @@ async fn test_edit_order() {
         "BTC/USDT",
         OrderType::Limit,
         OrderSide::Buy,
-        rust_decimal::Decimal::from_f64_retain(0.001).unwrap(),
-        Some(rust_decimal::Decimal::from_f64_retain(35000.0).unwrap()),
+        Amount::new(dec!(0.001)),
+        Some(Price::new(dec!(35000.0))),
         None,
     ).await;
     
@@ -303,8 +304,8 @@ async fn test_edit_order() {
             "BTC/USDT",
             OrderType::Limit,
             OrderSide::Buy,
-            rust_decimal::Decimal::from_f64_retain(0.001).unwrap(),
-            Some(rust_decimal::Decimal::from_f64_retain(34000.0).unwrap()),
+            Amount::new(dec!(0.001)),
+            Some(Price::new(dec!(34000.0))),
             None,
         ).await;
         
