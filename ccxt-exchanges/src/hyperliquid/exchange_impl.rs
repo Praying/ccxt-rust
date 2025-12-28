@@ -7,11 +7,10 @@ use ccxt_core::{
     Result,
     exchange::{Capability, Exchange, ExchangeCapabilities},
     types::{
-        Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Ticker, Timeframe, Trade,
+        Amount, Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
+        Timeframe, Trade,
     },
 };
-use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 
 use super::HyperLiquid;
@@ -142,20 +141,11 @@ impl Exchange for HyperLiquid {
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: Decimal,
-        price: Option<Decimal>,
+        amount: Amount,
+        price: Option<Price>,
     ) -> Result<Order> {
-        let amount_f64 = amount
-            .to_f64()
-            .ok_or_else(|| ccxt_core::Error::invalid_request("Failed to convert amount to f64"))?;
-        let price_f64 = match price {
-            Some(p) => Some(p.to_f64().ok_or_else(|| {
-                ccxt_core::Error::invalid_request("Failed to convert price to f64")
-            })?),
-            None => None,
-        };
-
-        HyperLiquid::create_order(self, symbol, order_type, side, amount_f64, price_f64).await
+        // Direct delegation - no type conversion needed
+        HyperLiquid::create_order(self, symbol, order_type, side, amount, price).await
     }
 
     async fn cancel_order(&self, id: &str, symbol: Option<&str>) -> Result<Order> {

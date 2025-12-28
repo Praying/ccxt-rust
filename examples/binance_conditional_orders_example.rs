@@ -2,8 +2,10 @@
 #![allow(unused_variables)]
 
 use ccxt_core::ExchangeConfig;
+use ccxt_core::types::{Amount, Price};
 use ccxt_core::types::{OrderSide, OrderType};
 use ccxt_exchanges::binance::Binance;
+use rust_decimal_macros::dec;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -38,7 +40,14 @@ async fn example_1_market_stop_loss(exchange: &Binance) -> Result<(), Box<dyn st
     println!("Scenario: Sell 0.001 BTC at market price when BTC drops to 45000 USDT");
 
     match exchange
-        .create_stop_loss_order("BTC/USDT", OrderSide::Sell, 0.001, 45000.0, None, None)
+        .create_stop_loss_order(
+            "BTC/USDT",
+            OrderSide::Sell,
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(45000.0)),
+            None,
+            None,
+        )
         .await
     {
         Ok(order) => {
@@ -64,9 +73,9 @@ async fn example_2_limit_stop_loss(exchange: &Binance) -> Result<(), Box<dyn std
         .create_stop_loss_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            45000.0,
-            Some(44900.0),
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(45000.0)),
+            Some(Price::new(dec!(44900.0))),
             None,
         )
         .await
@@ -93,7 +102,14 @@ async fn example_3_market_take_profit(
     println!("Scenario: Sell at market price when BTC rises to 55000");
 
     match exchange
-        .create_take_profit_order("BTC/USDT", OrderSide::Sell, 0.001, 55000.0, None, None)
+        .create_take_profit_order(
+            "BTC/USDT",
+            OrderSide::Sell,
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(55000.0)),
+            None,
+            None,
+        )
         .await
     {
         Ok(order) => {
@@ -118,9 +134,9 @@ async fn example_4_limit_take_profit(exchange: &Binance) -> Result<(), Box<dyn s
         .create_take_profit_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            55000.0,
-            Some(55100.0),
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(55000.0)),
+            Some(Price::new(dec!(55100.0))),
             None,
         )
         .await
@@ -145,7 +161,14 @@ async fn example_5_trailing_stop(exchange: &Binance) -> Result<(), Box<dyn std::
     println!("Scenario: Follows price upward, triggers on 1.5% pullback");
 
     match exchange
-        .create_trailing_stop_order("BTC/USDT", OrderSide::Sell, 0.001, 1.5, None, None)
+        .create_trailing_stop_order(
+            "BTC/USDT",
+            OrderSide::Sell,
+            Amount::new(dec!(0.001)),
+            dec!(1.5),
+            None,
+            None,
+        )
         .await
     {
         Ok(order) => {
@@ -172,7 +195,14 @@ async fn example_6_trailing_stop_with_activation(
     println!("Scenario: Start tracking after price reaches 52000");
 
     match exchange
-        .create_trailing_stop_order("BTC/USDT", OrderSide::Sell, 0.001, 1.5, Some(52000.0), None)
+        .create_trailing_stop_order(
+            "BTC/USDT",
+            OrderSide::Sell,
+            Amount::new(dec!(0.001)),
+            dec!(1.5),
+            Some(Price::new(dec!(52000.0))),
+            None,
+        )
         .await
     {
         Ok(order) => {
@@ -202,8 +232,8 @@ async fn example_7_create_order_method(
             "BTC/USDT",
             OrderType::StopLossLimit,
             OrderSide::Sell,
-            0.001,
-            Some(44900.0),
+            Amount::new(dec!(0.001)),
+            Some(Price::new(dec!(44900.0))),
             Some(stop_params),
         )
         .await
@@ -225,7 +255,7 @@ async fn example_7_create_order_method(
             "BTC/USDT",
             OrderType::TrailingStop,
             OrderSide::Sell,
-            0.001,
+            Amount::new(dec!(0.001)),
             None,
             Some(trailing_params),
         )
@@ -255,8 +285,8 @@ async fn example_8_complete_strategy(exchange: &Binance) -> Result<(), Box<dyn s
             "BTC/USDT",
             OrderType::Limit,
             OrderSide::Buy,
-            0.001,
-            Some(50000.0),
+            Amount::new(dec!(0.001)),
+            Some(Price::new(dec!(50000.0))),
             None,
         )
         .await
@@ -275,9 +305,9 @@ async fn example_8_complete_strategy(exchange: &Binance) -> Result<(), Box<dyn s
         .create_stop_loss_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            48000.0,
-            Some(47900.0),
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(48000.0)),
+            Some(Price::new(dec!(47900.0))),
             None,
         )
         .await
@@ -296,9 +326,9 @@ async fn example_8_complete_strategy(exchange: &Binance) -> Result<(), Box<dyn s
         .create_take_profit_order(
             "BTC/USDT",
             OrderSide::Sell,
-            0.001,
-            55000.0,
-            Some(55100.0),
+            Amount::new(dec!(0.001)),
+            Price::new(dec!(55000.0)),
+            Some(Price::new(dec!(55100.0))),
             None,
         )
         .await

@@ -5,7 +5,9 @@
 use super::{HyperLiquid, error, parser};
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Balance, Market, Order, OrderBook, OrderSide, OrderType, Ticker, Trade},
+    types::{
+        Amount, Balance, Market, Order, OrderBook, OrderSide, OrderType, Price, Ticker, Trade,
+    },
 };
 use rust_decimal::Decimal;
 use serde_json::{Map, Value};
@@ -556,19 +558,37 @@ impl HyperLiquid {
     // ============================================================================
 
     /// Create a new order.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol.
+    /// * `order_type` - Order type (Market, Limit, etc.).
+    /// * `side` - Order side (Buy or Sell).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `price` - Optional price as [`Price`] type (required for limit orders).
+    ///
+    /// # Returns
+    ///
+    /// Returns the created [`Order`] structure with order details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn create_order(
         &self,
         symbol: &str,
         order_type: OrderType,
         side: OrderSide,
-        amount: f64,
-        price: Option<f64>,
+        amount: Amount,
+        price: Option<Price>,
     ) -> Result<Order> {
         let market = self.base().market(symbol).await?;
         let asset_index: u32 = market.id.parse().unwrap_or(0);
 
         let is_buy = matches!(side, OrderSide::Buy);
-        let limit_px = price.unwrap_or(0.0);
+        let limit_px = price
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "0".to_string());
 
         let order_wire = match order_type {
             OrderType::Market => {
@@ -598,7 +618,7 @@ impl HyperLiquid {
             let mut order_map = Map::new();
             order_map.insert("a".to_string(), Value::Number(asset_index.into()));
             order_map.insert("b".to_string(), Value::Bool(is_buy));
-            order_map.insert("p".to_string(), Value::String(limit_px.to_string()));
+            order_map.insert("p".to_string(), Value::String(limit_px));
             order_map.insert("s".to_string(), Value::String(amount.to_string()));
             order_map.insert("r".to_string(), Value::Bool(false));
             order_map.insert("t".to_string(), order_wire);

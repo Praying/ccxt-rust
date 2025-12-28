@@ -9,8 +9,10 @@
 #![allow(clippy::disallowed_methods)]
 #![allow(clippy::collapsible_if)]
 
+use ccxt_core::types::{Amount, Price};
 use ccxt_core::{ExchangeConfig, OrderSide, OrderType};
 use ccxt_exchanges::binance::Binance;
+use rust_decimal_macros::dec;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,8 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "BTC/USDT",
                 OrderType::Limit,
                 OrderSide::Buy,
-                0.001,
-                Some(30000.0), // Very low price, won't fill
+                Amount::new(dec!(0.001)),
+                Some(Price::new(dec!(30000.0))), // Very low price, won't fill
                 None,
             )
             .await
