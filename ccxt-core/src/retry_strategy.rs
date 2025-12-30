@@ -189,6 +189,8 @@ impl RetryStrategy {
     fn apply_jitter(&self, delay_ms: u64) -> u64 {
         use rand::Rng;
         let mut rng = rand::rngs::ThreadRng::default();
+        #[allow(clippy::cast_precision_loss)]
+        #[allow(clippy::cast_possible_truncation)]
         let jitter_range = (delay_ms as f64 * self.config.jitter_factor) as u64;
         let jitter = rng.random_range(0..=jitter_range);
         delay_ms + jitter

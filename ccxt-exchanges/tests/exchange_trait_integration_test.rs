@@ -13,7 +13,7 @@ use ccxt_core::exchange::{ArcExchange, BoxedExchange, Exchange};
 use ccxt_core::types::default_type::DefaultType;
 use ccxt_exchanges::binance::{Binance, BinanceBuilder};
 use std::sync::Arc;
-
+use std::time::Duration;
 // ============================================================================
 // Task 17.1: Trait Object Usage Tests
 // ============================================================================
@@ -448,7 +448,7 @@ fn test_trait_object_with_various_configs() {
 
     // Test with custom timeout
     let custom_timeout_binance = BinanceBuilder::new()
-        .timeout(60)
+        .timeout(Duration::from_secs(60))
         .build()
         .expect("Should create Binance with custom timeout");
 

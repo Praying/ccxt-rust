@@ -13,6 +13,7 @@ use ccxt_core::{
 };
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::Bitget;
 
@@ -97,15 +98,11 @@ impl Exchange for Bitget {
 
     async fn fetch_markets(&self) -> Result<Vec<Market>> {
         let arc_markets = Bitget::fetch_markets(self).await?;
-        Ok(arc_markets.into_values().map(|v| (*v).clone()).collect())
+        Ok(arc_markets.values().map(|v| (**v).clone()).collect())
     }
 
-    async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
-        let arc_markets = Bitget::load_markets(self, reload).await?;
-        Ok(arc_markets
-            .into_iter()
-            .map(|(k, v)| (k, (*v).clone()))
-            .collect())
+    async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
+        Bitget::load_markets(self, reload).await
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -219,7 +216,7 @@ impl Exchange for Bitget {
 
     // ==================== Helper Methods ====================
 
-    async fn market(&self, symbol: &str) -> Result<Market> {
+    async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
         let cache = self.base().market_cache.read().await;
 
         if !cache.loaded {
@@ -232,17 +229,13 @@ impl Exchange for Bitget {
         cache
             .markets
             .get(symbol)
-            .map(|v| (**v).clone())
+            .cloned()
             .ok_or_else(|| ccxt_core::Error::bad_symbol(format!("Market {} not found", symbol)))
     }
 
-    async fn markets(&self) -> HashMap<String, Market> {
+    async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>> {
         let cache = self.base().market_cache.read().await;
-        cache
-            .markets
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect()
+        cache.markets.clone()
     }
 }
 

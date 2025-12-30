@@ -13,6 +13,7 @@ use proptest::prelude::*;
 mod builder_config_preservation {
     use super::*;
     use ccxt_exchanges::bitget::BitgetBuilder;
+    use std::time::Duration;
 
     // Strategy for generating valid API key strings (alphanumeric, 8-64 chars)
     fn api_key_strategy() -> impl Strategy<Value = String> {
@@ -116,7 +117,7 @@ mod builder_config_preservation {
         #[test]
         fn prop_timeout_preserved(timeout in timeout_strategy()) {
             let bitget = BitgetBuilder::new()
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build()
                 .expect("Failed to build Bitget");
 
@@ -140,7 +141,7 @@ mod builder_config_preservation {
                 .sandbox(sandbox)
                 .product_type(&product_type)
                 .recv_window(recv_window)
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build()
                 .expect("Failed to build Bitget");
 
@@ -1613,7 +1614,7 @@ mod market_cache_consistency {
                 assert_eq!(read1.len(), read2.len(), "Cache reads should have same length");
                 assert_eq!(read2.len(), read3.len(), "Cache reads should have same length");
 
-                for (symbol, market1) in &read1 {
+                for (symbol, market1) in read1.iter() {
                     let market2 = read2.get(symbol).expect("Market should exist in read2");
                     let market3 = read3.get(symbol).expect("Market should exist in read3");
 
@@ -1762,6 +1763,7 @@ mod exchange_trait_metadata_consistency {
     use super::*;
     use ccxt_core::exchange::Exchange;
     use ccxt_exchanges::bitget::BitgetBuilder;
+    use std::time::Duration;
 
     // Strategy for generating valid API key strings (alphanumeric, 8-64 chars)
     fn api_key_strategy() -> impl Strategy<Value = String> {
@@ -1815,7 +1817,7 @@ mod exchange_trait_metadata_consistency {
                 .sandbox(sandbox)
                 .product_type(&product_type)
                 .recv_window(recv_window)
-                .timeout(timeout);
+                .timeout(Duration::from_secs(timeout));
 
             if let Some(key) = api_key {
                 builder = builder.api_key(&key);
@@ -1849,7 +1851,7 @@ mod exchange_trait_metadata_consistency {
                 .sandbox(sandbox)
                 .product_type(&product_type)
                 .recv_window(recv_window)
-                .timeout(timeout);
+                .timeout(Duration::from_secs(timeout));
 
             if let Some(key) = api_key {
                 builder = builder.api_key(&key);
@@ -1883,7 +1885,7 @@ mod exchange_trait_metadata_consistency {
                 .sandbox(sandbox)
                 .product_type(&product_type)
                 .recv_window(recv_window)
-                .timeout(timeout);
+                .timeout(Duration::from_secs(timeout));
 
             if let Some(key) = api_key {
                 builder = builder.api_key(&key);
@@ -1937,7 +1939,7 @@ mod exchange_trait_metadata_consistency {
             let bitget = BitgetBuilder::new()
                 .sandbox(sandbox)
                 .product_type(&product_type)
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build()
                 .expect("Failed to build Bitget");
 

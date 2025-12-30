@@ -4,10 +4,12 @@
 //! type-safe configuration options.
 
 use super::{Binance, BinanceOptions};
+use ccxt_core::config::{ProxyConfig, RetryPolicy};
 use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{ExchangeConfig, Result};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Builder for creating Binance exchange instances.
 ///
@@ -123,22 +125,39 @@ impl BinanceBuilder {
         self
     }
 
-    /// Sets the request timeout in seconds.
+    /// Sets the request timeout.
     ///
     /// # Arguments
     ///
-    /// * `seconds` - Timeout duration in seconds.
+    /// * `timeout` - Timeout duration.
     ///
     /// # Example
     ///
     /// ```no_run
     /// use ccxt_exchanges::binance::BinanceBuilder;
+    /// use std::time::Duration;
     ///
     /// let builder = BinanceBuilder::new()
-    ///     .timeout(60);
+    ///     .timeout(Duration::from_secs(60));
     /// ```
-    pub fn timeout(mut self, seconds: u64) -> Self {
-        self.config.timeout = seconds;
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = timeout;
+        self
+    }
+
+    /// Sets the request timeout in seconds (convenience method).
+    ///
+    /// # Arguments
+    ///
+    /// * `seconds` - Timeout duration in seconds.
+    pub fn timeout_secs(mut self, seconds: u64) -> Self {
+        self.config.timeout = Duration::from_secs(seconds);
+        self
+    }
+
+    /// Sets the retry policy.
+    pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.config.retry_policy = Some(policy);
         self
     }
 
@@ -306,11 +325,21 @@ impl BinanceBuilder {
         self
     }
 
-    /// Sets the HTTP proxy server URL.
+    /// Sets the HTTP proxy configuration.
     ///
     /// # Arguments
     ///
-    /// * `proxy` - The proxy server URL.
+    /// * `proxy` - The proxy configuration.
+    pub fn proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.config.proxy = Some(proxy);
+        self
+    }
+
+    /// Sets the HTTP proxy URL (convenience method).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The proxy server URL.
     ///
     /// # Example
     ///
@@ -318,10 +347,10 @@ impl BinanceBuilder {
     /// use ccxt_exchanges::binance::BinanceBuilder;
     ///
     /// let builder = BinanceBuilder::new()
-    ///     .proxy("http://proxy.example.com:8080");
+    ///     .proxy_url("http://proxy.example.com:8080");
     /// ```
-    pub fn proxy(mut self, proxy: impl Into<String>) -> Self {
-        self.config.proxy = Some(proxy.into());
+    pub fn proxy_url(mut self, url: impl Into<String>) -> Self {
+        self.config.proxy = Some(ProxyConfig::new(url));
         self
     }
 
@@ -450,8 +479,8 @@ mod tests {
 
     #[test]
     fn test_builder_timeout() {
-        let builder = BinanceBuilder::new().timeout(60);
-        assert_eq!(builder.config.timeout, 60);
+        let builder = BinanceBuilder::new().timeout(Duration::from_secs(60));
+        assert_eq!(builder.config.timeout, Duration::from_secs(60));
     }
 
     #[test]
@@ -498,14 +527,14 @@ mod tests {
             .api_key("key")
             .secret("secret")
             .sandbox(true)
-            .timeout(30)
+            .timeout(Duration::from_secs(30))
             .recv_window(5000)
             .default_type(DefaultType::Spot);
 
         assert_eq!(builder.config.api_key, Some("key".to_string()));
         assert_eq!(builder.config.secret, Some("secret".to_string()));
         assert!(builder.config.sandbox);
-        assert_eq!(builder.config.timeout, 30);
+        assert_eq!(builder.config.timeout, Duration::from_secs(30));
         assert_eq!(builder.options.recv_window, 5000);
         assert_eq!(builder.options.default_type, DefaultType::Spot);
     }

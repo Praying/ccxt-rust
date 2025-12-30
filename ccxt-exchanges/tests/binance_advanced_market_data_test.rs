@@ -238,6 +238,7 @@ mod server_time_tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore] // Requires network connection
     async fn test_fetch_time() {
         let client = create_binance_client();
         let result = client.fetch_time().await;
@@ -245,6 +246,7 @@ mod server_time_tests {
     }
 
     #[tokio::test]
+    #[ignore] // Requires network connection
     async fn test_fetch_time_multiple_calls() {
         let client = create_binance_client();
 

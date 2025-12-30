@@ -17,6 +17,7 @@
 //! - HTTP response status and body preview
 //! - Error details with structured fields
 
+use crate::config::ProxyConfig;
 use crate::error::{Error, Result};
 use crate::rate_limiter::RateLimiter;
 use crate::retry_strategy::{RetryConfig, RetryStrategy};
@@ -28,8 +29,8 @@ use tracing::{debug, error, info, instrument, warn};
 /// HTTP request configuration
 #[derive(Debug, Clone)]
 pub struct HttpConfig {
-    /// Request timeout in seconds
-    pub timeout: u64,
+    /// Request timeout
+    pub timeout: Duration,
     /// Maximum retry attempts (deprecated, use `retry_config` instead)
     #[deprecated(note = "Use retry_config instead")]
     pub max_retries: u32,
@@ -39,8 +40,8 @@ pub struct HttpConfig {
     pub user_agent: String,
     /// Whether to include response headers in the result
     pub return_response_headers: bool,
-    /// Optional proxy URL
-    pub proxy: Option<String>,
+    /// Optional proxy configuration
+    pub proxy: Option<ProxyConfig>,
     /// Whether to enable rate limiting
     pub enable_rate_limit: bool,
     /// Optional retry configuration (uses default if `None`)
@@ -50,7 +51,7 @@ pub struct HttpConfig {
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
-            timeout: 30,
+            timeout: Duration::from_secs(30),
             #[allow(deprecated)]
             max_retries: 3, // Kept for backward compatibility, but deprecated
             verbose: false,
@@ -90,13 +91,19 @@ impl HttpClient {
     /// - The HTTP client cannot be built
     pub fn new(config: HttpConfig) -> Result<Self> {
         let mut builder = Client::builder()
-            .timeout(Duration::from_secs(config.timeout))
+            .timeout(config.timeout)
             .gzip(true)
             .user_agent(&config.user_agent);
 
-        if let Some(proxy_url) = &config.proxy {
-            let proxy = reqwest::Proxy::all(proxy_url)
+        if let Some(proxy_config) = &config.proxy {
+            let mut proxy = reqwest::Proxy::all(&proxy_config.url)
                 .map_err(|e| Error::network(format!("Invalid proxy URL: {}", e)))?;
+
+            if let (Some(username), Some(password)) =
+                (&proxy_config.username, &proxy_config.password)
+            {
+                proxy = proxy.basic_auth(username, password);
+            }
             builder = builder.proxy(proxy);
         }
 
@@ -189,14 +196,27 @@ impl HttpClient {
             }
         }
 
+        self.execute_with_retry(|| {
+            let url = url.to_string();
+            let method = method.clone();
+            let headers = headers.clone();
+            let body = body.clone();
+            async move { self.fetch_once(&url, method, headers, body).await }
+        })
+        .await
+    }
+
+    /// Executes an async operation with automatic retry mechanism.
+    pub(crate) async fn execute_with_retry<F, Fut>(&self, operation: F) -> Result<Value>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<Value>>,
+    {
         let mut attempt = 0;
         loop {
-            match self
-                .fetch_once(url, method.clone(), headers.clone(), body.clone())
-                .await
-            {
+            match operation().await {
                 Ok(response) => {
-                    debug!(attempt = attempt + 1, "HTTP request completed successfully");
+                    debug!(attempt = attempt + 1, "Operation completed successfully");
                     return Ok(response);
                 }
                 Err(e) => {
@@ -211,7 +231,7 @@ impl HttpClient {
                             error = %e,
                             error_debug = ?e,
                             is_retryable = e.is_retryable(),
-                            "HTTP request failed, retrying after delay"
+                            "Operation failed, retrying after delay"
                         );
 
                         tokio::time::sleep(delay).await;
@@ -223,7 +243,7 @@ impl HttpClient {
                             error = %e,
                             error_debug = ?e,
                             is_retryable = e.is_retryable(),
-                            "HTTP request failed, not retrying"
+                            "Operation failed, not retrying"
                         );
                         return Err(e);
                     }
@@ -744,5 +764,37 @@ mod tests {
                 warn!("Network test skipped due to: {:?}", e);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_success() {
+        let config = HttpConfig::default();
+        let client = HttpClient::new(config).unwrap();
+
+        let result = client
+            .execute_with_retry(|| async { Ok(serde_json::json!({"status": "ok"})) })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_failure() {
+        let config = HttpConfig {
+            retry_config: Some(RetryConfig {
+                max_retries: 2,
+                base_delay_ms: 10,
+                ..RetryConfig::default()
+            }),
+            ..Default::default()
+        };
+        let client = HttpClient::new(config).unwrap();
+
+        let result = client
+            .execute_with_retry(|| async { Err(Error::network("Persistent failure")) })
+            .await;
+
+        assert!(result.is_err());
     }
 }

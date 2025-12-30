@@ -12,6 +12,7 @@ use ccxt_core::{
     },
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::HyperLiquid;
 
@@ -95,15 +96,11 @@ impl Exchange for HyperLiquid {
 
     async fn fetch_markets(&self) -> Result<Vec<Market>> {
         let markets = HyperLiquid::fetch_markets(self).await?;
-        Ok(markets.into_values().map(|m| (*m).clone()).collect())
+        Ok(markets.values().map(|m| (**m).clone()).collect())
     }
 
-    async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
-        let markets = HyperLiquid::load_markets(self, reload).await?;
-        Ok(markets
-            .into_iter()
-            .map(|(k, v)| (k, (*v).clone()))
-            .collect())
+    async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
+        HyperLiquid::load_markets(self, reload).await
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -198,16 +195,12 @@ impl Exchange for HyperLiquid {
 
     // ==================== Helper Methods ====================
 
-    async fn market(&self, symbol: &str) -> Result<Market> {
-        self.base().market(symbol).await.map(|m| (*m).clone())
+    async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
+        self.base().market(symbol).await
     }
 
-    async fn markets(&self) -> HashMap<String, Market> {
+    async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>> {
         let cache = self.base().market_cache.read().await;
-        cache
-            .markets
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect()
+        cache.markets.clone()
     }
 }

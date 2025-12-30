@@ -38,6 +38,7 @@ go/
 .kiro/
 .roo/
 .specify/
+.gemini/
 _bmad/
 docs/
 AGENTS.md

@@ -13,6 +13,7 @@ use ccxt_core::{
 };
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::Okx;
 
@@ -91,15 +92,11 @@ impl Exchange for Okx {
 
     async fn fetch_markets(&self) -> Result<Vec<Market>> {
         let markets = Okx::fetch_markets(self).await?;
-        Ok(markets.into_values().map(|m| (*m).clone()).collect())
+        Ok(markets.values().map(|m| (**m).clone()).collect())
     }
 
-    async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
-        let arc_markets = Okx::load_markets(self, reload).await?;
-        Ok(arc_markets
-            .into_iter()
-            .map(|(k, v)| (k, (*v).clone()))
-            .collect())
+    async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
+        Okx::load_markets(self, reload).await
     }
 
     async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -213,7 +210,7 @@ impl Exchange for Okx {
 
     // ==================== Helper Methods ====================
 
-    async fn market(&self, symbol: &str) -> Result<Market> {
+    async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
         let cache = self.base().market_cache.read().await;
 
         if !cache.loaded {
@@ -226,17 +223,13 @@ impl Exchange for Okx {
         cache
             .markets
             .get(symbol)
-            .map(|m| (**m).clone())
+            .cloned()
             .ok_or_else(|| ccxt_core::Error::bad_symbol(format!("Market {} not found", symbol)))
     }
 
-    async fn markets(&self) -> HashMap<String, Market> {
+    async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>> {
         let cache = self.base().market_cache.read().await;
-        cache
-            .markets
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect()
+        cache.markets.clone()
     }
 }
 

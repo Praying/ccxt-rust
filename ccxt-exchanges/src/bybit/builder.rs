@@ -4,10 +4,12 @@
 //! type-safe configuration options.
 
 use super::{Bybit, BybitOptions};
+use ccxt_core::config::{ProxyConfig, RetryPolicy};
 use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{ExchangeConfig, Result};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Builder for creating Bybit exchange instances.
 ///
@@ -199,13 +201,21 @@ impl BybitBuilder {
         self
     }
 
-    /// Sets the request timeout in seconds.
-    ///
-    /// # Arguments
-    ///
-    /// * `seconds` - Timeout duration in seconds.
-    pub fn timeout(mut self, seconds: u64) -> Self {
-        self.config.timeout = seconds;
+    /// Sets the request timeout.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = timeout;
+        self
+    }
+
+    /// Sets the request timeout in seconds (convenience method).
+    pub fn timeout_secs(mut self, seconds: u64) -> Self {
+        self.config.timeout = Duration::from_secs(seconds);
+        self
+    }
+
+    /// Sets the retry policy.
+    pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.config.retry_policy = Some(policy);
         self
     }
 
@@ -219,13 +229,15 @@ impl BybitBuilder {
         self
     }
 
-    /// Sets the HTTP proxy server URL.
-    ///
-    /// # Arguments
-    ///
-    /// * `proxy` - The proxy server URL.
-    pub fn proxy(mut self, proxy: impl Into<String>) -> Self {
-        self.config.proxy = Some(proxy.into());
+    /// Sets the HTTP proxy configuration.
+    pub fn proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.config.proxy = Some(proxy);
+        self
+    }
+
+    /// Sets the HTTP proxy URL (convenience method).
+    pub fn proxy_url(mut self, url: impl Into<String>) -> Self {
+        self.config.proxy = Some(ProxyConfig::new(url));
         self
     }
 
@@ -389,8 +401,8 @@ mod tests {
 
     #[test]
     fn test_builder_timeout() {
-        let builder = BybitBuilder::new().timeout(60);
-        assert_eq!(builder.config.timeout, 60);
+        let builder = BybitBuilder::new().timeout(Duration::from_secs(60));
+        assert_eq!(builder.config.timeout, Duration::from_secs(60));
     }
 
     #[test]
@@ -399,7 +411,7 @@ mod tests {
             .api_key("key")
             .secret("secret")
             .testnet(true)
-            .timeout(30)
+            .timeout(Duration::from_secs(30))
             .recv_window(10000)
             .account_type("SPOT")
             .default_type(DefaultType::Swap)
@@ -408,7 +420,7 @@ mod tests {
         assert_eq!(builder.config.api_key, Some("key".to_string()));
         assert_eq!(builder.config.secret, Some("secret".to_string()));
         assert!(builder.config.sandbox);
-        assert_eq!(builder.config.timeout, 30);
+        assert_eq!(builder.config.timeout, Duration::from_secs(30));
         assert_eq!(builder.options.recv_window, 10000);
         assert_eq!(builder.options.account_type, "SPOT");
         assert_eq!(builder.options.default_type, DefaultType::Swap);

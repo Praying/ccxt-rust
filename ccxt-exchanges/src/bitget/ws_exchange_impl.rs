@@ -74,7 +74,7 @@ impl WsExchange for Bitget {
         let bitget_symbol = symbol.replace('/', "");
 
         // Try to get market info if available (optional)
-        let market = self.market(symbol).await.ok();
+        let market = self.market(symbol).await.ok().map(|m| (*m).clone());
 
         ws.watch_ticker(&bitget_symbol, market).await
     }
@@ -106,7 +106,7 @@ impl WsExchange for Bitget {
         let bitget_symbol = symbol.replace('/', "");
 
         // Try to get market info if available (optional)
-        let market = self.market(symbol).await.ok();
+        let market = self.market(symbol).await.ok().map(|m| (*m).clone());
 
         ws.watch_trades(&bitget_symbol, market).await
     }

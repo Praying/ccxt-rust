@@ -2,8 +2,10 @@
 //!
 //! Provides a builder pattern for creating HyperLiquid exchange instances.
 
+use ccxt_core::config::{ProxyConfig, RetryPolicy};
 use ccxt_core::types::default_type::DefaultType;
 use ccxt_core::{Error, ExchangeConfig, Result};
+use std::time::Duration;
 
 use super::{HyperLiquid, HyperLiquidAuth, HyperLiquidOptions};
 
@@ -34,6 +36,9 @@ pub struct HyperLiquidBuilder {
     vault_address: Option<String>,
     default_leverage: u32,
     default_type: Option<DefaultType>,
+    timeout: Option<Duration>,
+    proxy: Option<ProxyConfig>,
+    retry_policy: Option<RetryPolicy>,
 }
 
 impl HyperLiquidBuilder {
@@ -45,6 +50,9 @@ impl HyperLiquidBuilder {
             vault_address: None,
             default_leverage: 1,
             default_type: None, // Will default to Swap in build()
+            timeout: None,
+            proxy: None,
+            retry_policy: None,
         }
     }
 
@@ -159,6 +167,36 @@ impl HyperLiquidBuilder {
         self
     }
 
+    /// Sets the request timeout.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the request timeout in seconds (convenience method).
+    pub fn timeout_secs(mut self, seconds: u64) -> Self {
+        self.timeout = Some(Duration::from_secs(seconds));
+        self
+    }
+
+    /// Sets the retry policy.
+    pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry_policy = Some(policy);
+        self
+    }
+
+    /// Sets the HTTP proxy configuration.
+    pub fn proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.proxy = Some(proxy);
+        self
+    }
+
+    /// Sets the HTTP proxy URL (convenience method).
+    pub fn proxy_url(mut self, url: impl Into<String>) -> Self {
+        self.proxy = Some(ProxyConfig::new(url));
+        self
+    }
+
     /// Builds the HyperLiquid exchange instance.
     ///
     /// # Returns
@@ -192,12 +230,22 @@ impl HyperLiquidBuilder {
         };
 
         // Create exchange config
-        let config = ExchangeConfig {
+        let mut config = ExchangeConfig {
             id: "hyperliquid".to_string(),
             name: "HyperLiquid".to_string(),
             sandbox: self.testnet,
             ..Default::default()
         };
+
+        if let Some(timeout) = self.timeout {
+            config.timeout = timeout;
+        }
+        if let Some(proxy) = self.proxy {
+            config.proxy = Some(proxy);
+        }
+        if let Some(retry_policy) = self.retry_policy {
+            config.retry_policy = Some(retry_policy);
+        }
 
         HyperLiquid::new_with_options(config, options, auth)
     }

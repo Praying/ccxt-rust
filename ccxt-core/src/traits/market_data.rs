@@ -108,14 +108,18 @@ pub trait MarketData: PublicExchange {
     /// // Subsequent calls use cache
     /// let markets = exchange.load_markets().await?;
     /// ```
-    async fn load_markets(&self) -> Result<HashMap<String, Market>> {
+    async fn load_markets(
+        &self,
+    ) -> Result<std::sync::Arc<HashMap<String, std::sync::Arc<Market>>>> {
         self.load_markets_with_reload(false).await
     }
 
     /// Force reload markets from the API.
     ///
     /// Clears the cache and fetches fresh market data.
-    async fn reload_markets(&self) -> Result<HashMap<String, Market>> {
+    async fn reload_markets(
+        &self,
+    ) -> Result<std::sync::Arc<HashMap<String, std::sync::Arc<Market>>>> {
         self.load_markets_with_reload(true).await
     }
 
@@ -123,18 +127,21 @@ pub trait MarketData: PublicExchange {
     ///
     /// Implementations should cache markets and only fetch from the API
     /// when `reload` is `true` or the cache is empty.
-    async fn load_markets_with_reload(&self, reload: bool) -> Result<HashMap<String, Market>>;
+    async fn load_markets_with_reload(
+        &self,
+        reload: bool,
+    ) -> Result<std::sync::Arc<HashMap<String, std::sync::Arc<Market>>>>;
 
     /// Get a specific market by symbol.
     ///
     /// Returns the market information for the given symbol, or an error
     /// if the symbol is not found.
-    async fn market(&self, symbol: &str) -> Result<Market>;
+    async fn market(&self, symbol: &str) -> Result<std::sync::Arc<Market>>;
 
     /// Get all cached markets.
     ///
     /// Returns the currently cached markets without fetching from the API.
-    async fn markets(&self) -> HashMap<String, Market>;
+    async fn markets(&self) -> std::sync::Arc<HashMap<String, std::sync::Arc<Market>>>;
 
     /// Check if a symbol exists and is active.
     ///
@@ -495,16 +502,19 @@ mod tests {
             Ok(vec![])
         }
 
-        async fn load_markets_with_reload(&self, _reload: bool) -> Result<HashMap<String, Market>> {
-            Ok(HashMap::new())
+        async fn load_markets_with_reload(
+            &self,
+            _reload: bool,
+        ) -> Result<std::sync::Arc<HashMap<String, std::sync::Arc<Market>>>> {
+            Ok(std::sync::Arc::new(HashMap::new()))
         }
 
-        async fn market(&self, _symbol: &str) -> Result<Market> {
+        async fn market(&self, _symbol: &str) -> Result<std::sync::Arc<Market>> {
             Err(crate::Error::invalid_request("Not found"))
         }
 
-        async fn markets(&self) -> HashMap<String, Market> {
-            HashMap::new()
+        async fn markets(&self) -> std::sync::Arc<HashMap<String, std::sync::Arc<Market>>> {
+            std::sync::Arc::new(HashMap::new())
         }
 
         async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
