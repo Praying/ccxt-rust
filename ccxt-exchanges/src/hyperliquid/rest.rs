@@ -116,7 +116,7 @@ impl HyperLiquid {
     // ============================================================================
 
     /// Fetch all trading markets.
-    pub async fn fetch_markets(&self) -> Result<HashMap<String, Arc<Market>>> {
+    pub async fn fetch_markets(&self) -> Result<Arc<HashMap<String, Arc<Market>>>> {
         let response = self
             .info_request("meta", serde_json::Value::Object(serde_json::Map::new()))
             .await?;
@@ -143,7 +143,7 @@ impl HyperLiquid {
     }
 
     /// Load and cache market data.
-    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Arc<Market>>> {
+    pub async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
         // Acquire the loading lock to serialize concurrent load_markets calls
         // This prevents multiple tasks from making duplicate API calls
         let _loading_guard = self.base().market_loading_lock.lock().await;

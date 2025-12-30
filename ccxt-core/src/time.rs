@@ -272,6 +272,7 @@ pub fn ymdhms(timestamp: i64, separator: Option<&str>) -> Result<String> {
 
     let sep = separator.unwrap_or(" ");
     let secs = validated / 1000;
+    #[allow(clippy::cast_possible_truncation)]
     let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
     let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
@@ -311,6 +312,7 @@ pub fn yyyymmdd(timestamp: i64, separator: Option<&str>) -> Result<String> {
 
     let sep = separator.unwrap_or("-");
     let secs = validated / 1000;
+    #[allow(clippy::cast_possible_truncation)]
     let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
     let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
@@ -352,6 +354,7 @@ pub fn yymmdd(timestamp: i64, separator: Option<&str>) -> Result<String> {
 
     let sep = separator.unwrap_or("");
     let secs = validated / 1000;
+    #[allow(clippy::cast_possible_truncation)]
     let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
     let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
@@ -410,7 +413,8 @@ pub fn ymd(timestamp: i64, separator: Option<&str>) -> Result<String> {
 /// // Convert units
 /// let seconds = TimestampUtils::ms_to_seconds(validated);
 /// let back_to_ms = TimestampUtils::seconds_to_ms(seconds);
-/// assert_eq!(validated, back_to_ms);
+/// // Note: conversion to seconds loses millisecond precision
+/// assert!(validated - back_to_ms < 1000);
 /// ```
 pub struct TimestampUtils;
 
@@ -435,10 +439,12 @@ impl TimestampUtils {
     /// assert!(now > 1_600_000_000_000); // After 2020
     /// ```
     pub fn now_ms() -> i64 {
-        SystemTime::now()
+        #[allow(clippy::cast_possible_truncation)]
+        let ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_millis() as i64
+            .as_millis() as i64;
+        ms
     }
 
     /// Convert seconds to milliseconds
@@ -579,6 +585,7 @@ impl TimestampUtils {
         // Try parsing as f64 (seconds with fractional part)
         if let Ok(ts_f64) = s.parse::<f64>() {
             if ts_f64.is_finite() {
+                #[allow(clippy::cast_possible_truncation)]
                 let ts = (ts_f64 * 1000.0) as i64;
                 return Self::validate_timestamp(ts);
             }
@@ -616,6 +623,7 @@ impl TimestampUtils {
         let validated = Self::validate_timestamp(timestamp)?;
 
         let secs = validated / 1000;
+        #[allow(clippy::cast_possible_truncation)]
         let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
         let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)

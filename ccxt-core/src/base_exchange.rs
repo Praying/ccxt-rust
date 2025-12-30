@@ -7,6 +7,7 @@
 //! - Authentication and signing
 //! - Rate limiting
 
+use crate::config::{ProxyConfig, RetryPolicy};
 use crate::error::{Error, ParseError, Result};
 use crate::http_client::{HttpClient, HttpConfig};
 use crate::rate_limiter::{RateLimiter, RateLimiterConfig};
@@ -17,6 +18,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info};
 
@@ -41,14 +43,16 @@ pub struct ExchangeConfig {
     pub enable_rate_limit: bool,
     /// Rate limit in requests per second
     pub rate_limit: u32,
-    /// Request timeout in seconds
-    pub timeout: u64,
+    /// Request timeout
+    pub timeout: Duration,
+    /// Retry policy
+    pub retry_policy: Option<RetryPolicy>,
     /// Enable sandbox/testnet mode
     pub sandbox: bool,
     /// Custom user agent string
     pub user_agent: Option<String>,
-    /// HTTP proxy server URL
-    pub proxy: Option<String>,
+    /// HTTP proxy configuration
+    pub proxy: Option<ProxyConfig>,
     /// Enable verbose logging
     pub verbose: bool,
     /// Custom exchange-specific options
@@ -69,7 +73,8 @@ impl Default for ExchangeConfig {
             account_id: None,
             enable_rate_limit: true,
             rate_limit: 10,
-            timeout: 30,
+            timeout: Duration::from_secs(30),
+            retry_policy: None,
             sandbox: false,
             user_agent: Some(format!("ccxt-rust/{}", env!("CARGO_PKG_VERSION"))),
             proxy: None,
@@ -183,9 +188,15 @@ impl ExchangeConfigBuilder {
         self
     }
 
-    /// Set the request timeout in seconds
-    pub fn timeout(mut self, seconds: u64) -> Self {
-        self.config.timeout = seconds;
+    /// Set the request timeout
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = timeout;
+        self
+    }
+
+    /// Set the retry policy
+    pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.config.retry_policy = Some(policy);
         self
     }
 
@@ -201,9 +212,15 @@ impl ExchangeConfigBuilder {
         self
     }
 
-    /// Set the HTTP proxy server URL
-    pub fn proxy(mut self, proxy: impl Into<String>) -> Self {
-        self.config.proxy = Some(proxy.into());
+    /// Set the HTTP proxy configuration
+    pub fn proxy(mut self, proxy: ProxyConfig) -> Self {
+        self.config.proxy = Some(proxy);
+        self
+    }
+
+    /// Set the HTTP proxy URL (convenience method)
+    pub fn proxy_url(mut self, url: impl Into<String>) -> Self {
+        self.config.proxy = Some(ProxyConfig::new(url));
         self
     }
 
@@ -241,7 +258,7 @@ impl ExchangeConfigBuilder {
 #[derive(Debug, Clone)]
 pub struct MarketCache {
     /// Markets indexed by symbol (e.g., "BTC/USDT")
-    pub markets: HashMap<String, Arc<Market>>,
+    pub markets: Arc<HashMap<String, Arc<Market>>>,
     /// Markets indexed by exchange-specific ID
     pub markets_by_id: HashMap<String, Arc<Market>>,
     /// Currencies indexed by code (e.g., "BTC")
@@ -261,7 +278,7 @@ pub struct MarketCache {
 impl Default for MarketCache {
     fn default() -> Self {
         Self {
-            markets: HashMap::new(),
+            markets: Arc::new(HashMap::new()),
             markets_by_id: HashMap::new(),
             currencies: HashMap::new(),
             currencies_by_id: HashMap::new(),
@@ -318,7 +335,7 @@ impl BaseExchange {
         let http_config = HttpConfig {
             timeout: config.timeout,
             #[allow(deprecated)]
-            max_retries: 3,
+            max_retries: config.retry_policy.map(|p| p.max_retries).unwrap_or(3),
             verbose: false,
             user_agent: config
                 .user_agent
@@ -327,7 +344,15 @@ impl BaseExchange {
             return_response_headers: false,
             proxy: config.proxy.clone(),
             enable_rate_limit: true,
-            retry_config: None,
+            retry_config: config
+                .retry_policy
+                .map(|p| crate::retry_strategy::RetryConfig {
+                    max_retries: p.max_retries,
+                    #[allow(clippy::cast_possible_truncation)]
+                    base_delay_ms: p.delay.as_millis() as u64,
+                    strategy_type: crate::retry_strategy::RetryStrategyType::Fixed,
+                    ..crate::retry_strategy::RetryConfig::default()
+                }),
         };
 
         let mut http_client = HttpClient::new(http_config)?;
@@ -366,16 +391,12 @@ impl BaseExchange {
     ///
     /// Returns an error if market data cannot be fetched. This base implementation
     /// always returns `NotImplemented` error as exchanges must override this method.
-    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>> {
+    pub async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
         let cache = self.market_cache.write().await;
 
         if cache.loaded && !reload {
             debug!("Returning cached markets for {}", self.config.id);
-            return Ok(cache
-                .markets
-                .iter()
-                .map(|(k, v)| (k.clone(), (**v).clone()))
-                .collect());
+            return Ok(cache.markets.clone());
         }
 
         info!("Loading markets for {}", self.config.id);
@@ -419,7 +440,7 @@ impl BaseExchange {
         &self,
         reload: bool,
         loader: F,
-    ) -> Result<HashMap<String, Arc<Market>>>
+    ) -> Result<Arc<HashMap<String, Arc<Market>>>>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<(Vec<Market>, Option<Vec<Currency>>)>>,
@@ -473,10 +494,10 @@ impl BaseExchange {
         &self,
         markets: Vec<Market>,
         currencies: Option<Vec<Currency>>,
-    ) -> Result<HashMap<String, Arc<Market>>> {
+    ) -> Result<Arc<HashMap<String, Arc<Market>>>> {
         let mut cache = self.market_cache.write().await;
 
-        cache.markets.clear();
+        let mut markets_map = HashMap::new();
         cache.markets_by_id.clear();
         cache.symbols.clear();
         cache.ids.clear();
@@ -488,8 +509,9 @@ impl BaseExchange {
             cache
                 .markets_by_id
                 .insert(arc_market.id.clone(), Arc::clone(&arc_market));
-            cache.markets.insert(arc_market.symbol.clone(), arc_market);
+            markets_map.insert(arc_market.symbol.clone(), arc_market);
         }
+        cache.markets = Arc::new(markets_map);
 
         if let Some(currencies) = currencies {
             cache.currencies.clear();

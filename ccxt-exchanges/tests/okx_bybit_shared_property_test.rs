@@ -14,6 +14,7 @@ use serde_json::json;
 mod okx_builder_configuration_preservation {
     use super::*;
     use ccxt_exchanges::okx::OkxBuilder;
+    use std::time::Duration;
 
     // Strategy for generating valid API keys (alphanumeric, 16-32 chars)
     fn api_key_strategy() -> impl Strategy<Value = String> {
@@ -137,7 +138,7 @@ mod okx_builder_configuration_preservation {
         #[test]
         fn prop_okx_builder_build_preserves_timeout(timeout in timeout_strategy()) {
             let okx = OkxBuilder::new()
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build();
 
             prop_assert!(okx.is_ok(), "OKX builder should build successfully");
@@ -597,6 +598,7 @@ mod bybit_builder_configuration_preservation {
 mod okx_exchange_metadata_consistency {
     use super::*;
     use ccxt_exchanges::okx::OkxBuilder;
+    use std::time::Duration;
 
     // Strategy for generating valid API keys (alphanumeric, 16-32 chars)
     fn api_key_strategy() -> impl Strategy<Value = String> {
@@ -757,7 +759,7 @@ mod okx_exchange_metadata_consistency {
         #[test]
         fn prop_okx_metadata_timeout_values(timeout in timeout_strategy()) {
             let okx = OkxBuilder::new()
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build()
                 .expect("Should build OKX with timeout");
 

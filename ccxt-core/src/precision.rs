@@ -93,7 +93,9 @@ pub fn precision_from_string(s: &str) -> i32 {
 
     let trimmed = s.trim_end_matches('0');
     if let Some(dot_pos) = trimmed.find('.') {
-        (trimmed.len() - dot_pos - 1) as i32
+        #[allow(clippy::cast_possible_truncation)]
+        let res = (trimmed.len() - dot_pos - 1) as i32;
+        res
     } else {
         0
     }
@@ -282,6 +284,7 @@ fn decimal_to_precision_significant_digits(
     let abs_value = value.abs();
     let value_f64 = abs_value.to_f64().unwrap_or(0.0);
     let log10 = value_f64.log10();
+    #[allow(clippy::cast_possible_truncation)]
     let magnitude = log10.floor() as i32;
 
     let decimal_places = sig_digits - magnitude - 1;

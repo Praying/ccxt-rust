@@ -259,7 +259,7 @@ impl Okx {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn fetch_markets(&self) -> Result<HashMap<String, Arc<Market>>> {
+    pub async fn fetch_markets(&self) -> Result<Arc<HashMap<String, Arc<Market>>>> {
         let path = self.build_api_path("/public/instruments");
         let mut params = HashMap::new();
         params.insert("instType".to_string(), self.get_inst_type().to_string());
@@ -305,7 +305,7 @@ impl Okx {
     /// # Returns
     ///
     /// Returns a `HashMap` containing all market data, keyed by symbol (e.g., "BTC/USDT").
-    pub async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Arc<Market>>> {
+    pub async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
         // Acquire the loading lock to serialize concurrent load_markets calls
         // This prevents multiple tasks from making duplicate API calls
         let _loading_guard = self.base().market_loading_lock.lock().await;
@@ -318,11 +318,7 @@ impl Okx {
                     "Returning cached markets for OKX ({} markets)",
                     cache.markets.len()
                 );
-                return Ok(cache
-                    .markets
-                    .iter()
-                    .map(|(k, v)| (k.clone(), Arc::clone(v)))
-                    .collect());
+                return Ok(cache.markets.clone());
             }
         }
 
@@ -330,11 +326,7 @@ impl Okx {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache
-            .markets
-            .iter()
-            .map(|(k, v)| (k.clone(), Arc::clone(v)))
-            .collect())
+        Ok(cache.markets.clone())
     }
 
     /// Fetch ticker for a single trading pair.

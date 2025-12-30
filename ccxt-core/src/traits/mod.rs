@@ -207,8 +207,11 @@ mod tests {
             Ok(vec![])
         }
 
-        async fn load_markets_with_reload(&self, _reload: bool) -> Result<HashMap<String, Market>> {
-            Ok(HashMap::new())
+        async fn load_markets_with_reload(
+            &self,
+            _reload: bool,
+        ) -> Result<Arc<HashMap<String, Arc<Market>>>> {
+            Ok(Arc::new(HashMap::new()))
         }
 
         async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
@@ -247,15 +250,15 @@ mod tests {
             Ok(vec![])
         }
 
-        async fn market(&self, symbol: &str) -> Result<Market> {
-            Ok(Market {
+        async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
+            Ok(Arc::new(Market {
                 symbol: symbol.to_string(),
                 ..Default::default()
-            })
+            }))
         }
 
-        async fn markets(&self) -> HashMap<String, Market> {
-            HashMap::new()
+        async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>> {
+            Arc::new(HashMap::new())
         }
     }
 

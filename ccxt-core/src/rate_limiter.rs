@@ -119,6 +119,7 @@ impl RateLimiterState {
         if elapsed >= self.config.refill_period {
             // Calculate how many refill periods have passed
             let periods = elapsed.as_secs_f64() / self.config.refill_period.as_secs_f64();
+            #[allow(clippy::cast_possible_truncation)]
             let tokens_to_add = (periods * self.config.refill_amount as f64) as u32;
 
             // Add tokens up to capacity

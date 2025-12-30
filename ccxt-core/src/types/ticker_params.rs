@@ -127,7 +127,8 @@ impl IntoTickerParams for Value {
                 if let Some(value) = map.remove("windowSize") {
                     match value {
                         Value::Number(num) if num.is_u64() => {
-                            params.window_size = num.as_u64().map(|v| v as u32);
+                            params.window_size =
+                                num.as_u64().map(|v| u32::try_from(v).unwrap_or(u32::MAX));
                         }
                         Value::String(text) => {
                             if let Ok(parsed) = text.parse::<u32>() {

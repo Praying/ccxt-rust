@@ -329,7 +329,7 @@ pub trait Exchange: Send + Sync {
     /// # Returns
     ///
     /// A HashMap of markets indexed by symbol.
-    async fn load_markets(&self, reload: bool) -> Result<HashMap<String, Market>>;
+    async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>>;
 
     /// Fetch ticker for a single symbol
     ///
@@ -538,14 +538,14 @@ pub trait Exchange: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the market is not found or markets are not loaded.
-    async fn market(&self, symbol: &str) -> Result<Market>;
+    async fn market(&self, symbol: &str) -> Result<Arc<Market>>;
 
     /// Get all cached markets
     ///
     /// # Returns
     ///
     /// A HashMap of all markets indexed by symbol.
-    async fn markets(&self) -> HashMap<String, Market>;
+    async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>>;
 
     /// Check if a symbol is valid and active
     ///

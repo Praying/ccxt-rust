@@ -52,11 +52,9 @@
 #![allow(clippy::should_implement_trait)]
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::redundant_closure_for_method_calls)]
-#![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::cast_possible_wrap)]
 #![allow(clippy::cast_lossless)]
-#![allow(clippy::cast_precision_loss)]
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
@@ -92,6 +90,7 @@ pub use serde_json;
 pub mod auth;
 pub mod base_exchange;
 pub mod capability;
+pub mod config;
 pub mod error;
 pub mod exchange;
 pub mod http_client;

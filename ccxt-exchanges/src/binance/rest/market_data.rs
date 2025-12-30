@@ -105,7 +105,7 @@ impl Binance {
     /// ```
     pub async fn fetch_markets(
         &self,
-    ) -> Result<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>> {
+    ) -> Result<Arc<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>>> {
         let url = format!("{}/exchangeInfo", self.urls().public);
         let data = self.base().http_client.get(&url, None).await?;
 
@@ -166,7 +166,7 @@ impl Binance {
     pub async fn load_markets(
         &self,
         reload: bool,
-    ) -> Result<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>> {
+    ) -> Result<Arc<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>>> {
         // Acquire the loading lock to serialize concurrent load_markets calls
         // This prevents multiple tasks from making duplicate API calls
         let _loading_guard = self.base().market_loading_lock.lock().await;
