@@ -2,6 +2,7 @@ use ccxt_exchanges::binance::Binance;
 use std::time::Instant;
 
 #[tokio::test]
+#[ignore]
 async fn test_load_markets_performance() {
     let exchange = Binance::builder()
         .sandbox(true)
