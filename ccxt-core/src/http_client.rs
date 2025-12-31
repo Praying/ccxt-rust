@@ -559,7 +559,7 @@ mod tests {
     #[tokio::test]
     async fn test_http_config_default() {
         let config = HttpConfig::default();
-        assert_eq!(config.timeout, 30);
+        assert_eq!(config.timeout, Duration::from_secs(30));
         assert!(config.retry_config.is_none());
         assert!(!config.verbose);
         assert_eq!(config.user_agent, "ccxt-rust/1.0");
@@ -582,8 +582,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_client_with_proxy() {
+        use crate::config::ProxyConfig;
+
         let config = HttpConfig {
-            proxy: Some("http://localhost:8080".to_string()),
+            proxy: Some(ProxyConfig::new("http://localhost:8080")),
             ..Default::default()
         };
 
@@ -668,7 +670,7 @@ mod tests {
     #[tokio::test]
     async fn test_timeout() {
         let config = HttpConfig {
-            timeout: 1, // 1 second timeout
+            timeout: Duration::from_secs(1), // 1 second timeout
             retry_config: Some(RetryConfig {
                 max_retries: 0,
                 ..RetryConfig::default()

@@ -121,7 +121,7 @@ mod builder_config_preservation {
                 .build()
                 .expect("Failed to build Bitget");
 
-            prop_assert_eq!(bitget.base().config.timeout, timeout);
+            prop_assert_eq!(bitget.base().config.timeout, Duration::from_secs(timeout));
         }
 
         #[test]
@@ -153,7 +153,7 @@ mod builder_config_preservation {
             prop_assert_eq!(bitget.options().testnet, sandbox);
             prop_assert_eq!(bitget.options().product_type.clone(), product_type);
             prop_assert_eq!(bitget.options().recv_window, recv_window);
-            prop_assert_eq!(bitget.base().config.timeout, timeout);
+            prop_assert_eq!(bitget.base().config.timeout, Duration::from_secs(timeout));
         }
     }
 }

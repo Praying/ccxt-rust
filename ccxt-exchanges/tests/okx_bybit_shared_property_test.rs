@@ -148,7 +148,7 @@ mod okx_builder_configuration_preservation {
             // Verify timeout is preserved in base config
             let base = okx.base();
             prop_assert_eq!(
-                base.config.timeout, timeout,
+                base.config.timeout, Duration::from_secs(timeout),
                 "OKX builder should preserve timeout after build"
             );
         }
@@ -169,7 +169,7 @@ mod okx_builder_configuration_preservation {
                 .passphrase(passphrase.clone())
                 .sandbox(sandbox)
                 .account_mode(account_mode.clone())
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build();
 
             prop_assert!(okx.is_ok(), "OKX builder should build successfully");
@@ -202,7 +202,7 @@ mod okx_builder_configuration_preservation {
                 "OKX builder should preserve sandbox"
             );
             prop_assert_eq!(
-                base.config.timeout, timeout,
+                base.config.timeout, Duration::from_secs(timeout),
                 "OKX builder should preserve timeout"
             );
 
@@ -309,6 +309,7 @@ mod okx_builder_configuration_preservation {
 mod bybit_builder_configuration_preservation {
     use super::*;
     use ccxt_exchanges::bybit::BybitBuilder;
+    use std::time::Duration;
 
     // Strategy for generating valid API keys (alphanumeric, 16-32 chars)
     fn api_key_strategy() -> impl Strategy<Value = String> {
@@ -444,7 +445,7 @@ mod bybit_builder_configuration_preservation {
         #[test]
         fn prop_bybit_builder_build_preserves_timeout(timeout in timeout_strategy()) {
             let bybit = BybitBuilder::new()
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build();
 
             prop_assert!(bybit.is_ok(), "Bybit builder should build successfully");
@@ -454,7 +455,7 @@ mod bybit_builder_configuration_preservation {
             // Verify timeout is preserved in base config
             let base = bybit.base();
             prop_assert_eq!(
-                base.config.timeout, timeout,
+                base.config.timeout, Duration::from_secs(timeout),
                 "Bybit builder should preserve timeout after build"
             );
         }
@@ -474,7 +475,7 @@ mod bybit_builder_configuration_preservation {
                 .secret(secret.clone())
                 .testnet(testnet)
                 .account_type(account_type.clone())
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .recv_window(recv_window)
                 .build();
 
@@ -503,7 +504,7 @@ mod bybit_builder_configuration_preservation {
                 "Bybit builder should preserve testnet as sandbox"
             );
             prop_assert_eq!(
-                base.config.timeout, timeout,
+                base.config.timeout, Duration::from_secs(timeout),
                 "Bybit builder should preserve timeout"
             );
 
@@ -648,7 +649,7 @@ mod okx_exchange_metadata_consistency {
                 .passphrase(passphrase)
                 .sandbox(sandbox)
                 .account_mode(account_mode)
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build()
                 .expect("Should build OKX instance");
 
@@ -675,7 +676,7 @@ mod okx_exchange_metadata_consistency {
                 .passphrase(passphrase)
                 .sandbox(sandbox)
                 .account_mode(account_mode)
-                .timeout(timeout)
+                .timeout(Duration::from_secs(timeout))
                 .build()
                 .expect("Should build OKX instance");
 
