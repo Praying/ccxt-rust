@@ -3,7 +3,7 @@
 //! This module contains all spot trading methods including order creation,
 //! cancellation, and order management.
 
-use super::super::{Binance, parser, signed_request::HttpMethod};
+use super::super::{Binance, constants::endpoints, parser, signed_request::HttpMethod};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{Amount, Order, OrderSide, OrderType, Price},
@@ -135,7 +135,7 @@ impl Binance {
             }
         }
 
-        let url = format!("{}/order", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
         let data = self
             .signed_request(url)
             .method(HttpMethod::Post)
@@ -162,7 +162,7 @@ impl Binance {
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}/order", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
 
         let data = self
             .signed_request(url)
@@ -191,7 +191,7 @@ impl Binance {
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn fetch_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}/order", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
 
         let data = self
             .signed_request(url)
@@ -223,7 +223,7 @@ impl Binance {
             None
         };
 
-        let url = format!("{}/openOrders", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::OPEN_ORDERS);
 
         let data = self
             .signed_request(url)
@@ -301,7 +301,7 @@ impl Binance {
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_all_orders(&self, symbol: &str) -> Result<Vec<Order>> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}/openOrders", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::OPEN_ORDERS);
 
         let data = self
             .signed_request(url)
@@ -354,7 +354,7 @@ impl Binance {
             ))
         })?;
 
-        let url = format!("{}/openOrders", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::OPEN_ORDERS);
 
         let data = self
             .signed_request(url)
@@ -411,7 +411,7 @@ impl Binance {
             None
         };
 
-        let url = format!("{}/allOrders", self.urls().private);
+        let url = format!("{}{}", self.urls().private, endpoints::ALL_ORDERS);
 
         let data = self
             .signed_request(url)

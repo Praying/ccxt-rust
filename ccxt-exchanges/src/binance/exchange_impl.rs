@@ -95,7 +95,7 @@ impl Exchange for Binance {
     }
 
     fn rate_limit(&self) -> u32 {
-        50
+        self.options.rate_limit
     }
 
     // ==================== Market Data (Public API) ====================
@@ -322,7 +322,7 @@ impl PublicExchange for Binance {
     }
 
     fn rate_limit(&self) -> u32 {
-        50
+        self.options.rate_limit
     }
 
     fn has_websocket(&self) -> bool {

@@ -2,6 +2,7 @@
 //!
 //! Converts Binance API response data into standardized CCXT format structures.
 
+use super::constants::status;
 use ccxt_core::{
     Result,
     error::{Error, ParseError},
@@ -346,13 +347,12 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         OrderSide::Buy
     };
 
-    let price = parse_decimal_multi(data, &["price", "p"]);
-    let amount = parse_decimal_multi(data, &["qty", "q"]);
+    let price = parse_decimal_multi(data, &["price", "p"])
+        .ok_or_else(|| Error::from(ParseError::missing_field("price")))?;
+    let amount = parse_decimal_multi(data, &["qty", "q"])
+        .ok_or_else(|| Error::from(ParseError::missing_field("amount")))?;
 
-    let cost = match (price, amount) {
-        (Some(p), Some(a)) => Some(p * a),
-        _ => None,
-    };
+    let cost = Some(price * amount);
 
     Ok(Trade {
         id,
@@ -374,8 +374,8 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         } else {
             Some(TakerOrMaker::Taker)
         },
-        price: Price::new(price.unwrap_or(Decimal::ZERO)),
-        amount: Amount::new(amount.unwrap_or(Decimal::ZERO)),
+        price: Price::new(price),
+        amount: Amount::new(amount),
         cost: cost.map(Cost::new),
         fee: None,
         info: value_to_hashmap(data),
@@ -420,11 +420,11 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
         .ok_or_else(|| Error::from(ParseError::missing_field("status")))?;
 
     let status = match status_str {
-        "NEW" | "PARTIALLY_FILLED" => OrderStatus::Open,
-        "FILLED" => OrderStatus::Closed,
-        "CANCELED" => OrderStatus::Cancelled,
-        "EXPIRED" => OrderStatus::Expired,
-        "REJECTED" => OrderStatus::Rejected,
+        status::NEW | status::PARTIALLY_FILLED => OrderStatus::Open,
+        status::FILLED => OrderStatus::Closed,
+        status::CANCELED => OrderStatus::Cancelled,
+        status::EXPIRED => OrderStatus::Expired,
+        status::REJECTED => OrderStatus::Rejected,
         _ => OrderStatus::Open,
     };
 
@@ -584,7 +584,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
                     .as_str()
                     .unwrap_or("0")
                     .to_string(),
-                status: report["status"].as_str().unwrap_or("NEW").to_string(),
+                status: report["status"].as_str().unwrap_or(status::NEW).to_string(),
                 time_in_force: report["timeInForce"].as_str().unwrap_or("GTC").to_string(),
                 type_: report["type"].as_str().unwrap_or("LIMIT").to_string(),
                 side: report["side"].as_str().unwrap_or("SELL").to_string(),
