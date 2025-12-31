@@ -92,9 +92,9 @@ impl From<Decimal> for Price {
     }
 }
 
-impl Into<Decimal> for Price {
-    fn into(self) -> Decimal {
-        self.0
+impl From<Price> for Decimal {
+    fn from(price: Price) -> Self {
+        price.0
     }
 }
 
@@ -175,9 +175,9 @@ impl From<Decimal> for Amount {
     }
 }
 
-impl Into<Decimal> for Amount {
-    fn into(self) -> Decimal {
-        self.0
+impl From<Amount> for Decimal {
+    fn from(amount: Amount) -> Self {
+        amount.0
     }
 }
 
@@ -272,9 +272,9 @@ impl From<Decimal> for Cost {
     }
 }
 
-impl Into<Decimal> for Cost {
-    fn into(self) -> Decimal {
-        self.0
+impl From<Cost> for Decimal {
+    fn from(cost: Cost) -> Self {
+        cost.0
     }
 }
 
@@ -950,5 +950,364 @@ mod tests {
 
         let ratio = cost / Cost::new(dec!(2500.0));
         assert_eq!(ratio, dec!(2.0));
+    }
+}
+
+// ============================================================================
+// Property-Based Tests for Financial Types Unification
+// ============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
+    use std::str::FromStr;
+
+    /// Strategy for generating valid Decimal values suitable for financial calculations.
+    /// Avoids extreme values that could cause overflow or precision issues.
+    fn decimal_strategy() -> impl Strategy<Value = Decimal> {
+        // Generate decimals in a reasonable range for financial values
+        // Using string-based generation to ensure precise decimal representation
+        prop_oneof![
+            // Integer values
+            (-999_999_999i64..999_999_999i64).prop_map(Decimal::from),
+            // Decimal values with various precisions (1-8 decimal places)
+            (1u32..=8u32, -99_999_999i64..99_999_999i64).prop_map(|(scale, mantissa)| {
+                let mut d = Decimal::from(mantissa);
+                d.set_scale(scale).unwrap_or(());
+                d
+            }),
+            // Small decimal values (0.xxx)
+            (1i64..999_999i64, 1u32..=8u32).prop_map(|(mantissa, scale)| {
+                let mut d = Decimal::from(mantissa);
+                d.set_scale(scale).unwrap_or(());
+                d
+            }),
+            // Common financial values
+            Just(dec!(0)),
+            Just(dec!(0.00000001)),
+            Just(dec!(0.001)),
+            Just(dec!(1.0)),
+            Just(dec!(100.0)),
+            Just(dec!(50000.0)),
+            Just(dec!(99999.99999999)),
+        ]
+    }
+
+    /// Strategy for generating positive Decimal values (for amounts and prices).
+    fn positive_decimal_strategy() -> impl Strategy<Value = Decimal> {
+        decimal_strategy().prop_filter("must be non-negative", |d| !d.is_sign_negative())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // ====================================================================
+        // Property 1: Decimal to Amount/Price Conversion Round-Trip
+        // ====================================================================
+        // For any valid Decimal value, converting it to Amount (or Price) and
+        // then back to Decimal using as_decimal() SHALL produce the original value.
+        // **Feature: financial-types-unification, Property 1: Decimal to Amount/Price round-trip**
+        // **Validates: Requirements 5.1, 5.2, 5.3**
+
+        /// Test that Decimal -> Amount -> Decimal round-trip preserves the value
+        #[test]
+        fn prop_amount_decimal_roundtrip(value in decimal_strategy()) {
+            let amount = Amount::new(value);
+            let back = amount.as_decimal();
+            prop_assert_eq!(back, value, "Amount round-trip should preserve value");
+        }
+
+        /// Test that Decimal -> Price -> Decimal round-trip preserves the value
+        #[test]
+        fn prop_price_decimal_roundtrip(value in decimal_strategy()) {
+            let price = Price::new(value);
+            let back = price.as_decimal();
+            prop_assert_eq!(back, value, "Price round-trip should preserve value");
+        }
+
+        /// Test that Decimal -> Cost -> Decimal round-trip preserves the value
+        #[test]
+        fn prop_cost_decimal_roundtrip(value in decimal_strategy()) {
+            let cost = Cost::new(value);
+            let back = cost.as_decimal();
+            prop_assert_eq!(back, value, "Cost round-trip should preserve value");
+        }
+
+        /// Test that From<Decimal> and Into<Decimal> are consistent
+        #[test]
+        fn prop_amount_from_into_consistent(value in decimal_strategy()) {
+            let amount: Amount = value.into();
+            let back: Decimal = amount.into();
+            prop_assert_eq!(back, value, "Amount From/Into should be consistent");
+        }
+
+        /// Test that From<Decimal> and Into<Decimal> are consistent for Price
+        #[test]
+        fn prop_price_from_into_consistent(value in decimal_strategy()) {
+            let price: Price = value.into();
+            let back: Decimal = price.into();
+            prop_assert_eq!(back, value, "Price From/Into should be consistent");
+        }
+
+        /// Test that From<Decimal> and Into<Decimal> are consistent for Cost
+        #[test]
+        fn prop_cost_from_into_consistent(value in decimal_strategy()) {
+            let cost: Cost = value.into();
+            let back: Decimal = cost.into();
+            prop_assert_eq!(back, value, "Cost From/Into should be consistent");
+        }
+
+        // ====================================================================
+        // Property 2: Serialization Produces Valid Decimal Strings
+        // ====================================================================
+        // For any valid Amount or Price value, calling to_string() SHALL produce
+        // a string that:
+        // - Does not contain scientific notation characters ('e' or 'E')
+        // - Can be parsed back to the original Decimal value
+        // **Feature: financial-types-unification, Property 2: Serialization produces valid decimal strings**
+        // **Validates: Requirements 6.1, 6.2, 6.3**
+
+        /// Test that Amount::to_string() produces valid decimal strings without scientific notation
+        #[test]
+        fn prop_amount_to_string_no_scientific_notation(value in decimal_strategy()) {
+            let amount = Amount::new(value);
+            let s = amount.to_string();
+
+            // Should not contain scientific notation
+            prop_assert!(
+                !s.contains('e') && !s.contains('E'),
+                "Amount string '{}' should not contain scientific notation",
+                s
+            );
+
+            // Should be parseable back to the original value
+            let parsed = Decimal::from_str(&s);
+            prop_assert!(parsed.is_ok(), "Amount string '{}' should be parseable", s);
+            prop_assert_eq!(
+                parsed.unwrap(),
+                value,
+                "Parsed Amount should equal original value"
+            );
+        }
+
+        /// Test that Price::to_string() produces valid decimal strings without scientific notation
+        #[test]
+        fn prop_price_to_string_no_scientific_notation(value in decimal_strategy()) {
+            let price = Price::new(value);
+            let s = price.to_string();
+
+            // Should not contain scientific notation
+            prop_assert!(
+                !s.contains('e') && !s.contains('E'),
+                "Price string '{}' should not contain scientific notation",
+                s
+            );
+
+            // Should be parseable back to the original value
+            let parsed = Decimal::from_str(&s);
+            prop_assert!(parsed.is_ok(), "Price string '{}' should be parseable", s);
+            prop_assert_eq!(
+                parsed.unwrap(),
+                value,
+                "Parsed Price should equal original value"
+            );
+        }
+
+        /// Test that Cost::to_string() produces valid decimal strings without scientific notation
+        #[test]
+        fn prop_cost_to_string_no_scientific_notation(value in decimal_strategy()) {
+            let cost = Cost::new(value);
+            let s = cost.to_string();
+
+            // Should not contain scientific notation
+            prop_assert!(
+                !s.contains('e') && !s.contains('E'),
+                "Cost string '{}' should not contain scientific notation",
+                s
+            );
+
+            // Should be parseable back to the original value
+            let parsed = Decimal::from_str(&s);
+            prop_assert!(parsed.is_ok(), "Cost string '{}' should be parseable", s);
+            prop_assert_eq!(
+                parsed.unwrap(),
+                value,
+                "Parsed Cost should equal original value"
+            );
+        }
+
+        /// Test that string round-trip preserves Amount values
+        #[test]
+        fn prop_amount_string_roundtrip(value in decimal_strategy()) {
+            let amount = Amount::new(value);
+            let s = amount.to_string();
+            let parsed = Amount::from_str(&s);
+
+            prop_assert!(parsed.is_ok(), "Amount string '{}' should be parseable", s);
+            prop_assert_eq!(
+                parsed.unwrap().as_decimal(),
+                value,
+                "Amount string round-trip should preserve value"
+            );
+        }
+
+        /// Test that string round-trip preserves Price values
+        #[test]
+        fn prop_price_string_roundtrip(value in decimal_strategy()) {
+            let price = Price::new(value);
+            let s = price.to_string();
+            let parsed = Price::from_str(&s);
+
+            prop_assert!(parsed.is_ok(), "Price string '{}' should be parseable", s);
+            prop_assert_eq!(
+                parsed.unwrap().as_decimal(),
+                value,
+                "Price string round-trip should preserve value"
+            );
+        }
+
+        // ====================================================================
+        // Property 3: No Precision Loss in API Parameter Conversion
+        // ====================================================================
+        // For any valid Amount and Price values, the string representations
+        // used in API requests SHALL preserve the full precision of the original values.
+        // **Feature: financial-types-unification, Property 3: No precision loss in API parameter conversion**
+        // **Validates: Requirements 1.4, 3.1**
+
+        /// Test that Amount precision is preserved when converting to API string
+        #[test]
+        fn prop_amount_api_precision_preserved(value in positive_decimal_strategy()) {
+            let amount = Amount::new(value);
+
+            // Simulate API parameter conversion (what happens in create_order)
+            let api_string = amount.to_string();
+
+            // Parse back and verify precision is preserved
+            let parsed = Decimal::from_str(&api_string).expect("Should parse");
+
+            prop_assert_eq!(
+                parsed,
+                value,
+                "Amount API string '{}' should preserve full precision of {}",
+                api_string,
+                value
+            );
+        }
+
+        /// Test that Price precision is preserved when converting to API string
+        #[test]
+        fn prop_price_api_precision_preserved(value in positive_decimal_strategy()) {
+            let price = Price::new(value);
+
+            // Simulate API parameter conversion (what happens in create_order)
+            let api_string = price.to_string();
+
+            // Parse back and verify precision is preserved
+            let parsed = Decimal::from_str(&api_string).expect("Should parse");
+
+            prop_assert_eq!(
+                parsed,
+                value,
+                "Price API string '{}' should preserve full precision of {}",
+                api_string,
+                value
+            );
+        }
+
+        /// Test that Cost precision is preserved when converting to API string
+        #[test]
+        fn prop_cost_api_precision_preserved(value in positive_decimal_strategy()) {
+            let cost = Cost::new(value);
+
+            // Simulate API parameter conversion
+            let api_string = cost.to_string();
+
+            // Parse back and verify precision is preserved
+            let parsed = Decimal::from_str(&api_string).expect("Should parse");
+
+            prop_assert_eq!(
+                parsed,
+                value,
+                "Cost API string '{}' should preserve full precision of {}",
+                api_string,
+                value
+            );
+        }
+
+        /// Test that Price * Amount = Cost calculation preserves precision
+        #[test]
+        fn prop_price_amount_cost_precision(
+            price_val in positive_decimal_strategy(),
+            amount_val in positive_decimal_strategy()
+        ) {
+            // Skip if multiplication would overflow
+            let price_f64 = price_val.to_string().parse::<f64>().unwrap_or(0.0);
+            let amount_f64 = amount_val.to_string().parse::<f64>().unwrap_or(0.0);
+            prop_assume!(price_f64 * amount_f64 < 1e20);
+
+            let price = Price::new(price_val);
+            let amount = Amount::new(amount_val);
+
+            // Calculate cost
+            let cost = price * amount;
+
+            // Verify the calculation is correct
+            let expected = price_val * amount_val;
+            prop_assert_eq!(
+                cost.as_decimal(),
+                expected,
+                "Price * Amount should equal expected Cost"
+            );
+
+            // Verify string representation preserves precision
+            let cost_string = cost.to_string();
+            let parsed = Decimal::from_str(&cost_string).expect("Should parse");
+            prop_assert_eq!(
+                parsed,
+                expected,
+                "Cost string should preserve calculation precision"
+            );
+        }
+
+        /// Test that API parameter strings are valid for exchange APIs
+        #[test]
+        fn prop_api_strings_valid_format(value in positive_decimal_strategy()) {
+            let amount = Amount::new(value);
+            let price = Price::new(value);
+
+            let amount_str = amount.to_string();
+            let price_str = price.to_string();
+
+            // API strings should only contain valid characters: digits, '.', and optional '-'
+            let valid_chars = |c: char| c.is_ascii_digit() || c == '.' || c == '-';
+
+            prop_assert!(
+                amount_str.chars().all(valid_chars),
+                "Amount string '{}' should only contain valid API characters",
+                amount_str
+            );
+
+            prop_assert!(
+                price_str.chars().all(valid_chars),
+                "Price string '{}' should only contain valid API characters",
+                price_str
+            );
+
+            // Should not have multiple decimal points
+            prop_assert!(
+                amount_str.matches('.').count() <= 1,
+                "Amount string '{}' should have at most one decimal point",
+                amount_str
+            );
+
+            prop_assert!(
+                price_str.matches('.').count() <= 1,
+                "Price string '{}' should have at most one decimal point",
+                price_str
+            );
+        }
     }
 }

@@ -114,13 +114,14 @@ impl ExchangeConfig {
 ///
 /// ```rust
 /// use ccxt_core::base_exchange::ExchangeConfigBuilder;
+/// use std::time::Duration;
 ///
 /// let config = ExchangeConfigBuilder::new()
 ///     .id("binance")
 ///     .name("Binance")
 ///     .api_key("your-api-key")
 ///     .secret("your-secret")
-///     .timeout(60)
+///     .timeout(Duration::from_secs(60))
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -1392,7 +1393,7 @@ mod tests {
             .api_key("test-key")
             .secret("test-secret")
             .sandbox(true)
-            .timeout(60)
+            .timeout(Duration::from_secs(60))
             .verbose(true)
             .build();
 
@@ -1401,7 +1402,7 @@ mod tests {
         assert_eq!(config.api_key, Some("test-key".to_string()));
         assert_eq!(config.secret, Some("test-secret".to_string()));
         assert!(config.sandbox);
-        assert_eq!(config.timeout, 60);
+        assert_eq!(config.timeout, Duration::from_secs(60));
         assert!(config.verbose);
     }
 
@@ -1412,7 +1413,7 @@ mod tests {
         assert_eq!(config.id, "");
         assert_eq!(config.api_key, None);
         assert!(config.enable_rate_limit);
-        assert_eq!(config.timeout, 30);
+        assert_eq!(config.timeout, Duration::from_secs(30));
         assert!(!config.sandbox);
     }
 
@@ -1438,13 +1439,14 @@ mod parse_tests {
             secret: None,
             password: None,
             uid: None,
-            timeout: 10000,
+            timeout: Duration::from_millis(10000),
             sandbox: false,
             user_agent: None,
             enable_rate_limit: true,
             verbose: false,
             account_id: None,
             rate_limit: 0,
+            retry_policy: None,
             proxy: None,
             options: Default::default(),
             url_overrides: Default::default(),
