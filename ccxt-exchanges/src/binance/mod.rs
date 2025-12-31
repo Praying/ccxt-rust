@@ -13,6 +13,7 @@ use std::time::Duration;
 
 pub mod auth;
 pub mod builder;
+pub mod constants;
 pub mod endpoint_router;
 pub mod error;
 mod exchange_impl;
@@ -89,6 +90,11 @@ pub struct BinanceOptions {
     /// Default: true.
     #[serde(default = "default_auto_sync")]
     pub auto_time_sync: bool,
+    /// Rate limit in requests per second.
+    ///
+    /// Default: 50.
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit: u32,
 }
 
 fn default_sync_interval() -> u64 {
@@ -97,6 +103,10 @@ fn default_sync_interval() -> u64 {
 
 fn default_auto_sync() -> bool {
     true
+}
+
+fn default_rate_limit() -> u32 {
+    50
 }
 
 /// Custom deserializer for DefaultType that accepts both enum values and strings.
@@ -143,6 +153,7 @@ impl Default for BinanceOptions {
             test: false,
             time_sync_interval_secs: default_sync_interval(),
             auto_time_sync: default_auto_sync(),
+            rate_limit: default_rate_limit(),
         }
     }
 }

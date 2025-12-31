@@ -3,7 +3,7 @@
 //! This module contains all public market data methods that don't require authentication.
 //! These include ticker data, order books, trades, OHLCV data, and market statistics.
 
-use super::super::{Binance, parser};
+use super::super::{Binance, constants::endpoints, parser};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{
@@ -12,8 +12,25 @@ use ccxt_core::{
     },
 };
 use reqwest::header::HeaderMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::warn;
+use url::Url;
+
+/// System status structure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStatus {
+    /// Status: "ok" or "maintenance"
+    pub status: String,
+    /// Last updated timestamp
+    pub updated: Option<i64>,
+    /// Estimated time of arrival (recovery)
+    pub eta: Option<i64>,
+    /// Status URL
+    pub url: Option<String>,
+    /// Raw info from exchange
+    pub info: serde_json::Value,
+}
 
 impl Binance {
     /// Fetch server timestamp for internal use.
@@ -26,7 +43,7 @@ impl Binance {
     ///
     /// Returns an error if the request fails or the response is malformed.
     pub(crate) async fn fetch_time_raw(&self) -> Result<i64> {
-        let url = format!("{}/time", self.urls().public);
+        let url = format!("{}{}", self.urls().public, endpoints::TIME);
         let response = self.base().http_client.get(&url, None).await?;
 
         response["serverTime"]
@@ -48,8 +65,8 @@ impl Binance {
     ///     "info": { ... }
     /// }
     /// ```
-    pub async fn fetch_status(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/system/status", self.urls().sapi);
+    pub async fn fetch_status(&self) -> Result<SystemStatus> {
+        let url = format!("{}{}", self.urls().sapi, endpoints::SYSTEM_STATUS);
         let response = self.base().http_client.get(&url, None).await?;
 
         // Response format: { "status": 0, "msg": "normal" }
@@ -70,15 +87,13 @@ impl Binance {
             _ => "unknown",
         };
 
-        // json! macro with literal values is infallible
-        #[allow(clippy::disallowed_methods)]
-        Ok(serde_json::json!({
-            "status": status,
-            "updated": null,
-            "eta": null,
-            "url": null,
-            "info": response
-        }))
+        Ok(SystemStatus {
+            status: status.to_string(),
+            updated: None,
+            eta: None,
+            url: None,
+            info: response,
+        })
     }
 
     /// Fetch all trading markets.
@@ -106,7 +121,7 @@ impl Binance {
     pub async fn fetch_markets(
         &self,
     ) -> Result<Arc<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>>> {
-        let url = format!("{}/exchangeInfo", self.urls().public);
+        let url = format!("{}{}", self.urls().public, endpoints::EXCHANGE_INFO);
         let data = self.base().http_client.get(&url, None).await?;
 
         let symbols = data["symbols"]
@@ -214,21 +229,36 @@ impl Binance {
         let params = params.into_ticker_params();
         let rolling = params.rolling.unwrap_or(false);
 
-        let endpoint = if rolling { "ticker" } else { "ticker/24hr" };
+        let endpoint = if rolling {
+            endpoints::TICKER_ROLLING
+        } else {
+            endpoints::TICKER_24HR
+        };
 
-        let mut url = format!("{}/{}?symbol={}", self.urls().public, endpoint, market.id);
+        let full_url = format!("{}{}", self.urls().public, endpoint);
+        let mut url =
+            Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
 
-        if let Some(window) = params.window_size {
-            url.push_str(&format!("&windowSize={}", window));
-        }
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("symbol", &market.id);
 
-        for (key, value) in &params.extras {
-            if key != "rolling" && key != "windowSize" {
-                url.push_str(&format!("&{}={}", key, value));
+            if let Some(window) = params.window_size {
+                query.append_pair("windowSize", &window.to_string());
+            }
+
+            for (key, value) in &params.extras {
+                if key != "rolling" && key != "windowSize" {
+                    let value_str = match value {
+                        serde_json::Value::String(s) => s.clone(),
+                        _ => value.to_string(),
+                    };
+                    query.append_pair(key, &value_str);
+                }
             }
         }
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.base().http_client.get(url.as_str(), None).await?;
 
         parser::parse_ticker(&data, Some(&market))
     }
@@ -259,7 +289,7 @@ impl Binance {
             cache.markets_by_id.clone()
         };
 
-        let url = format!("{}/ticker/24hr", self.urls().public);
+        let url = format!("{}{}", self.urls().public, endpoints::TICKER_24HR);
         let data = self.base().http_client.get(&url, None).await?;
 
         let tickers_array = data.as_array().ok_or_else(|| {
@@ -320,18 +350,19 @@ impl Binance {
     ) -> Result<ccxt_core::types::OrderBook> {
         let market = self.base().market(symbol).await?;
 
-        let url = if let Some(l) = limit {
-            format!(
-                "{}/depth?symbol={}&limit={}",
-                self.urls().public,
-                market.id,
-                l
-            )
-        } else {
-            format!("{}/depth?symbol={}", self.urls().public, market.id)
-        };
+        let full_url = format!("{}{}", self.urls().public, endpoints::DEPTH);
+        let mut url =
+            Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
 
-        let data = self.base().http_client.get(&url, None).await?;
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("symbol", &market.id);
+            if let Some(l) = limit {
+                query.append_pair("limit", &l.to_string());
+            }
+        }
+
+        let data = self.base().http_client.get(url.as_str(), None).await?;
 
         parser::parse_orderbook(&data, market.symbol.clone())
     }
@@ -355,13 +386,19 @@ impl Binance {
 
         let url = if let Some(l) = limit {
             format!(
-                "{}/trades?symbol={}&limit={}",
+                "{}{}?symbol={}&limit={}",
                 self.urls().public,
+                endpoints::TRADES,
                 market.id,
                 l
             )
         } else {
-            format!("{}/trades?symbol={}", self.urls().public, market.id)
+            format!(
+                "{}{}?symbol={}",
+                self.urls().public,
+                endpoints::TRADES,
+                market.id
+            )
         };
 
         let data = self.base().http_client.get(&url, None).await?;
@@ -438,7 +475,12 @@ impl Binance {
     ) -> Result<Vec<AggTrade>> {
         let market = self.base().market(symbol).await?;
 
-        let mut url = format!("{}/aggTrades?symbol={}", self.urls().public, market.id);
+        let mut url = format!(
+            "{}{}?symbol={}",
+            self.urls().public,
+            endpoints::AGG_TRADES,
+            market.id
+        );
 
         if let Some(s) = since {
             url.push_str(&format!("&startTime={}", s));
@@ -510,8 +552,9 @@ impl Binance {
         self.check_required_credentials()?;
 
         let mut url = format!(
-            "{}/historicalTrades?symbol={}",
+            "{}{}?symbol={}",
             self.urls().public,
+            endpoints::HISTORICAL_TRADES,
             market.id
         );
 
@@ -568,9 +611,15 @@ impl Binance {
     pub async fn fetch_24hr_stats(&self, symbol: Option<&str>) -> Result<Vec<Stats24hr>> {
         let url = if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
-            format!("{}/ticker/24hr?symbol={}", self.urls().public, market.id)
+            format!(
+                "{}{}{}?symbol={}",
+                self.urls().public,
+                if false { "" } else { "" },
+                endpoints::TICKER_24HR,
+                market.id
+            )
         } else {
-            format!("{}/ticker/24hr", self.urls().public)
+            format!("{}{}", self.urls().public, endpoints::TICKER_24HR)
         };
 
         let data = self.base().http_client.get(&url, None).await?;
@@ -617,7 +666,13 @@ impl Binance {
     pub async fn fetch_trading_limits(&self, symbol: &str) -> Result<TradingLimits> {
         let market = self.base().market(symbol).await?;
 
-        let url = format!("{}/exchangeInfo?symbol={}", self.urls().public, market.id);
+        let url = format!(
+            "{}{}{}?symbol={}",
+            self.urls().public,
+            if false { "" } else { "" },
+            endpoints::EXCHANGE_INFO,
+            market.id
+        );
         let data = self.base().http_client.get(&url, None).await?;
 
         let symbols_array = data["symbols"].as_array().ok_or_else(|| {
@@ -728,7 +783,11 @@ impl Binance {
                         p
                     )));
                 }
-                Ok((self.urls().public.clone(), "/klines".to_string(), false))
+                Ok((
+                    self.urls().public.clone(),
+                    endpoints::KLINES.to_string(),
+                    false,
+                ))
             }
 
             MarketType::Swap | MarketType::Futures => {
@@ -737,7 +796,7 @@ impl Binance {
 
                 if is_linear {
                     let (endpoint, use_pair) = match price {
-                        None => ("/klines".to_string(), false),
+                        None => (endpoints::KLINES.to_string(), false),
                         Some("mark") => ("/markPriceKlines".to_string(), false),
                         Some("index") => ("/indexPriceKlines".to_string(), true),
                         Some("premiumIndex") => ("/premiumIndexKlines".to_string(), false),
@@ -746,7 +805,7 @@ impl Binance {
                     Ok((self.urls().fapi_public.clone(), endpoint, use_pair))
                 } else if is_inverse {
                     let (endpoint, use_pair) = match price {
-                        None => ("/klines".to_string(), false),
+                        None => (endpoints::KLINES.to_string(), false),
                         Some("mark") => ("/markPriceKlines".to_string(), false),
                         Some("index") => ("/indexPriceKlines".to_string(), true),
                         Some("premiumIndex") => ("/premiumIndexKlines".to_string(), false),
@@ -769,7 +828,7 @@ impl Binance {
                 }
                 Ok((
                     self.urls().eapi_public.clone(),
-                    "/klines".to_string(),
+                    endpoints::KLINES.to_string(),
                     false,
                 ))
             }

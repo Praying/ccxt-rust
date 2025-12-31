@@ -458,10 +458,10 @@ mod tests {
 
     #[test]
     fn test_builder_proxy() {
-        let builder = BybitBuilder::new().proxy("http://proxy.example.com:8080");
+        let builder = BybitBuilder::new().proxy(ProxyConfig::new("http://proxy.example.com:8080"));
         assert_eq!(
             builder.config.proxy,
-            Some("http://proxy.example.com:8080".to_string())
+            Some(ProxyConfig::new("http://proxy.example.com:8080"))
         );
     }
 
