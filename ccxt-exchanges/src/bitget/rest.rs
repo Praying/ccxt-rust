@@ -21,12 +21,22 @@ impl Bitget {
     // ============================================================================
 
     /// Get the current timestamp in milliseconds.
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`signed_request()`](Self::signed_request) instead.
+    /// The `signed_request()` builder handles timestamp generation internally.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `signed_request()` builder instead which handles timestamps internally"
+    )]
+    #[allow(dead_code)]
     fn get_timestamp(&self) -> String {
         chrono::Utc::now().timestamp_millis().to_string()
     }
 
     /// Get the authentication instance if credentials are configured.
-    fn get_auth(&self) -> Result<BitgetAuth> {
+    pub fn get_auth(&self) -> Result<BitgetAuth> {
         let config = &self.base().config;
 
         let api_key = config
@@ -117,6 +127,18 @@ impl Bitget {
     }
 
     /// Make a private API request (authentication required).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`signed_request()`](Self::signed_request) instead.
+    /// The `signed_request()` builder provides a cleaner, more maintainable API for
+    /// constructing authenticated requests.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `signed_request()` builder instead for cleaner, more maintainable code"
+    )]
+    #[allow(dead_code)]
+    #[allow(deprecated)]
     async fn private_request(
         &self,
         method: &str,
@@ -696,7 +718,7 @@ impl Bitget {
     /// ```
     pub async fn fetch_balance(&self) -> Result<Balance> {
         let path = self.build_api_path("/account/assets");
-        let response = self.private_request("GET", &path, None, None).await?;
+        let response = self.signed_request(&path).execute().await?;
 
         let data = response
             .get("data")
@@ -745,20 +767,20 @@ impl Bitget {
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/trade/fills");
-        let mut params = HashMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
 
         // Bitget maximum limit is 500
         let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
-        params.insert("limit".to_string(), actual_limit.to_string());
+
+        let mut builder = self
+            .signed_request(&path)
+            .param("symbol", &market.id)
+            .param("limit", actual_limit);
 
         if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
+            builder = builder.param("startTime", start_time);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        let response = builder.execute().await?;
 
         let data = response
             .get("data")
@@ -887,7 +909,10 @@ impl Bitget {
         let body = serde_json::Value::Object(map);
 
         let response = self
-            .private_request("POST", &path, None, Some(&body))
+            .signed_request(&path)
+            .method(crate::bitget::signed_request::HttpMethod::Post)
+            .body(body)
+            .execute()
             .await?;
 
         let data = response
@@ -944,7 +969,10 @@ impl Bitget {
         let body = serde_json::Value::Object(map);
 
         let response = self
-            .private_request("POST", &path, None, Some(&body))
+            .signed_request(&path)
+            .method(crate::bitget::signed_request::HttpMethod::Post)
+            .body(body)
+            .execute()
             .await?;
 
         let data = response
@@ -989,12 +1017,12 @@ impl Bitget {
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/trade/orderInfo");
-        let mut params = HashMap::new();
-        params.insert("symbol".to_string(), market.id.clone());
-        params.insert("orderId".to_string(), id.to_string());
 
         let response = self
-            .private_request("GET", &path, Some(&params), None)
+            .signed_request(&path)
+            .param("symbol", &market.id)
+            .param("orderId", id)
+            .execute()
             .await?;
 
         let data = response
@@ -1056,27 +1084,27 @@ impl Bitget {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let path = self.build_api_path("/trade/unfilled-orders");
-        let mut params = HashMap::new();
 
         let market = if let Some(sym) = symbol {
-            let m = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), m.id.clone());
-            Some(m)
+            Some(self.base().market(sym).await?)
         } else {
             None
         };
 
         // Bitget maximum limit is 500
         let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
-        params.insert("limit".to_string(), actual_limit.to_string());
 
-        if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
+        let mut builder = self.signed_request(&path).param("limit", actual_limit);
+
+        if let Some(m) = &market {
+            builder = builder.param("symbol", &m.id);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        if let Some(start_time) = since {
+            builder = builder.param("startTime", start_time);
+        }
+
+        let response = builder.execute().await?;
 
         let data = response
             .get("data")
@@ -1142,27 +1170,27 @@ impl Bitget {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let path = self.build_api_path("/trade/history-orders");
-        let mut params = HashMap::new();
 
         let market = if let Some(sym) = symbol {
-            let m = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), m.id.clone());
-            Some(m)
+            Some(self.base().market(sym).await?)
         } else {
             None
         };
 
         // Bitget maximum limit is 500
         let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
-        params.insert("limit".to_string(), actual_limit.to_string());
 
-        if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
+        let mut builder = self.signed_request(&path).param("limit", actual_limit);
+
+        if let Some(m) = &market {
+            builder = builder.param("symbol", &m.id);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        if let Some(start_time) = since {
+            builder = builder.param("startTime", start_time);
+        }
+
+        let response = builder.execute().await?;
 
         let data = response
             .get("data")

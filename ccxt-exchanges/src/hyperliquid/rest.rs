@@ -53,61 +53,42 @@ impl HyperLiquid {
     }
 
     /// Make an exchange action request (requires authentication).
-    pub(crate) async fn exchange_request(&self, action: Value, nonce: u64) -> Result<Value> {
-        let auth = self
-            .auth
-            .as_ref()
-            .ok_or_else(|| Error::authentication("Private key required for exchange actions"))?;
-
-        let urls = self.urls();
-        let url = format!("{}/exchange", urls.rest);
-        let is_mainnet = !self.options.testnet;
-
-        // Sign the action
-        let signature = auth.sign_l1_action(&action, nonce, is_mainnet)?;
-
-        let mut signature_map = serde_json::Map::new();
-        signature_map.insert(
-            "r".to_string(),
-            serde_json::Value::String(format!("0x{}", signature.r)),
-        );
-        signature_map.insert(
-            "s".to_string(),
-            serde_json::Value::String(format!("0x{}", signature.s)),
-        );
-        signature_map.insert(
-            "v".to_string(),
-            serde_json::Value::Number(signature.v.into()),
-        );
-
-        let mut body_map = serde_json::Map::new();
-        body_map.insert("action".to_string(), action.clone());
-        body_map.insert("nonce".to_string(), serde_json::Value::Number(nonce.into()));
-        body_map.insert(
-            "signature".to_string(),
-            serde_json::Value::Object(signature_map),
-        );
-        if let Some(vault_address) = &self.options.vault_address {
-            body_map.insert(
-                "vaultAddress".to_string(),
-                serde_json::Value::String(format!("0x{}", hex::encode(vault_address))),
-            );
-        }
-        let body = serde_json::Value::Object(body_map);
-
-        debug!("HyperLiquid exchange request: {:?}", action);
-
-        let response = self.base().http_client.post(&url, None, Some(body)).await?;
-
-        if error::is_error_response(&response) {
-            return Err(error::parse_error(&response));
-        }
-
-        Ok(response)
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use `signed_action()` builder instead:
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::hyperliquid::HyperLiquid;
+    /// # use serde_json::json;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let exchange = HyperLiquid::builder()
+    ///     .private_key("0x...")
+    ///     .testnet(true)
+    ///     .build()?;
+    ///
+    /// let action = json!({"type": "order", "orders": [], "grouping": "na"});
+    /// let response = exchange.signed_action(action).execute().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[deprecated(since = "0.2.0", note = "Use signed_action() builder instead")]
+    pub async fn exchange_request(&self, action: Value, nonce: u64) -> Result<Value> {
+        self.signed_action(action).nonce(nonce).execute().await
     }
 
     /// Get current timestamp as nonce.
-    fn get_nonce(&self) -> u64 {
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. The `signed_action()` builder automatically
+    /// generates the nonce. Use `signed_action().nonce(value)` if you need
+    /// to override the auto-generated nonce.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use signed_action() builder which auto-generates nonce"
+    )]
+    pub fn get_nonce(&self) -> u64 {
         chrono::Utc::now().timestamp_millis() as u64
     }
 
@@ -633,8 +614,7 @@ impl HyperLiquid {
             Value::Object(map)
         };
 
-        let nonce = self.get_nonce();
-        let response = self.exchange_request(action, nonce).await?;
+        let response = self.signed_action(action).execute().await?;
 
         // Parse response
         if let Some(statuses) = response["response"]["data"]["statuses"].as_array() {
@@ -673,8 +653,7 @@ impl HyperLiquid {
             Value::Object(map)
         };
 
-        let nonce = self.get_nonce();
-        let _response = self.exchange_request(action, nonce).await?;
+        let _response = self.signed_action(action).execute().await?;
 
         // Return a minimal order object indicating cancellation
         Ok(Order::new(
@@ -707,8 +686,7 @@ impl HyperLiquid {
             Value::Object(map)
         };
 
-        let nonce = self.get_nonce();
-        let response = self.exchange_request(action, nonce).await?;
+        let response = self.signed_action(action).execute().await?;
 
         // Check for success
         if error::is_error_response(&response) {
@@ -761,8 +739,7 @@ impl HyperLiquid {
             Value::Object(map)
         };
 
-        let nonce = self.get_nonce();
-        let _response = self.exchange_request(action, nonce).await?;
+        let _response = self.signed_action(action).execute().await?;
 
         // Return the orders that were canceled
         let canceled_orders: Vec<Order> = open_orders
@@ -784,6 +761,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_nonce() {
         let exchange = HyperLiquid::builder().testnet(true).build().unwrap();
 

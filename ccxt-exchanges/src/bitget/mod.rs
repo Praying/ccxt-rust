@@ -14,6 +14,7 @@ pub mod error;
 mod exchange_impl;
 pub mod parser;
 pub mod rest;
+pub mod signed_request;
 pub mod ws;
 mod ws_exchange_impl;
 
@@ -316,6 +317,39 @@ impl Bitget {
     pub fn create_ws(&self) -> ws::BitgetWs {
         let urls = self.urls();
         ws::BitgetWs::new(urls.ws_public)
+    }
+
+    /// Creates a signed request builder for authenticated API requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - API endpoint path (e.g., "/api/v2/spot/account/assets")
+    ///
+    /// # Returns
+    ///
+    /// Returns a `BitgetSignedRequestBuilder` for fluent API construction.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bitget::Bitget;
+    /// use ccxt_exchanges::bitget::signed_request::HttpMethod;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let bitget = Bitget::new(ExchangeConfig::default())?;
+    ///
+    /// let data = bitget.signed_request("/api/v2/spot/account/assets")
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn signed_request(
+        &self,
+        endpoint: impl Into<String>,
+    ) -> signed_request::BitgetSignedRequestBuilder<'_> {
+        signed_request::BitgetSignedRequestBuilder::new(self, endpoint)
     }
 }
 
