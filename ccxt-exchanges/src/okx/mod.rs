@@ -15,6 +15,7 @@ pub mod error;
 pub mod exchange_impl;
 pub mod parser;
 pub mod rest;
+pub mod signed_request;
 pub mod symbol;
 pub mod ws;
 pub mod ws_exchange_impl;
@@ -23,6 +24,7 @@ pub use auth::OkxAuth;
 pub use builder::OkxBuilder;
 pub use endpoint_router::{OkxChannelType, OkxEndpointRouter};
 pub use error::{OkxErrorCode, is_error_response, parse_error};
+pub use signed_request::{HttpMethod, OkxSignedRequestBuilder};
 
 /// OKX exchange structure.
 #[derive(Debug)]
@@ -328,6 +330,53 @@ impl Okx {
     pub fn create_ws(&self) -> ws::OkxWs {
         let urls = self.urls();
         ws::OkxWs::new(urls.ws_public)
+    }
+
+    /// Creates a new signed request builder for authenticated API requests.
+    ///
+    /// This builder encapsulates the common signing workflow for OKX API requests,
+    /// including credential validation, timestamp generation, HMAC-SHA256 signing,
+    /// and authentication header injection.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - API endpoint path (e.g., "/api/v5/account/balance")
+    ///
+    /// # Returns
+    ///
+    /// A `OkxSignedRequestBuilder` instance for fluent API construction.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::okx::Okx;
+    /// use ccxt_exchanges::okx::signed_request::HttpMethod;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let okx = Okx::new(ExchangeConfig::default())?;
+    ///
+    /// // Simple GET request
+    /// let data = okx.signed_request("/api/v5/account/balance")
+    ///     .execute()
+    ///     .await?;
+    ///
+    /// // POST request with parameters
+    /// let data = okx.signed_request("/api/v5/trade/order")
+    ///     .method(HttpMethod::Post)
+    ///     .param("instId", "BTC-USDT")
+    ///     .param("tdMode", "cash")
+    ///     .param("side", "buy")
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn signed_request(
+        &self,
+        endpoint: impl Into<String>,
+    ) -> signed_request::OkxSignedRequestBuilder<'_> {
+        signed_request::OkxSignedRequestBuilder::new(self, endpoint)
     }
 }
 

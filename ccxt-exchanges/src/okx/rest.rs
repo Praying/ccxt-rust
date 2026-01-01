@@ -3,6 +3,7 @@
 //! Implements all REST API endpoint operations for the OKX exchange.
 
 use super::{Okx, OkxAuth, error, parser};
+use crate::okx::signed_request::HttpMethod;
 use ccxt_core::{
     Error, ParseError, Result,
     types::{
@@ -21,6 +22,16 @@ impl Okx {
     // ============================================================================
 
     /// Get the current timestamp in ISO 8601 format for OKX API.
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`signed_request()`](Self::signed_request) instead.
+    /// The `signed_request()` builder handles timestamp generation internally.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `signed_request()` builder instead which handles timestamps internally"
+    )]
+    #[allow(dead_code)]
     fn get_timestamp(&self) -> String {
         chrono::Utc::now()
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -28,7 +39,7 @@ impl Okx {
     }
 
     /// Get the authentication instance if credentials are configured.
-    fn get_auth(&self) -> Result<OkxAuth> {
+    pub fn get_auth(&self) -> Result<OkxAuth> {
         let config = &self.base().config;
 
         let api_key = config
@@ -153,6 +164,18 @@ impl Okx {
     }
 
     /// Make a private API request (authentication required).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`signed_request()`](Self::signed_request) instead.
+    /// The `signed_request()` builder provides a cleaner, more maintainable API for
+    /// constructing authenticated requests.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `signed_request()` builder instead for cleaner, more maintainable code"
+    )]
+    #[allow(dead_code)]
+    #[allow(deprecated)]
     async fn private_request(
         &self,
         method: &str,
@@ -622,7 +645,7 @@ impl Okx {
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_balance(&self) -> Result<Balance> {
         let path = self.build_api_path("/account/balance");
-        let response = self.private_request("GET", &path, None, None).await?;
+        let response = self.signed_request(&path).execute().await?;
 
         let data = response
             .get("data")
@@ -666,21 +689,21 @@ impl Okx {
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/trade/fills");
-        let mut params = HashMap::new();
-        params.insert("instId".to_string(), market.id.clone());
-        params.insert("instType".to_string(), self.get_inst_type().to_string());
 
         // OKX maximum limit is 100
         let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
-        params.insert("limit".to_string(), actual_limit.to_string());
+
+        let mut builder = self
+            .signed_request(&path)
+            .param("instId", &market.id)
+            .param("instType", self.get_inst_type())
+            .param("limit", actual_limit);
 
         if let Some(start_time) = since {
-            params.insert("begin".to_string(), start_time.to_string());
+            builder = builder.param("begin", start_time);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        let response = builder.execute().await?;
 
         let data = response
             .get("data")
@@ -775,7 +798,10 @@ impl Okx {
         let body = serde_json::Value::Object(map);
 
         let response = self
-            .private_request("POST", &path, None, Some(&body))
+            .signed_request(&path)
+            .method(HttpMethod::Post)
+            .body(body)
+            .execute()
             .await?;
 
         let data = response
@@ -824,7 +850,10 @@ impl Okx {
         let body = serde_json::Value::Object(map);
 
         let response = self
-            .private_request("POST", &path, None, Some(&body))
+            .signed_request(&path)
+            .method(HttpMethod::Post)
+            .body(body)
+            .execute()
             .await?;
 
         let data = response
@@ -860,12 +889,12 @@ impl Okx {
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/trade/order");
-        let mut params = HashMap::new();
-        params.insert("instId".to_string(), market.id.clone());
-        params.insert("ordId".to_string(), id.to_string());
 
         let response = self
-            .private_request("GET", &path, Some(&params), None)
+            .signed_request(&path)
+            .param("instId", &market.id)
+            .param("ordId", id)
+            .execute()
             .await?;
 
         let data = response
@@ -897,15 +926,6 @@ impl Okx {
     ///
     /// # Returns
     ///
-    /// Fetch open orders.
-    ///
-    /// # Arguments
-    ///
-    /// * `symbol` - Optional trading pair symbol. If None, fetches all open orders.
-    /// * `since` - Optional start timestamp in milliseconds.
-    /// * `limit` - Optional limit on number of orders (maximum: 100).
-    ///
-    /// # Returns
     /// Returns a vector of open [`Order`] structures.
     pub async fn fetch_open_orders(
         &self,
@@ -914,28 +934,31 @@ impl Okx {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let path = self.build_api_path("/trade/orders-pending");
-        let mut params = HashMap::new();
-        params.insert("instType".to_string(), self.get_inst_type().to_string());
+
+        // OKX maximum limit is 100
+        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
 
         let market = if let Some(sym) = symbol {
             let m = self.base().market(sym).await?;
-            params.insert("instId".to_string(), m.id.clone());
             Some(m)
         } else {
             None
         };
 
-        // OKX maximum limit is 100
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
-        params.insert("limit".to_string(), actual_limit.to_string());
+        let mut builder = self
+            .signed_request(&path)
+            .param("instType", self.get_inst_type())
+            .param("limit", actual_limit);
 
-        if let Some(start_time) = since {
-            params.insert("begin".to_string(), start_time.to_string());
+        if let Some(ref m) = market {
+            builder = builder.param("instId", &m.id);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        if let Some(start_time) = since {
+            builder = builder.param("begin", start_time);
+        }
+
+        let response = builder.execute().await?;
 
         let data = response
             .get("data")
@@ -979,28 +1002,31 @@ impl Okx {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let path = self.build_api_path("/trade/orders-history");
-        let mut params = HashMap::new();
-        params.insert("instType".to_string(), self.get_inst_type().to_string());
+
+        // OKX maximum limit is 100
+        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
 
         let market = if let Some(sym) = symbol {
             let m = self.base().market(sym).await?;
-            params.insert("instId".to_string(), m.id.clone());
             Some(m)
         } else {
             None
         };
 
-        // OKX maximum limit is 100
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
-        params.insert("limit".to_string(), actual_limit.to_string());
+        let mut builder = self
+            .signed_request(&path)
+            .param("instType", self.get_inst_type())
+            .param("limit", actual_limit);
 
-        if let Some(start_time) = since {
-            params.insert("begin".to_string(), start_time.to_string());
+        if let Some(ref m) = market {
+            builder = builder.param("instId", &m.id);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        if let Some(start_time) = since {
+            builder = builder.param("begin", start_time);
+        }
+
+        let response = builder.execute().await?;
 
         let data = response
             .get("data")

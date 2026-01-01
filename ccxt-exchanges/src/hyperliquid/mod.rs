@@ -55,6 +55,7 @@ pub mod error;
 mod exchange_impl;
 pub mod parser;
 pub mod rest;
+pub mod signed_request;
 pub mod ws;
 mod ws_exchange_impl;
 
@@ -166,6 +167,51 @@ impl HyperLiquid {
     /// Returns a reference to the authentication instance.
     pub fn auth(&self) -> Option<&HyperLiquidAuth> {
         self.auth.as_ref()
+    }
+
+    /// Creates a signed action builder for authenticated exchange requests.
+    ///
+    /// This method provides a fluent API for constructing and executing
+    /// authenticated Hyperliquid exchange actions using EIP-712 signing.
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - The action JSON to be signed and executed
+    ///
+    /// # Returns
+    ///
+    /// A `HyperliquidSignedRequestBuilder` that can be configured and executed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::hyperliquid::HyperLiquid;
+    /// use serde_json::json;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let exchange = HyperLiquid::builder()
+    ///     .private_key("0x...")
+    ///     .testnet(true)
+    ///     .build()?;
+    ///
+    /// // Create an order
+    /// let action = json!({
+    ///     "type": "order",
+    ///     "orders": [{"a": 0, "b": true, "p": "50000", "s": "0.001", "r": false, "t": {"limit": {"tif": "Gtc"}}}],
+    ///     "grouping": "na"
+    /// });
+    ///
+    /// let response = exchange.signed_action(action)
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn signed_action(
+        &self,
+        action: serde_json::Value,
+    ) -> signed_request::HyperliquidSignedRequestBuilder<'_> {
+        signed_request::HyperliquidSignedRequestBuilder::new(self, action)
     }
 
     /// Returns the exchange ID.

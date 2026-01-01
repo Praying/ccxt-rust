@@ -21,12 +21,22 @@ impl Bybit {
     // ============================================================================
 
     /// Get the current timestamp in milliseconds.
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`signed_request()`](Self::signed_request) instead.
+    /// The `signed_request()` builder handles timestamp generation internally.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `signed_request()` builder instead which handles timestamps internally"
+    )]
+    #[allow(dead_code)]
     fn get_timestamp(&self) -> String {
         chrono::Utc::now().timestamp_millis().to_string()
     }
 
     /// Get the authentication instance if credentials are configured.
-    fn get_auth(&self) -> Result<BybitAuth> {
+    pub fn get_auth(&self) -> Result<BybitAuth> {
         let config = &self.base().config;
 
         let api_key = config
@@ -104,6 +114,18 @@ impl Bybit {
     }
 
     /// Make a private API request (authentication required).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`signed_request()`](Self::signed_request) instead.
+    /// The `signed_request()` builder provides a cleaner, more maintainable API for
+    /// constructing authenticated requests.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `signed_request()` builder instead for cleaner, more maintainable code"
+    )]
+    #[allow(dead_code)]
+    #[allow(deprecated)]
     async fn private_request(
         &self,
         method: &str,
@@ -585,14 +607,11 @@ impl Bybit {
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_balance(&self) -> Result<Balance> {
         let path = self.build_api_path("/account/wallet-balance");
-        let mut params = HashMap::new();
-        params.insert(
-            "accountType".to_string(),
-            self.options().account_type.clone(),
-        );
 
         let response = self
-            .private_request("GET", &path, Some(&params), None)
+            .signed_request(&path)
+            .param("accountType", &self.options().account_type)
+            .execute()
             .await?;
 
         let result = response
@@ -622,20 +641,17 @@ impl Bybit {
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/execution/list");
-        let mut params = HashMap::new();
-        params.insert("category".to_string(), self.get_category().to_string());
-        params.insert("symbol".to_string(), market.id.clone());
 
         // Bybit maximum limit is 100
         let actual_limit = limit.map(|l| l.min(100)).unwrap_or(50);
-        params.insert("limit".to_string(), actual_limit.to_string());
-
-        if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
-        }
 
         let response = self
-            .private_request("GET", &path, Some(&params), None)
+            .signed_request(&path)
+            .param("category", self.get_category())
+            .param("symbol", &market.id)
+            .param("limit", actual_limit)
+            .optional_param("startTime", since)
+            .execute()
             .await?;
 
         let result = response
@@ -691,6 +707,8 @@ impl Bybit {
         amount: Amount,
         price: Option<Price>,
     ) -> Result<Order> {
+        use crate::bybit::signed_request::HttpMethod;
+
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/order/create");
@@ -747,7 +765,10 @@ impl Bybit {
         let body = serde_json::Value::Object(map);
 
         let response = self
-            .private_request("POST", &path, None, Some(&body))
+            .signed_request(&path)
+            .method(HttpMethod::Post)
+            .body(body)
+            .execute()
             .await?;
 
         let result = response
@@ -768,6 +789,8 @@ impl Bybit {
     ///
     /// Returns the canceled [`Order`] structure.
     pub async fn cancel_order(&self, id: &str, symbol: &str) -> Result<Order> {
+        use crate::bybit::signed_request::HttpMethod;
+
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/order/cancel");
@@ -788,7 +811,10 @@ impl Bybit {
         let body = serde_json::Value::Object(map);
 
         let response = self
-            .private_request("POST", &path, None, Some(&body))
+            .signed_request(&path)
+            .method(HttpMethod::Post)
+            .body(body)
+            .execute()
             .await?;
 
         let result = response
@@ -812,13 +838,13 @@ impl Bybit {
         let market = self.base().market(symbol).await?;
 
         let path = self.build_api_path("/order/realtime");
-        let mut params = HashMap::new();
-        params.insert("category".to_string(), self.get_category().to_string());
-        params.insert("symbol".to_string(), market.id.clone());
-        params.insert("orderId".to_string(), id.to_string());
 
         let response = self
-            .private_request("GET", &path, Some(&params), None)
+            .signed_request(&path)
+            .param("category", self.get_category())
+            .param("symbol", &market.id)
+            .param("orderId", id)
+            .execute()
             .await?;
 
         let result = response
@@ -861,28 +887,27 @@ impl Bybit {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let path = self.build_api_path("/order/realtime");
-        let mut params = HashMap::new();
-        params.insert("category".to_string(), self.get_category().to_string());
+
+        // Bybit maximum limit is 50
+        let actual_limit = limit.map(|l| l.min(50)).unwrap_or(50);
 
         let market = if let Some(sym) = symbol {
-            let m = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), m.id.clone());
-            Some(m)
+            Some(self.base().market(sym).await?)
         } else {
             None
         };
 
-        // Bybit maximum limit is 50
-        let actual_limit = limit.map(|l| l.min(50)).unwrap_or(50);
-        params.insert("limit".to_string(), actual_limit.to_string());
+        let mut builder = self
+            .signed_request(&path)
+            .param("category", self.get_category())
+            .param("limit", actual_limit)
+            .optional_param("startTime", since);
 
-        if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
+        if let Some(ref m) = market {
+            builder = builder.param("symbol", &m.id);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        let response = builder.execute().await?;
 
         let result = response
             .get("result")
@@ -930,28 +955,27 @@ impl Bybit {
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
         let path = self.build_api_path("/order/history");
-        let mut params = HashMap::new();
-        params.insert("category".to_string(), self.get_category().to_string());
+
+        // Bybit maximum limit is 50
+        let actual_limit = limit.map(|l| l.min(50)).unwrap_or(50);
 
         let market = if let Some(sym) = symbol {
-            let m = self.base().market(sym).await?;
-            params.insert("symbol".to_string(), m.id.clone());
-            Some(m)
+            Some(self.base().market(sym).await?)
         } else {
             None
         };
 
-        // Bybit maximum limit is 50
-        let actual_limit = limit.map(|l| l.min(50)).unwrap_or(50);
-        params.insert("limit".to_string(), actual_limit.to_string());
+        let mut builder = self
+            .signed_request(&path)
+            .param("category", self.get_category())
+            .param("limit", actual_limit)
+            .optional_param("startTime", since);
 
-        if let Some(start_time) = since {
-            params.insert("startTime".to_string(), start_time.to_string());
+        if let Some(ref m) = market {
+            builder = builder.param("symbol", &m.id);
         }
 
-        let response = self
-            .private_request("GET", &path, Some(&params), None)
-            .await?;
+        let response = builder.execute().await?;
 
         let result = response
             .get("result")

@@ -14,6 +14,7 @@ pub mod endpoint_router;
 pub mod error;
 pub mod parser;
 pub mod rest;
+pub mod signed_request;
 pub mod symbol;
 pub mod ws;
 mod ws_exchange_impl;
@@ -336,6 +337,63 @@ impl Bybit {
         let category = self.category();
         let ws_url = urls.ws_public_for_category(category);
         ws::BybitWs::new(ws_url)
+    }
+
+    /// Creates a signed request builder for authenticated API calls.
+    ///
+    /// This method provides a fluent API for constructing authenticated requests
+    /// to Bybit's private endpoints. The builder handles:
+    /// - Credential validation
+    /// - Millisecond timestamp generation
+    /// - HMAC-SHA256 signature generation (hex encoded)
+    /// - Authentication header injection (X-BAPI-* headers)
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - API endpoint path (e.g., "/v5/account/wallet-balance")
+    ///
+    /// # Returns
+    ///
+    /// Returns a `BybitSignedRequestBuilder` for method chaining.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::bybit::Bybit;
+    /// use ccxt_exchanges::bybit::signed_request::HttpMethod;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let bybit = Bybit::builder()
+    ///     .api_key("your-api-key")
+    ///     .secret("your-secret")
+    ///     .build()?;
+    ///
+    /// // GET request
+    /// let balance = bybit.signed_request("/v5/account/wallet-balance")
+    ///     .param("accountType", "UNIFIED")
+    ///     .execute()
+    ///     .await?;
+    ///
+    /// // POST request
+    /// let order = bybit.signed_request("/v5/order/create")
+    ///     .method(HttpMethod::Post)
+    ///     .param("category", "spot")
+    ///     .param("symbol", "BTCUSDT")
+    ///     .param("side", "Buy")
+    ///     .param("orderType", "Limit")
+    ///     .param("qty", "0.001")
+    ///     .param("price", "50000")
+    ///     .execute()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn signed_request(
+        &self,
+        endpoint: impl Into<String>,
+    ) -> signed_request::BybitSignedRequestBuilder<'_> {
+        signed_request::BybitSignedRequestBuilder::new(self, endpoint)
     }
 }
 
