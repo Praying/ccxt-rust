@@ -47,6 +47,9 @@ impl HashAlgorithm {
     ///
     /// # Returns
     /// Parsed [`HashAlgorithm`] or error if unsupported.
+    // Lint: should_implement_trait
+    // Reason: This method returns Result<Self> with custom error type, not compatible with FromStr trait
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "sha1" => Ok(HashAlgorithm::Sha1),
@@ -56,8 +59,7 @@ impl HashAlgorithm {
             "md5" => Ok(HashAlgorithm::Md5),
             "keccak" | "sha3" => Ok(HashAlgorithm::Keccak),
             _ => Err(Error::invalid_argument(format!(
-                "Unsupported hash algorithm: {}",
-                s
+                "Unsupported hash algorithm: {s}"
             ))),
         }
     }
@@ -73,7 +75,7 @@ impl fmt::Display for HashAlgorithm {
             HashAlgorithm::Md5 => "md5",
             HashAlgorithm::Keccak => "keccak",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -96,6 +98,12 @@ impl DigestFormat {
     ///
     /// # Returns
     /// Parsed [`DigestFormat`], defaults to `Hex` if unrecognized.
+    // Lint: should_implement_trait
+    // Reason: This method has different semantics than FromStr - it never fails and has a default
+    #[allow(clippy::should_implement_trait)]
+    // Lint: match_same_arms
+    // Reason: Explicit "hex" match documents the supported format, wildcard is the fallback default
+    #[allow(clippy::match_same_arms)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "hex" => DigestFormat::Hex,
@@ -144,8 +152,7 @@ pub fn hmac_sign(
         HashAlgorithm::Md5 => hmac_md5(message.as_bytes(), secret.as_bytes()),
         _ => {
             return Err(Error::invalid_argument(format!(
-                "HMAC does not support {} algorithm",
-                algorithm
+                "HMAC does not support {algorithm} algorithm"
             )));
         }
     };
@@ -429,13 +436,13 @@ pub fn jwt_sign(
     let encoded_header = general_purpose::URL_SAFE_NO_PAD.encode(header_json.as_bytes());
     let encoded_payload = general_purpose::URL_SAFE_NO_PAD.encode(payload_json.as_bytes());
 
-    let token = format!("{}.{}", encoded_header, encoded_payload);
+    let token = format!("{encoded_header}.{encoded_payload}");
 
     let signature = hmac_sign(&token, secret, algorithm, DigestFormat::Base64)?;
 
     let signature_url = base64_to_base64url(&signature, true);
 
-    Ok(format!("{}.{}", token, signature_url))
+    Ok(format!("{token}.{signature_url}"))
 }
 
 /// Encodes bytes to the specified format.
@@ -481,11 +488,11 @@ pub fn base64url_decode(base64url: &str) -> Result<Vec<u8>> {
         3 => "=",
         _ => "",
     };
-    let base64_padded = format!("{}{}", base64, padding);
+    let base64_padded = format!("{base64}{padding}");
 
     general_purpose::STANDARD
         .decode(base64_padded.as_bytes())
-        .map_err(|e| Error::invalid_argument(format!("Base64 decode error: {}", e)))
+        .map_err(|e| Error::invalid_argument(format!("Base64 decode error: {e}")))
 }
 
 #[cfg(test)]

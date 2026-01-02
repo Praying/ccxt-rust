@@ -192,6 +192,10 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::types::financial::{Amount, Price};
+// Lint: wildcard_imports
+// Reason: Types module contains many related types used throughout this file;
+// explicit imports would be excessively verbose and harder to maintain
+#[allow(clippy::wildcard_imports)]
 use crate::types::*;
 
 // Re-export ExchangeCapabilities and related types from the capability module

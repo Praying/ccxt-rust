@@ -94,13 +94,13 @@ impl HyperLiquidWs {
     }
 
     /// Returns the current connection state.
-    pub async fn state(&self) -> WsConnectionState {
-        self.client.state().await
+    pub fn state(&self) -> WsConnectionState {
+        self.client.state()
     }
 
     /// Checks if the WebSocket is connected.
-    pub async fn is_connected(&self) -> bool {
-        self.client.is_connected().await
+    pub fn is_connected(&self) -> bool {
+        self.client.is_connected()
     }
 
     /// Receives the next message from the WebSocket.

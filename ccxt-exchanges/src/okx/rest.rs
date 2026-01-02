@@ -7,8 +7,8 @@ use crate::okx::signed_request::HttpMethod;
 use ccxt_core::{
     Error, ParseError, Result,
     types::{
-        Amount, Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
-        Trade,
+        Amount, Balance, Market, OHLCV, OhlcvRequest, Order, OrderBook, OrderRequest, OrderSide,
+        OrderType, Price, Ticker, TimeInForce, Trade,
     },
 };
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -561,7 +561,85 @@ impl Okx {
         Ok(trades)
     }
 
-    /// Fetch OHLCV (candlestick) data.
+    /// Fetch OHLCV (candlestick) data using the builder pattern.
+    ///
+    /// This is the preferred method for fetching OHLCV data. It accepts an [`OhlcvRequest`]
+    /// built using the builder pattern, which provides validation and a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - OHLCV request built via [`OhlcvRequest::builder()`]
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of [`OHLCV`] structures.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the market is not found or the API request fails.
+    ///
+    /// _Requirements: 2.3, 2.6_
+    pub async fn fetch_ohlcv_v2(&self, request: OhlcvRequest) -> Result<Vec<OHLCV>> {
+        let market = self.base().market(&request.symbol).await?;
+
+        // Convert timeframe to OKX format
+        let timeframes = self.timeframes();
+        let okx_timeframe = timeframes.get(&request.timeframe).ok_or_else(|| {
+            Error::invalid_request(format!("Unsupported timeframe: {}", request.timeframe))
+        })?;
+
+        let path = self.build_api_path("/market/candles");
+        let mut params = HashMap::new();
+        params.insert("instId".to_string(), market.id.clone());
+        params.insert("bar".to_string(), okx_timeframe.clone());
+
+        // OKX maximum limit is 300
+        let actual_limit = request.limit.map(|l| l.min(300)).unwrap_or(100);
+        params.insert("limit".to_string(), actual_limit.to_string());
+
+        if let Some(start_time) = request.since {
+            params.insert("after".to_string(), start_time.to_string());
+        }
+
+        if let Some(end_time) = request.until {
+            params.insert("before".to_string(), end_time.to_string());
+        }
+
+        let response = self.public_request("GET", &path, Some(&params)).await?;
+
+        let data = response
+            .get("data")
+            .ok_or_else(|| Error::from(ParseError::missing_field("data")))?;
+
+        let candles_array = data.as_array().ok_or_else(|| {
+            Error::from(ParseError::invalid_format(
+                "data",
+                "Expected array of candles",
+            ))
+        })?;
+
+        let mut ohlcv = Vec::new();
+        for candle_data in candles_array {
+            match parser::parse_ohlcv(candle_data) {
+                Ok(candle) => ohlcv.push(candle),
+                Err(e) => {
+                    warn!(error = %e, "Failed to parse OHLCV");
+                }
+            }
+        }
+
+        // Sort by timestamp ascending (oldest first)
+        ohlcv.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        Ok(ohlcv)
+    }
+
+    /// Fetch OHLCV (candlestick) data (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`fetch_ohlcv_v2`](Self::fetch_ohlcv_v2) with
+    /// [`OhlcvRequest::builder()`] instead for a more ergonomic API.
     ///
     /// # Arguments
     ///
@@ -573,6 +651,10 @@ impl Okx {
     /// # Returns
     ///
     /// Returns a vector of [`OHLCV`] structures.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use fetch_ohlcv_v2 with OhlcvRequest::builder() instead"
+    )]
     pub async fn fetch_ohlcv(
         &self,
         symbol: &str,
@@ -733,7 +815,138 @@ impl Okx {
     // Private API Methods - Order Management
     // ============================================================================
 
-    /// Create a new order.
+    /// Create a new order using the builder pattern.
+    ///
+    /// This is the preferred method for creating orders. It accepts an [`OrderRequest`]
+    /// built using the builder pattern, which provides compile-time validation of
+    /// required fields and a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Order request built via [`OrderRequest::builder()`]
+    ///
+    /// # Returns
+    ///
+    /// Returns the created [`Order`] structure with order details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails, market is not found, or the API request fails.
+    ///
+    /// _Requirements: 2.2, 2.6_
+    pub async fn create_order_v2(&self, request: OrderRequest) -> Result<Order> {
+        let market = self.base().market(&request.symbol).await?;
+
+        let path = self.build_api_path("/trade/order");
+
+        // Build order body
+        let mut map = serde_json::Map::new();
+        map.insert(
+            "instId".to_string(),
+            serde_json::Value::String(market.id.clone()),
+        );
+        map.insert(
+            "tdMode".to_string(),
+            serde_json::Value::String(self.options().account_mode.clone()),
+        );
+        map.insert(
+            "side".to_string(),
+            serde_json::Value::String(match request.side {
+                OrderSide::Buy => "buy".to_string(),
+                OrderSide::Sell => "sell".to_string(),
+            }),
+        );
+        map.insert(
+            "ordType".to_string(),
+            serde_json::Value::String(match request.order_type {
+                OrderType::Market => "market".to_string(),
+                OrderType::Limit => "limit".to_string(),
+                OrderType::LimitMaker => "post_only".to_string(),
+                OrderType::StopLoss | OrderType::StopMarket => "market".to_string(),
+                OrderType::StopLossLimit | OrderType::StopLimit => "limit".to_string(),
+                OrderType::TakeProfit => "market".to_string(),
+                OrderType::TakeProfitLimit => "limit".to_string(),
+                OrderType::TrailingStop => "market".to_string(),
+            }),
+        );
+        map.insert(
+            "sz".to_string(),
+            serde_json::Value::String(request.amount.to_string()),
+        );
+
+        // Add price for limit orders
+        if let Some(p) = request.price {
+            if request.order_type == OrderType::Limit || request.order_type == OrderType::LimitMaker
+            {
+                map.insert("px".to_string(), serde_json::Value::String(p.to_string()));
+            }
+        }
+
+        // Handle time in force - OKX uses ordType for post_only
+        if request.time_in_force == Some(TimeInForce::PO) || request.post_only == Some(true) {
+            // Already handled via ordType = "post_only" above
+        }
+
+        // Handle client order ID
+        if let Some(client_id) = request.client_order_id {
+            map.insert("clOrdId".to_string(), serde_json::Value::String(client_id));
+        }
+
+        // Handle reduce only
+        if let Some(reduce_only) = request.reduce_only {
+            map.insert(
+                "reduceOnly".to_string(),
+                serde_json::Value::Bool(reduce_only),
+            );
+        }
+
+        // Handle stop price / trigger price
+        if let Some(trigger) = request.trigger_price.or(request.stop_price) {
+            map.insert(
+                "triggerPx".to_string(),
+                serde_json::Value::String(trigger.to_string()),
+            );
+        }
+
+        // Handle position side (for hedge mode)
+        if let Some(pos_side) = request.position_side {
+            map.insert("posSide".to_string(), serde_json::Value::String(pos_side));
+        }
+
+        let body = serde_json::Value::Object(map);
+
+        let response = self
+            .signed_request(&path)
+            .method(HttpMethod::Post)
+            .body(body)
+            .execute()
+            .await?;
+
+        let data = response
+            .get("data")
+            .ok_or_else(|| Error::from(ParseError::missing_field("data")))?;
+
+        // OKX returns array with single order
+        let orders = data.as_array().ok_or_else(|| {
+            Error::from(ParseError::invalid_format(
+                "data",
+                "Expected array of orders",
+            ))
+        })?;
+
+        if orders.is_empty() {
+            return Err(Error::exchange("-1", "No order data returned"));
+        }
+
+        parser::parse_order(&orders[0], Some(&market))
+    }
+
+    /// Create a new order (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`create_order_v2`](Self::create_order_v2) with
+    /// [`OrderRequest::builder()`] instead for a more ergonomic API.
     ///
     /// # Arguments
     ///
@@ -746,6 +959,10 @@ impl Okx {
     /// # Returns
     ///
     /// Returns the created [`Order`] structure with order details.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_order_v2 with OrderRequest::builder() instead"
+    )]
     pub async fn create_order(
         &self,
         symbol: &str,

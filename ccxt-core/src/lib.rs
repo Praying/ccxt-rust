@@ -41,45 +41,40 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
-// Allow common patterns that are acceptable in this codebase
+// =============================================================================
+// Global Clippy Lint Suppressions
+// =============================================================================
+// These lints are suppressed globally because they apply broadly across the
+// codebase and would require excessive local annotations.
+//
+// Justified Global Suppressions (per Requirement 3.4):
+// - module_name_repetitions: Common pattern in Rust libraries (e.g., OrderType in order module)
+// - missing_errors_doc: Too verbose to document every Result-returning function
+// - missing_panics_doc: Too verbose to document every potential panic
+// - must_use_candidate: Not all return values need #[must_use]
+//
+// Practical Global Suppressions:
+// - doc_markdown: Technical terms in docs don't need backticks (e.g., OHLCV, HMAC)
+// - similar_names: Trading terminology requires similar names (bid/ask, buy/sell)
+// - cast_sign_loss: Common in timestamp operations (i64 <-> u64)
+// - cast_possible_wrap: Common in timestamp/numeric operations
+// - struct_excessive_bools: Config structs legitimately have many boolean flags
+// - too_many_lines: Some complex parsing/validation functions are unavoidable
+// - return_self_not_must_use: Builder pattern methods return Self without must_use
+// - unreadable_literal: Timestamps are more readable without separators (1704110400000)
+// =============================================================================
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::similar_names)]
-#![allow(clippy::uninlined_format_args)]
-#![allow(clippy::should_implement_trait)]
-#![allow(clippy::match_same_arms)]
-#![allow(clippy::redundant_closure_for_method_calls)]
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::cast_possible_wrap)]
-#![allow(clippy::cast_lossless)]
 #![allow(clippy::struct_excessive_bools)]
-#![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
-#![allow(clippy::wildcard_imports)]
-#![allow(clippy::needless_pass_by_value)]
-#![allow(clippy::unnecessary_wraps)]
-#![allow(clippy::items_after_statements)]
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::if_not_else)]
-#![allow(clippy::if_same_then_else)]
-#![allow(clippy::derivable_impls)]
-#![allow(clippy::from_over_into)]
-#![allow(clippy::map_unwrap_or)]
-#![allow(clippy::unnecessary_map_or)]
-#![allow(clippy::clone_on_copy)]
-#![allow(clippy::explicit_iter_loop)]
-#![allow(clippy::ref_option)]
-#![allow(clippy::ignored_unit_patterns)]
-#![allow(clippy::manual_midpoint)]
-#![allow(clippy::manual_pattern_char_comparison)]
 #![allow(clippy::return_self_not_must_use)]
-#![allow(clippy::format_push_string)]
-#![allow(clippy::redundant_closure)]
-#![allow(clippy::unused_self)]
-#![allow(clippy::match_wildcard_for_single_variants)]
+#![allow(clippy::unreadable_literal)]
 
 // Re-exports of external dependencies
 pub use rust_decimal;

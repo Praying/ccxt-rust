@@ -6,8 +6,8 @@ use super::{Bitget, BitgetAuth, error, parser};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{
-        Amount, Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
-        Trade,
+        Amount, Balance, Market, OHLCV, OhlcvRequest, Order, OrderBook, OrderRequest, OrderSide,
+        OrderType, Price, Ticker, TimeInForce, Trade,
     },
 };
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -628,6 +628,99 @@ impl Bitget {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// _Requirements: 2.3, 2.6_
+    pub async fn fetch_ohlcv_v2(&self, request: OhlcvRequest) -> Result<Vec<OHLCV>> {
+        let market = self.base().market(&request.symbol).await?;
+
+        // Convert timeframe to Bitget format
+        let timeframes = self.timeframes();
+        let bitget_timeframe = timeframes.get(&request.timeframe).ok_or_else(|| {
+            Error::invalid_request(format!("Unsupported timeframe: {}", request.timeframe))
+        })?;
+
+        let path = self.build_api_path("/market/candles");
+        let mut params = HashMap::new();
+        params.insert("symbol".to_string(), market.id.clone());
+        params.insert("granularity".to_string(), bitget_timeframe.clone());
+
+        // Bitget maximum limit is 1000
+        let actual_limit = request.limit.map(|l| l.min(1000)).unwrap_or(100);
+        params.insert("limit".to_string(), actual_limit.to_string());
+
+        if let Some(start_time) = request.since {
+            params.insert("startTime".to_string(), start_time.to_string());
+        }
+
+        if let Some(end_time) = request.until {
+            params.insert("endTime".to_string(), end_time.to_string());
+        }
+
+        let response = self.public_request("GET", &path, Some(&params)).await?;
+
+        let data = response
+            .get("data")
+            .ok_or_else(|| Error::from(ParseError::missing_field("data")))?;
+
+        let candles_array = data.as_array().ok_or_else(|| {
+            Error::from(ParseError::invalid_format(
+                "data",
+                "Expected array of candles",
+            ))
+        })?;
+
+        let mut ohlcv = Vec::new();
+        for candle_data in candles_array {
+            match parser::parse_ohlcv(candle_data) {
+                Ok(candle) => ohlcv.push(candle),
+                Err(e) => {
+                    warn!(error = %e, "Failed to parse OHLCV");
+                }
+            }
+        }
+
+        // Sort by timestamp ascending (oldest first)
+        ohlcv.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        Ok(ohlcv)
+    }
+
+    /// Fetch OHLCV (candlestick) data (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`fetch_ohlcv_v2`](Self::fetch_ohlcv_v2) with
+    /// [`OhlcvRequest::builder()`] instead for a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol.
+    /// * `timeframe` - Candlestick timeframe (e.g., "1m", "5m", "1h", "1d").
+    /// * `since` - Optional start timestamp in milliseconds.
+    /// * `limit` - Optional limit on number of candles (maximum: 1000).
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of [`OHLCV`] structures.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::bitget::Bitget;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let bitget = Bitget::builder().build()?;
+    /// bitget.load_markets(false).await?;
+    /// let ohlcv = bitget.fetch_ohlcv("BTC/USDT", "1h", None, Some(100)).await?;
+    /// for candle in ohlcv.iter().take(5) {
+    ///     println!("Open: {}, Close: {}", candle.open, candle.close);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use fetch_ohlcv_v2 with OhlcvRequest::builder() instead"
+    )]
     pub async fn fetch_ohlcv(
         &self,
         symbol: &str,
@@ -854,6 +947,182 @@ impl Bitget {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// _Requirements: 2.2, 2.6_
+    pub async fn create_order_v2(&self, request: OrderRequest) -> Result<Order> {
+        let market = self.base().market(&request.symbol).await?;
+
+        let path = self.build_api_path("/trade/place-order");
+
+        // Build order body
+        let mut map = serde_json::Map::new();
+        map.insert(
+            "symbol".to_string(),
+            serde_json::Value::String(market.id.clone()),
+        );
+        map.insert(
+            "side".to_string(),
+            serde_json::Value::String(match request.side {
+                OrderSide::Buy => "buy".to_string(),
+                OrderSide::Sell => "sell".to_string(),
+            }),
+        );
+        map.insert(
+            "orderType".to_string(),
+            serde_json::Value::String(match request.order_type {
+                OrderType::Market => "market".to_string(),
+                OrderType::Limit => "limit".to_string(),
+                OrderType::LimitMaker => "limit_maker".to_string(),
+                OrderType::StopLoss | OrderType::StopMarket => "market".to_string(),
+                OrderType::StopLossLimit | OrderType::StopLimit => "limit".to_string(),
+                OrderType::TakeProfit => "market".to_string(),
+                OrderType::TakeProfitLimit => "limit".to_string(),
+                OrderType::TrailingStop => "market".to_string(),
+            }),
+        );
+        map.insert(
+            "size".to_string(),
+            serde_json::Value::String(request.amount.to_string()),
+        );
+
+        // Handle time in force
+        let force = if let Some(tif) = request.time_in_force {
+            match tif {
+                TimeInForce::GTC => "gtc",
+                TimeInForce::IOC => "ioc",
+                TimeInForce::FOK => "fok",
+                TimeInForce::PO => "post_only",
+            }
+        } else if request.post_only == Some(true) {
+            "post_only"
+        } else {
+            "gtc"
+        };
+        map.insert(
+            "force".to_string(),
+            serde_json::Value::String(force.to_string()),
+        );
+
+        // Add price for limit orders
+        if let Some(p) = request.price {
+            if request.order_type == OrderType::Limit || request.order_type == OrderType::LimitMaker
+            {
+                map.insert(
+                    "price".to_string(),
+                    serde_json::Value::String(p.to_string()),
+                );
+            }
+        }
+
+        // Handle client order ID
+        if let Some(client_id) = request.client_order_id {
+            map.insert(
+                "clientOid".to_string(),
+                serde_json::Value::String(client_id),
+            );
+        }
+
+        // Handle reduce only
+        if let Some(reduce_only) = request.reduce_only {
+            map.insert(
+                "reduceOnly".to_string(),
+                serde_json::Value::Bool(reduce_only),
+            );
+        }
+
+        // Handle stop price / trigger price
+        if let Some(trigger) = request.trigger_price.or(request.stop_price) {
+            map.insert(
+                "triggerPrice".to_string(),
+                serde_json::Value::String(trigger.to_string()),
+            );
+        }
+
+        // Handle take profit price
+        if let Some(tp) = request.take_profit_price {
+            map.insert(
+                "presetTakeProfitPrice".to_string(),
+                serde_json::Value::String(tp.to_string()),
+            );
+        }
+
+        // Handle stop loss price
+        if let Some(sl) = request.stop_loss_price {
+            map.insert(
+                "presetStopLossPrice".to_string(),
+                serde_json::Value::String(sl.to_string()),
+            );
+        }
+
+        let body = serde_json::Value::Object(map);
+
+        let response = self
+            .signed_request(&path)
+            .method(crate::bitget::signed_request::HttpMethod::Post)
+            .body(body)
+            .execute()
+            .await?;
+
+        let data = response
+            .get("data")
+            .ok_or_else(|| Error::from(ParseError::missing_field("data")))?;
+
+        parser::parse_order(data, Some(&market))
+    }
+
+    /// Create a new order (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`create_order_v2`](Self::create_order_v2) with
+    /// [`OrderRequest::builder()`] instead for a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol.
+    /// * `order_type` - Order type (Market, Limit).
+    /// * `side` - Order side (Buy or Sell).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `price` - Optional price as [`Price`] type (required for limit orders).
+    ///
+    /// # Returns
+    ///
+    /// Returns the created [`Order`] structure with order details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails or the API request fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use rust_decimal_macros::dec;
+    /// # use ccxt_core::types::{Amount, Price, OrderType, OrderSide};
+    /// # use ccxt_exchanges::bitget::Bitget;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let bitget = Bitget::builder()
+    ///     .api_key("your-api-key")
+    ///     .secret("your-secret")
+    ///     .passphrase("your-passphrase")
+    ///     .build()?;
+    /// bitget.load_markets(false).await?;
+    ///
+    /// // Create a limit buy order
+    /// let order = bitget.create_order(
+    ///     "BTC/USDT",
+    ///     OrderType::Limit,
+    ///     OrderSide::Buy,
+    ///     Amount::new(dec!(0.001)),
+    ///     Some(Price::new(dec!(50000.0))),
+    /// ).await?;
+    /// println!("Order created: {}", order.id);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_order_v2 with OrderRequest::builder() instead"
+    )]
     pub async fn create_order(
         &self,
         symbol: &str,

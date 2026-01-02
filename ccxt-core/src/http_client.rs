@@ -97,7 +97,7 @@ impl HttpClient {
 
         if let Some(proxy_config) = &config.proxy {
             let mut proxy = reqwest::Proxy::all(&proxy_config.url)
-                .map_err(|e| Error::network(format!("Invalid proxy URL: {}", e)))?;
+                .map_err(|e| Error::network(format!("Invalid proxy URL: {e}")))?;
 
             if let (Some(username), Some(password)) =
                 (&proxy_config.username, &proxy_config.password)
@@ -109,7 +109,7 @@ impl HttpClient {
 
         let client = builder
             .build()
-            .map_err(|e| Error::network(format!("Failed to build HTTP client: {}", e)))?;
+            .map_err(|e| Error::network(format!("Failed to build HTTP client: {e}")))?;
 
         let retry_strategy = RetryStrategy::new(config.retry_config.clone().unwrap_or_default());
 
@@ -190,6 +190,9 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: Option<Value>,
     ) -> Result<Value> {
+        // Lint: collapsible_if
+        // Reason: Keeping separate for clarity - first check if rate limiting is enabled, then check limiter
+        #[allow(clippy::collapsible_if)]
         if self.config.enable_rate_limit {
             if let Some(ref limiter) = self.rate_limiter {
                 limiter.wait().await;
@@ -291,7 +294,7 @@ impl HttpClient {
                 error = %e,
                 "HTTP request send failed"
             );
-            Error::network(format!("Request failed: {}", e))
+            Error::network(format!("Request failed: {e}"))
         })?;
 
         self.process_response(response).await
