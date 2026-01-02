@@ -37,8 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET environment variable not set");
 
     let config = ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(secret),
+        api_key: Some(ccxt_core::SecretString::new(api_key)),
+        secret: Some(ccxt_core::SecretString::new(secret)),
         ..Default::default()
     };
     let binance = Binance::new(config)?;

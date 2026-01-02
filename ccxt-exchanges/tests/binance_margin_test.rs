@@ -8,8 +8,12 @@ use ccxt_exchanges::binance::Binance;
 
 /// Create a Binance instance for testing.
 fn create_binance_instance() -> Binance {
-    let api_key = std::env::var("BINANCE_API_KEY").ok();
-    let secret = std::env::var("BINANCE_API_SECRET").ok();
+    let api_key = std::env::var("BINANCE_API_KEY")
+        .ok()
+        .map(ccxt_core::SecretString::new);
+    let secret = std::env::var("BINANCE_API_SECRET")
+        .ok()
+        .map(ccxt_core::SecretString::new);
 
     let config = ExchangeConfig {
         api_key,

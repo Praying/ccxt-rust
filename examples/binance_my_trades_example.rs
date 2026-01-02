@@ -13,8 +13,12 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut config = ccxt_core::ExchangeConfig::default();
-    config.api_key = std::env::var("BINANCE_API_KEY").ok();
-    config.secret = std::env::var("BINANCE_API_SECRET").ok();
+    config.api_key = std::env::var("BINANCE_API_KEY")
+        .ok()
+        .map(ccxt_core::SecretString::new);
+    config.secret = std::env::var("BINANCE_API_SECRET")
+        .ok()
+        .map(ccxt_core::SecretString::new);
 
     let exchange = Arc::new(Binance::new(config)?);
 

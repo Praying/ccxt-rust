@@ -2,6 +2,7 @@
 //!
 //! Implements HMAC-SHA256 signature algorithm for API request authentication.
 
+use ccxt_core::credentials::SecretString;
 use ccxt_core::{Error, Result};
 use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -11,12 +12,14 @@ use std::collections::{BTreeMap, HashMap};
 type HmacSha256 = Hmac<Sha256>;
 
 /// Binance authenticator.
+///
+/// Credentials are automatically zeroed from memory when dropped.
 #[derive(Debug, Clone)]
 pub struct BinanceAuth {
-    /// API key.
-    api_key: String,
-    /// Secret key.
-    secret: String,
+    /// API key (automatically zeroed on drop).
+    api_key: SecretString,
+    /// Secret key (automatically zeroed on drop).
+    secret: SecretString,
 }
 
 impl BinanceAuth {
@@ -26,21 +29,25 @@ impl BinanceAuth {
     ///
     /// * `api_key` - API key
     /// * `secret` - Secret key
+    ///
+    /// # Security
+    ///
+    /// Credentials are automatically zeroed from memory when the authenticator is dropped.
     pub fn new(api_key: impl Into<String>, secret: impl Into<String>) -> Self {
         Self {
-            api_key: api_key.into(),
-            secret: secret.into(),
+            api_key: SecretString::new(api_key),
+            secret: SecretString::new(secret),
         }
     }
 
     /// Returns the API key.
     pub fn api_key(&self) -> &str {
-        &self.api_key
+        self.api_key.expose_secret()
     }
 
     /// Returns the secret key.
     pub fn secret(&self) -> &str {
-        &self.secret
+        self.secret.expose_secret()
     }
 
     /// Signs a query string using HMAC-SHA256.
@@ -57,7 +64,7 @@ impl BinanceAuth {
     ///
     /// Returns an error if the secret key is invalid.
     pub fn sign(&self, query_string: &str) -> Result<String> {
-        let mut mac = HmacSha256::new_from_slice(self.secret.as_bytes())
+        let mut mac = HmacSha256::new_from_slice(self.secret.expose_secret_bytes())
             .map_err(|e| Error::authentication(format!("Invalid secret key: {}", e)))?;
 
         mac.update(query_string.as_bytes());
@@ -151,7 +158,10 @@ impl BinanceAuth {
     ///
     /// * `headers` - Existing header map to modify
     pub fn add_auth_headers(&self, headers: &mut HashMap<String, String>) {
-        headers.insert("X-MBX-APIKEY".to_string(), self.api_key.clone());
+        headers.insert(
+            "X-MBX-APIKEY".to_string(),
+            self.api_key.expose_secret().to_string(),
+        );
     }
 
     /// Adds authentication headers to a `reqwest` request.
@@ -161,7 +171,7 @@ impl BinanceAuth {
     /// * `headers` - Reqwest `HeaderMap` to modify
     pub fn add_auth_headers_reqwest(&self, headers: &mut HeaderMap) {
         if let Ok(header_name) = HeaderName::from_bytes(b"X-MBX-APIKEY") {
-            if let Ok(header_value) = HeaderValue::from_str(&self.api_key) {
+            if let Ok(header_value) = HeaderValue::from_str(self.api_key.expose_secret()) {
                 headers.insert(header_name, header_value);
             }
         }

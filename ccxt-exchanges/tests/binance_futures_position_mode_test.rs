@@ -91,8 +91,8 @@ async fn test_position_mode_without_credentials() {
 #[tokio::test]
 async fn test_position_mode_params_format() {
     let config = ExchangeConfig {
-        api_key: Some("test_key".to_string()),
-        secret: Some("test_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("test_key")),
+        secret: Some(ccxt_core::SecretString::new("test_secret")),
         sandbox: true,
         ..Default::default()
     };

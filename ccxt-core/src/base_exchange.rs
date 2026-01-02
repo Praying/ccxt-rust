@@ -8,6 +8,7 @@
 //! - Rate limiting
 
 use crate::config::{ProxyConfig, RetryPolicy};
+use crate::credentials::SecretString;
 use crate::error::{Error, ParseError, Result};
 use crate::http_client::{HttpClient, HttpConfig};
 use crate::rate_limiter::{RateLimiter, RateLimiterConfig};
@@ -33,12 +34,12 @@ pub struct ExchangeConfig {
     pub id: String,
     /// Exchange display name
     pub name: String,
-    /// API key for authentication
-    pub api_key: Option<String>,
-    /// API secret for authentication
-    pub secret: Option<String>,
-    /// Password (required by some exchanges)
-    pub password: Option<String>,
+    /// API key for authentication (automatically zeroed on drop)
+    pub api_key: Option<SecretString>,
+    /// API secret for authentication (automatically zeroed on drop)
+    pub secret: Option<SecretString>,
+    /// Password (required by some exchanges, automatically zeroed on drop)
+    pub password: Option<SecretString>,
     /// User ID (required by some exchanges)
     pub uid: Option<String>,
     /// Account ID
@@ -153,19 +154,19 @@ impl ExchangeConfigBuilder {
 
     /// Set the API key for authentication
     pub fn api_key(mut self, key: impl Into<String>) -> Self {
-        self.config.api_key = Some(key.into());
+        self.config.api_key = Some(SecretString::new(key));
         self
     }
 
     /// Set the API secret for authentication
     pub fn secret(mut self, secret: impl Into<String>) -> Self {
-        self.config.secret = Some(secret.into());
+        self.config.secret = Some(SecretString::new(secret));
         self
     }
 
     /// Set the password (required by some exchanges)
     pub fn password(mut self, password: impl Into<String>) -> Self {
-        self.config.password = Some(password.into());
+        self.config.password = Some(SecretString::new(password));
         self
     }
 
@@ -1421,8 +1422,14 @@ mod tests {
 
         assert_eq!(config.id, "binance");
         assert_eq!(config.name, "Binance");
-        assert_eq!(config.api_key, Some("test-key".to_string()));
-        assert_eq!(config.secret, Some("test-secret".to_string()));
+        assert_eq!(
+            config.api_key.as_ref().map(|s| s.expose_secret()),
+            Some("test-key")
+        );
+        assert_eq!(
+            config.secret.as_ref().map(|s| s.expose_secret()),
+            Some("test-secret")
+        );
         assert!(config.sandbox);
         assert_eq!(config.timeout, Duration::from_secs(60));
         assert!(config.verbose);
@@ -1433,7 +1440,7 @@ mod tests {
         let config = ExchangeConfigBuilder::new().build();
 
         assert_eq!(config.id, "");
-        assert_eq!(config.api_key, None);
+        assert!(config.api_key.is_none());
         assert!(config.enable_rate_limit);
         assert_eq!(config.timeout, Duration::from_secs(30));
         assert!(!config.sandbox);
@@ -1444,7 +1451,10 @@ mod tests {
         let config = ExchangeConfig::builder().id("test").api_key("key").build();
 
         assert_eq!(config.id, "test");
-        assert_eq!(config.api_key, Some("key".to_string()));
+        assert_eq!(
+            config.api_key.as_ref().map(|s| s.expose_secret()),
+            Some("key")
+        );
     }
 }
 

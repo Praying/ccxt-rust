@@ -70,7 +70,7 @@ impl BybitBuilder {
     ///
     /// * `key` - The API key string.
     pub fn api_key(mut self, key: impl Into<String>) -> Self {
-        self.config.api_key = Some(key.into());
+        self.config.api_key = Some(ccxt_core::SecretString::new(key));
         self
     }
 
@@ -80,7 +80,7 @@ impl BybitBuilder {
     ///
     /// * `secret` - The API secret string.
     pub fn secret(mut self, secret: impl Into<String>) -> Self {
-        self.config.secret = Some(secret.into());
+        self.config.secret = Some(ccxt_core::SecretString::new(secret));
         self
     }
 
@@ -315,13 +315,19 @@ mod tests {
     #[test]
     fn test_builder_api_key() {
         let builder = BybitBuilder::new().api_key("test-key");
-        assert_eq!(builder.config.api_key, Some("test-key".to_string()));
+        assert_eq!(
+            builder.config.api_key.as_ref().map(|s| s.expose_secret()),
+            Some("test-key")
+        );
     }
 
     #[test]
     fn test_builder_secret() {
         let builder = BybitBuilder::new().secret("test-secret");
-        assert_eq!(builder.config.secret, Some("test-secret".to_string()));
+        assert_eq!(
+            builder.config.secret.as_ref().map(|s| s.expose_secret()),
+            Some("test-secret")
+        );
     }
 
     #[test]
@@ -417,8 +423,14 @@ mod tests {
             .default_type(DefaultType::Swap)
             .default_sub_type(DefaultSubType::Linear);
 
-        assert_eq!(builder.config.api_key, Some("key".to_string()));
-        assert_eq!(builder.config.secret, Some("secret".to_string()));
+        assert_eq!(
+            builder.config.api_key.as_ref().map(|s| s.expose_secret()),
+            Some("key")
+        );
+        assert_eq!(
+            builder.config.secret.as_ref().map(|s| s.expose_secret()),
+            Some("secret")
+        );
         assert!(builder.config.sandbox);
         assert_eq!(builder.config.timeout, Duration::from_secs(30));
         assert_eq!(builder.options.recv_window, 10000);

@@ -71,7 +71,7 @@ impl OkxBuilder {
     ///
     /// * `key` - The API key string.
     pub fn api_key(mut self, key: impl Into<String>) -> Self {
-        self.config.api_key = Some(key.into());
+        self.config.api_key = Some(ccxt_core::SecretString::new(key));
         self
     }
 
@@ -81,7 +81,7 @@ impl OkxBuilder {
     ///
     /// * `secret` - The API secret string.
     pub fn secret(mut self, secret: impl Into<String>) -> Self {
-        self.config.secret = Some(secret.into());
+        self.config.secret = Some(ccxt_core::SecretString::new(secret));
         self
     }
 
@@ -93,7 +93,7 @@ impl OkxBuilder {
     ///
     /// * `passphrase` - The passphrase string.
     pub fn passphrase(mut self, passphrase: impl Into<String>) -> Self {
-        self.config.password = Some(passphrase.into());
+        self.config.password = Some(ccxt_core::SecretString::new(passphrase));
         self
     }
 
@@ -290,19 +290,28 @@ mod tests {
     #[test]
     fn test_builder_api_key() {
         let builder = OkxBuilder::new().api_key("test-key");
-        assert_eq!(builder.config.api_key, Some("test-key".to_string()));
+        assert_eq!(
+            builder.config.api_key.as_ref().map(|s| s.expose_secret()),
+            Some("test-key")
+        );
     }
 
     #[test]
     fn test_builder_secret() {
         let builder = OkxBuilder::new().secret("test-secret");
-        assert_eq!(builder.config.secret, Some("test-secret".to_string()));
+        assert_eq!(
+            builder.config.secret.as_ref().map(|s| s.expose_secret()),
+            Some("test-secret")
+        );
     }
 
     #[test]
     fn test_builder_passphrase() {
         let builder = OkxBuilder::new().passphrase("test-passphrase");
-        assert_eq!(builder.config.password, Some("test-passphrase".to_string()));
+        assert_eq!(
+            builder.config.password.as_ref().map(|s| s.expose_secret()),
+            Some("test-passphrase")
+        );
     }
 
     #[test]
@@ -367,9 +376,18 @@ mod tests {
             .timeout(Duration::from_secs(30))
             .account_mode("isolated");
 
-        assert_eq!(builder.config.api_key, Some("key".to_string()));
-        assert_eq!(builder.config.secret, Some("secret".to_string()));
-        assert_eq!(builder.config.password, Some("pass".to_string()));
+        assert_eq!(
+            builder.config.api_key.as_ref().map(|s| s.expose_secret()),
+            Some("key")
+        );
+        assert_eq!(
+            builder.config.secret.as_ref().map(|s| s.expose_secret()),
+            Some("secret")
+        );
+        assert_eq!(
+            builder.config.password.as_ref().map(|s| s.expose_secret()),
+            Some("pass")
+        );
         assert!(builder.config.sandbox);
         assert_eq!(builder.config.timeout, Duration::from_secs(30));
         assert_eq!(builder.options.account_mode, "isolated");

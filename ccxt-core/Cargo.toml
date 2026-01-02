@@ -63,6 +63,9 @@ parking_lot = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 
+# Security
+zeroize = { workspace = true }
+
 # Test configuration (optional, enabled by test-utils feature)
 dotenvy = { workspace = true, optional = true }
 envy = { workspace = true, optional = true }

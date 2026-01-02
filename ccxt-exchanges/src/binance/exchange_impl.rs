@@ -362,7 +362,10 @@ impl Binance {
             .ok_or_else(|| ccxt_core::Error::authentication("Secret is required"))?
             .clone();
 
-        Ok(super::auth::BinanceAuth::new(api_key, secret))
+        Ok(super::auth::BinanceAuth::new(
+            api_key.expose_secret(),
+            secret.expose_secret(),
+        ))
     }
 
     // ==================== Time Sync Helper Methods ====================
@@ -1075,8 +1078,8 @@ mod tests {
             )
                 .prop_map(|(sandbox, api_key, secret)| ExchangeConfig {
                     sandbox,
-                    api_key,
-                    secret,
+                    api_key: api_key.map(ccxt_core::SecretString::new),
+                    secret: secret.map(ccxt_core::SecretString::new),
                     ..Default::default()
                 })
         }

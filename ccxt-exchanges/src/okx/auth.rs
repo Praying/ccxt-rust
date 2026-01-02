@@ -8,6 +8,7 @@
 //! - OK-ACCESS-PASSPHRASE: API passphrase
 
 use base64::{Engine as _, engine::general_purpose};
+use ccxt_core::credentials::SecretString;
 use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderValue};
 use sha2::Sha256;
@@ -16,14 +17,16 @@ use sha2::Sha256;
 ///
 /// Handles request signing using HMAC-SHA256 and header construction
 /// for authenticated API requests.
+///
+/// Credentials are automatically zeroed from memory when dropped.
 #[derive(Debug, Clone)]
 pub struct OkxAuth {
-    /// API key for authentication.
-    api_key: String,
-    /// Secret key for HMAC signing.
-    secret: String,
-    /// Passphrase for additional authentication.
-    passphrase: String,
+    /// API key for authentication (automatically zeroed on drop).
+    api_key: SecretString,
+    /// Secret key for HMAC signing (automatically zeroed on drop).
+    secret: SecretString,
+    /// Passphrase for additional authentication (automatically zeroed on drop).
+    passphrase: SecretString,
 }
 
 impl OkxAuth {
@@ -34,6 +37,10 @@ impl OkxAuth {
     /// * `api_key` - The API key from OKX.
     /// * `secret` - The secret key from OKX.
     /// * `passphrase` - The passphrase set when creating the API key.
+    ///
+    /// # Security
+    ///
+    /// Credentials are automatically zeroed from memory when the authenticator is dropped.
     ///
     /// # Example
     ///
@@ -48,20 +55,20 @@ impl OkxAuth {
     /// ```
     pub fn new(api_key: String, secret: String, passphrase: String) -> Self {
         Self {
-            api_key,
-            secret,
-            passphrase,
+            api_key: SecretString::new(api_key),
+            secret: SecretString::new(secret),
+            passphrase: SecretString::new(passphrase),
         }
     }
 
     /// Returns the API key.
     pub fn api_key(&self) -> &str {
-        &self.api_key
+        self.api_key.expose_secret()
     }
 
     /// Returns the passphrase.
     pub fn passphrase(&self) -> &str {
-        &self.passphrase
+        self.passphrase.expose_secret()
     }
 
     /// Builds the signature string for HMAC signing.
@@ -125,7 +132,7 @@ impl OkxAuth {
         type HmacSha256 = Hmac<Sha256>;
 
         // SAFETY: HMAC accepts keys of any length - this cannot fail
-        let mut mac = HmacSha256::new_from_slice(self.secret.as_bytes())
+        let mut mac = HmacSha256::new_from_slice(self.secret.expose_secret_bytes())
             .expect("HMAC-SHA256 accepts keys of any length; this is an infallible operation");
         mac.update(message.as_bytes());
         let result = mac.finalize().into_bytes();
@@ -172,7 +179,8 @@ impl OkxAuth {
     pub fn add_auth_headers(&self, headers: &mut HeaderMap, timestamp: &str, sign: &str) {
         headers.insert(
             "OK-ACCESS-KEY",
-            HeaderValue::from_str(&self.api_key).unwrap_or_else(|_| HeaderValue::from_static("")),
+            HeaderValue::from_str(self.api_key.expose_secret())
+                .unwrap_or_else(|_| HeaderValue::from_static("")),
         );
         headers.insert(
             "OK-ACCESS-SIGN",
@@ -184,7 +192,7 @@ impl OkxAuth {
         );
         headers.insert(
             "OK-ACCESS-PASSPHRASE",
-            HeaderValue::from_str(&self.passphrase)
+            HeaderValue::from_str(self.passphrase.expose_secret())
                 .unwrap_or_else(|_| HeaderValue::from_static("")),
         );
     }

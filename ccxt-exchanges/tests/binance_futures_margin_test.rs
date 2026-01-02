@@ -21,8 +21,8 @@ mod margin_tests {
     /// Create a test Binance futures instance.
     fn create_test_futures() -> Binance {
         let config = ExchangeConfig {
-            api_key: Some("test_api_key".to_string()),
-            secret: Some("test_secret".to_string()),
+            api_key: Some(ccxt_core::SecretString::new("test_api_key")),
+            secret: Some(ccxt_core::SecretString::new("test_secret")),
             sandbox: false,
             ..Default::default()
         };
@@ -116,8 +116,12 @@ mod integration_tests {
     #[ignore = "Futures margin methods not yet migrated to new modular structure"]
     async fn test_modify_margin_integration() {
         let _config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             sandbox: false,
             ..Default::default()
         };
@@ -129,8 +133,12 @@ mod integration_tests {
     #[ignore = "Futures margin methods not yet migrated to new modular structure"]
     async fn test_fetch_position_risk_integration() {
         let _config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             sandbox: false,
             ..Default::default()
         };
@@ -142,8 +150,12 @@ mod integration_tests {
     #[ignore = "Futures margin methods not yet migrated to new modular structure"]
     async fn test_fetch_leverage_bracket_integration() {
         let _config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             sandbox: false,
             ..Default::default()
         };
@@ -155,8 +167,12 @@ mod integration_tests {
     #[ignore = "Futures margin methods not yet migrated to new modular structure"]
     async fn test_margin_management_workflow() {
         let _config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             sandbox: false,
             ..Default::default()
         };

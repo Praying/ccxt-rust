@@ -22,8 +22,8 @@ mod tests {
         let config = ExchangeConfig {
             id: "binance".to_string(),
             name: "Binance".to_string(),
-            api_key: Some("test_api_key".to_string()),
-            secret: Some("test_api_secret".to_string()),
+            api_key: Some(ccxt_core::SecretString::new("test_api_key")),
+            secret: Some(ccxt_core::SecretString::new("test_api_secret")),
             ..Default::default()
         };
         Ok(Arc::new(Binance::new(config)?))
@@ -33,8 +33,12 @@ mod tests {
     #[ignore]
     async fn test_watch_my_trades_all_symbols() -> Result<()> {
         let config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             ..Default::default()
         };
 
@@ -70,8 +74,12 @@ mod tests {
     #[ignore]
     async fn test_watch_my_trades_specific_symbol() -> Result<()> {
         let config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             ..Default::default()
         };
 
@@ -101,8 +109,12 @@ mod tests {
     #[ignore]
     async fn test_watch_my_trades_structure() -> Result<()> {
         let config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             ..Default::default()
         };
 
@@ -142,8 +154,12 @@ mod tests {
     #[ignore]
     async fn test_watch_my_trades_with_since() -> Result<()> {
         let config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             ..Default::default()
         };
 
@@ -218,8 +234,12 @@ mod integration_tests {
         }
 
         let config = ExchangeConfig {
-            api_key: std::env::var("BINANCE_API_KEY").ok(),
-            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            api_key: std::env::var("BINANCE_API_KEY")
+                .ok()
+                .map(ccxt_core::SecretString::new),
+            secret: std::env::var("BINANCE_API_SECRET")
+                .ok()
+                .map(ccxt_core::SecretString::new),
             ..Default::default()
         };
 

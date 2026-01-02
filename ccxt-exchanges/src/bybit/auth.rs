@@ -7,6 +7,7 @@
 //! - X-BAPI-TIMESTAMP: Unix timestamp in milliseconds
 //! - X-BAPI-RECV-WINDOW: Receive window in milliseconds
 
+use ccxt_core::credentials::SecretString;
 use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderValue};
 use sha2::Sha256;
@@ -15,12 +16,14 @@ use sha2::Sha256;
 ///
 /// Handles request signing using HMAC-SHA256 and header construction
 /// for authenticated API requests.
+///
+/// Credentials are automatically zeroed from memory when dropped.
 #[derive(Debug, Clone)]
 pub struct BybitAuth {
-    /// API key for authentication.
-    api_key: String,
-    /// Secret key for HMAC signing.
-    secret: String,
+    /// API key for authentication (automatically zeroed on drop).
+    api_key: SecretString,
+    /// Secret key for HMAC signing (automatically zeroed on drop).
+    secret: SecretString,
 }
 
 impl BybitAuth {
@@ -30,6 +33,10 @@ impl BybitAuth {
     ///
     /// * `api_key` - The API key from Bybit.
     /// * `secret` - The secret key from Bybit.
+    ///
+    /// # Security
+    ///
+    /// Credentials are automatically zeroed from memory when the authenticator is dropped.
     ///
     /// # Example
     ///
@@ -42,12 +49,15 @@ impl BybitAuth {
     /// );
     /// ```
     pub fn new(api_key: String, secret: String) -> Self {
-        Self { api_key, secret }
+        Self {
+            api_key: SecretString::new(api_key),
+            secret: SecretString::new(secret),
+        }
     }
 
     /// Returns the API key.
     pub fn api_key(&self) -> &str {
-        &self.api_key
+        self.api_key.expose_secret()
     }
 
     /// Builds the signature string for HMAC signing.
@@ -64,7 +74,13 @@ impl BybitAuth {
     ///
     /// The concatenated string to be signed.
     pub fn build_sign_string(&self, timestamp: &str, recv_window: u64, params: &str) -> String {
-        format!("{}{}{}{}", timestamp, self.api_key, recv_window, params)
+        format!(
+            "{}{}{}{}",
+            timestamp,
+            self.api_key.expose_secret(),
+            recv_window,
+            params
+        )
     }
 
     /// Signs a request using HMAC-SHA256.
@@ -102,7 +118,7 @@ impl BybitAuth {
         type HmacSha256 = Hmac<Sha256>;
 
         // SAFETY: HMAC accepts keys of any length - this cannot fail
-        let mut mac = HmacSha256::new_from_slice(self.secret.as_bytes())
+        let mut mac = HmacSha256::new_from_slice(self.secret.expose_secret_bytes())
             .expect("HMAC-SHA256 accepts keys of any length; this is an infallible operation");
         mac.update(message.as_bytes());
         let result = mac.finalize().into_bytes();
@@ -157,7 +173,8 @@ impl BybitAuth {
     ) {
         headers.insert(
             "X-BAPI-API-KEY",
-            HeaderValue::from_str(&self.api_key).unwrap_or_else(|_| HeaderValue::from_static("")),
+            HeaderValue::from_str(self.api_key.expose_secret())
+                .unwrap_or_else(|_| HeaderValue::from_static("")),
         );
         headers.insert(
             "X-BAPI-SIGN",

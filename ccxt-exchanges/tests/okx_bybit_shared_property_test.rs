@@ -3,6 +3,7 @@
 //! These tests verify correctness properties that apply to both exchanges using proptest.
 
 use base64::Engine;
+use ccxt_core::SecretString;
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromStr;
@@ -73,18 +74,18 @@ mod okx_builder_configuration_preservation {
             // Verify credentials are preserved in base config
             let base = okx.base();
             prop_assert_eq!(
-                base.config.api_key.as_ref(),
-                Some(&api_key),
+                base.config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key.as_str()),
                 "OKX builder should preserve api_key after build"
             );
             prop_assert_eq!(
-                base.config.secret.as_ref(),
-                Some(&secret),
+                base.config.secret.as_ref().map(|s| s.expose_secret()),
+                Some(secret.as_str()),
                 "OKX builder should preserve secret after build"
             );
             prop_assert_eq!(
-                base.config.password.as_ref(),
-                Some(&passphrase),
+                base.config.password.as_ref().map(|s| s.expose_secret()),
+                Some(passphrase.as_str()),
                 "OKX builder should preserve passphrase after build"
             );
         }
@@ -183,18 +184,18 @@ mod okx_builder_configuration_preservation {
             // Verify credentials are preserved
             let base = okx.base();
             prop_assert_eq!(
-                base.config.api_key.as_ref(),
-                Some(&api_key),
+                base.config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key.as_str()),
                 "OKX builder should preserve api_key"
             );
             prop_assert_eq!(
-                base.config.secret.as_ref(),
-                Some(&secret),
+                base.config.secret.as_ref().map(|s| s.expose_secret()),
+                Some(secret.as_str()),
                 "OKX builder should preserve secret"
             );
             prop_assert_eq!(
-                base.config.password.as_ref(),
-                Some(&passphrase),
+                base.config.password.as_ref().map(|s| s.expose_secret()),
+                Some(passphrase.as_str()),
                 "OKX builder should preserve passphrase"
             );
             prop_assert_eq!(
@@ -249,13 +250,31 @@ mod okx_builder_configuration_preservation {
                 .build()
                 .expect("Should build okx3");
 
-            // All should have the same credentials
-            prop_assert_eq!(&okx1.base().config.api_key, &okx2.base().config.api_key);
-            prop_assert_eq!(&okx2.base().config.api_key, &okx3.base().config.api_key);
-            prop_assert_eq!(&okx1.base().config.secret, &okx2.base().config.secret);
-            prop_assert_eq!(&okx2.base().config.secret, &okx3.base().config.secret);
-            prop_assert_eq!(&okx1.base().config.password, &okx2.base().config.password);
-            prop_assert_eq!(&okx2.base().config.password, &okx3.base().config.password);
+            // All should have the same credentials (compare exposed secrets)
+            prop_assert_eq!(
+                okx1.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                okx2.base().config.api_key.as_ref().map(|s| s.expose_secret())
+            );
+            prop_assert_eq!(
+                okx2.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                okx3.base().config.api_key.as_ref().map(|s| s.expose_secret())
+            );
+            prop_assert_eq!(
+                okx1.base().config.secret.as_ref().map(|s| s.expose_secret()),
+                okx2.base().config.secret.as_ref().map(|s| s.expose_secret())
+            );
+            prop_assert_eq!(
+                okx2.base().config.secret.as_ref().map(|s| s.expose_secret()),
+                okx3.base().config.secret.as_ref().map(|s| s.expose_secret())
+            );
+            prop_assert_eq!(
+                okx1.base().config.password.as_ref().map(|s| s.expose_secret()),
+                okx2.base().config.password.as_ref().map(|s| s.expose_secret())
+            );
+            prop_assert_eq!(
+                okx2.base().config.password.as_ref().map(|s| s.expose_secret()),
+                okx3.base().config.password.as_ref().map(|s| s.expose_secret())
+            );
         }
 
         /// Test that overwriting a value preserves the last value
@@ -271,8 +290,8 @@ mod okx_builder_configuration_preservation {
                 .expect("Should build okx");
 
             prop_assert_eq!(
-                okx.base().config.api_key.as_ref(),
-                Some(&api_key2),
+                okx.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key2.as_str()),
                 "OKX builder should use the last api_key value"
             );
         }
@@ -490,13 +509,13 @@ mod bybit_builder_configuration_preservation {
             // Verify credentials are preserved
             let base = bybit.base();
             prop_assert_eq!(
-                base.config.api_key.as_ref(),
-                Some(&api_key),
+                base.config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key.as_str()),
                 "Bybit builder should preserve api_key"
             );
             prop_assert_eq!(
-                base.config.secret.as_ref(),
-                Some(&secret),
+                base.config.secret.as_ref().map(|s| s.expose_secret()),
+                Some(secret.as_str()),
                 "Bybit builder should preserve secret"
             );
             prop_assert_eq!(
@@ -544,9 +563,15 @@ mod bybit_builder_configuration_preservation {
                 .build()
                 .expect("Should build bybit2");
 
-            // All should have the same credentials
-            prop_assert_eq!(&bybit1.base().config.api_key, &bybit2.base().config.api_key);
-            prop_assert_eq!(&bybit1.base().config.secret, &bybit2.base().config.secret);
+            // All should have the same credentials (compare exposed secrets)
+            prop_assert_eq!(
+                bybit1.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                bybit2.base().config.api_key.as_ref().map(|s| s.expose_secret())
+            );
+            prop_assert_eq!(
+                bybit1.base().config.secret.as_ref().map(|s| s.expose_secret()),
+                bybit2.base().config.secret.as_ref().map(|s| s.expose_secret())
+            );
         }
 
         /// Test that overwriting a value preserves the last value
@@ -562,8 +587,8 @@ mod bybit_builder_configuration_preservation {
                 .expect("Should build bybit");
 
             prop_assert_eq!(
-                bybit.base().config.api_key.as_ref(),
-                Some(&api_key2),
+                bybit.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key2.as_str()),
                 "Bybit builder should use the last api_key value"
             );
         }

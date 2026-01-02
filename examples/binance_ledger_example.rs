@@ -35,8 +35,12 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_API_SECRET").ok();
+    let api_key = env::var("BINANCE_API_KEY")
+        .ok()
+        .map(ccxt_core::SecretString::new);
+    let secret = env::var("BINANCE_API_SECRET")
+        .ok()
+        .map(ccxt_core::SecretString::new);
 
     let _exchange = ccxt_exchanges::binance::Binance::new(ExchangeConfig {
         api_key,
