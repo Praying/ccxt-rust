@@ -71,13 +71,13 @@ impl BybitWs {
     }
 
     /// Returns the current connection state.
-    pub async fn state(&self) -> WsConnectionState {
-        self.client.state().await
+    pub fn state(&self) -> WsConnectionState {
+        self.client.state()
     }
 
     /// Checks if the WebSocket is connected.
-    pub async fn is_connected(&self) -> bool {
-        self.client.is_connected().await
+    pub fn is_connected(&self) -> bool {
+        self.client.is_connected()
     }
 
     /// Receives the next message from the WebSocket.
@@ -286,7 +286,7 @@ impl BybitWs {
         market: Option<Market>,
     ) -> Result<MessageStream<Ticker>> {
         // Ensure connected
-        if !self.is_connected().await {
+        if !self.is_connected() {
             self.connect().await?;
         }
 
@@ -360,7 +360,7 @@ impl BybitWs {
         limit: Option<u32>,
     ) -> Result<MessageStream<OrderBook>> {
         // Ensure connected
-        if !self.is_connected().await {
+        if !self.is_connected() {
             self.connect().await?;
         }
 
@@ -440,7 +440,7 @@ impl BybitWs {
         market: Option<Market>,
     ) -> Result<MessageStream<Vec<Trade>>> {
         // Ensure connected
-        if !self.is_connected().await {
+        if !self.is_connected() {
             self.connect().await?;
         }
 

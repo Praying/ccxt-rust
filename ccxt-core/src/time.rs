@@ -439,10 +439,16 @@ impl TimestampUtils {
     /// assert!(now > 1_600_000_000_000); // After 2020
     /// ```
     pub fn now_ms() -> i64 {
+        // SAFETY: SystemTime::now().duration_since(UNIX_EPOCH) can only fail if the system
+        // clock is set to a time before January 1, 1970 (Unix epoch). This is an extremely
+        // rare edge case that would indicate a severely misconfigured system. In practice,
+        // no modern operating system allows the clock to be set before 1970, and any system
+        // running cryptocurrency trading software would have a properly configured clock.
+        // The panic here is intentional to fail fast on such misconfigured systems.
         #[allow(clippy::cast_possible_truncation)]
         let ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
+            .expect("System clock is set before UNIX_EPOCH (1970); this indicates a severely misconfigured system")
             .as_millis() as i64;
         ms
     }

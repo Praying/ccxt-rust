@@ -46,6 +46,9 @@ pub struct Transfer {
 
 impl Transfer {
     /// Creates a new transfer record.
+    // Lint: too_many_arguments
+    // Reason: Transfer is a data transfer object; all fields are required for a complete record
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Option<String>,
         timestamp: i64,

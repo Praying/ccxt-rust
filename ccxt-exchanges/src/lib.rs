@@ -30,7 +30,31 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
-// Allow common patterns that are acceptable in this codebase
+// =============================================================================
+// Global Clippy Lint Suppressions
+// =============================================================================
+// These lints are suppressed globally because they apply broadly across the
+// codebase and would require excessive local annotations.
+//
+// Justified Global Suppressions (per Requirement 3.4):
+// - module_name_repetitions: Common pattern in Rust libraries (e.g., BinanceError in binance module)
+// - missing_errors_doc: Too verbose to document every Result-returning function
+// - missing_panics_doc: Too verbose to document every potential panic
+// - must_use_candidate: Not all return values need #[must_use]
+//
+// Practical Global Suppressions:
+// - doc_markdown: Technical terms in docs don't need backticks (e.g., OHLCV, HMAC, WebSocket)
+// - similar_names: Trading terminology requires similar names (bid/ask, buy/sell, base/quote)
+// - uninlined_format_args: Style preference, many existing format! calls use explicit args
+// - cast_*: Common in timestamp and numeric operations throughout exchange implementations
+// - struct_excessive_bools: Config structs legitimately have many boolean flags
+// - too_many_lines: Some complex parsing/validation functions are unavoidable
+// - return_self_not_must_use: Builder pattern methods return Self without must_use
+// - unreadable_literal: Timestamps are more readable without separators (1704110400000)
+// - needless_pass_by_value: API design choice for consistency across exchange implementations
+// - redundant_closure: Closures used for consistency in map chains and API handlers
+// - collapsible_if: Separate if statements improve readability in parsing/API logic
+// =============================================================================
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
@@ -38,65 +62,18 @@
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::uninlined_format_args)]
-#![allow(clippy::should_implement_trait)]
-#![allow(clippy::match_same_arms)]
-#![allow(clippy::redundant_closure_for_method_calls)]
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::cast_possible_wrap)]
 #![allow(clippy::cast_lossless)]
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::struct_excessive_bools)]
-#![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
-#![allow(clippy::wildcard_imports)]
-#![allow(clippy::needless_pass_by_value)]
-#![allow(clippy::unnecessary_wraps)]
-#![allow(clippy::items_after_statements)]
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::if_not_else)]
-#![allow(clippy::if_same_then_else)]
-#![allow(clippy::derivable_impls)]
-#![allow(clippy::from_over_into)]
-#![allow(clippy::map_unwrap_or)]
-#![allow(clippy::unnecessary_map_or)]
-#![allow(clippy::clone_on_copy)]
-#![allow(clippy::explicit_iter_loop)]
-#![allow(clippy::ref_option)]
-#![allow(clippy::ignored_unit_patterns)]
-#![allow(clippy::manual_midpoint)]
-#![allow(clippy::manual_pattern_char_comparison)]
 #![allow(clippy::return_self_not_must_use)]
-#![allow(clippy::format_push_string)]
-#![allow(clippy::redundant_closure)]
-#![allow(clippy::unused_self)]
-#![allow(clippy::match_wildcard_for_single_variants)]
-#![allow(clippy::unnested_or_patterns)]
-#![allow(clippy::redundant_field_names)]
 #![allow(clippy::unreadable_literal)]
-#![allow(clippy::empty_line_after_doc_comments)]
-#![allow(clippy::needless_continue)]
-#![allow(clippy::redundant_else)]
-#![allow(clippy::unnecessary_literal_bound)]
-#![allow(clippy::let_and_return)]
-#![allow(clippy::implicit_hasher)]
-#![allow(clippy::get_first)]
-#![allow(clippy::unnecessary_literal_unwrap)]
-#![allow(clippy::map_flatten)]
-#![allow(clippy::manual_map)]
-#![allow(clippy::unnecessary_cast)]
-#![allow(clippy::manual_strip)]
-#![allow(clippy::unnecessary_lazy_evaluations)]
-#![allow(clippy::manual_range_contains)]
-#![allow(clippy::collapsible_else_if)]
-#![allow(clippy::implicit_clone)]
-#![allow(clippy::semicolon_if_nothing_returned)]
-#![allow(clippy::single_match_else)]
-#![allow(clippy::assigning_clones)]
-#![allow(clippy::collapsible_match)]
-#![allow(clippy::option_as_ref_deref)]
-#![allow(clippy::field_reassign_with_default)]
-#![allow(clippy::unused_async)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::collapsible_if)]
 
 // Re-export ccxt-core
 pub use ccxt_core;

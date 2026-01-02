@@ -13,12 +13,13 @@
 //! - Ping/pong heartbeat events
 
 use crate::error::{Error, Result};
+use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::task::JoinHandle;
@@ -29,18 +30,49 @@ use tokio_tungstenite::{
 use tracing::{debug, error, info, instrument, warn};
 
 /// WebSocket connection state.
+///
+/// Uses `#[repr(u8)]` to enable atomic storage via `AtomicU8`.
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WsConnectionState {
     /// Not connected
-    Disconnected,
+    Disconnected = 0,
     /// Establishing connection
-    Connecting,
+    Connecting = 1,
     /// Successfully connected
-    Connected,
+    Connected = 2,
     /// Attempting to reconnect
-    Reconnecting,
+    Reconnecting = 3,
     /// Error state
-    Error,
+    Error = 4,
+}
+
+impl WsConnectionState {
+    /// Converts a `u8` value to `WsConnectionState`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The u8 value to convert
+    ///
+    /// # Returns
+    ///
+    /// The corresponding `WsConnectionState`, defaulting to `Error` for unknown values.
+    #[inline]
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Self::Disconnected,
+            1 => Self::Connecting,
+            2 => Self::Connected,
+            3 => Self::Reconnecting,
+            _ => Self::Error,
+        }
+    }
+
+    /// Converts the `WsConnectionState` to its `u8` representation.
+    #[inline]
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
 }
 
 /// WebSocket message types for exchange communication.
@@ -139,18 +171,22 @@ type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 /// Async WebSocket client for exchange streaming APIs.
 pub struct WsClient {
     config: WsConfig,
-    state: Arc<RwLock<WsConnectionState>>,
-    subscriptions: Arc<RwLock<HashMap<String, Subscription>>>,
+    /// Connection state (atomic for lock-free reads)
+    state: Arc<AtomicU8>,
+    /// Subscription tracking using DashMap for lock-free concurrent access
+    subscriptions: DashMap<String, Subscription>,
 
     message_tx: mpsc::UnboundedSender<Value>,
     message_rx: Arc<RwLock<mpsc::UnboundedReceiver<Value>>>,
 
     write_tx: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
 
-    reconnect_count: Arc<RwLock<u32>>,
+    /// Reconnection counter (atomic for lock-free access)
+    reconnect_count: AtomicU32,
 
     shutdown_tx: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
 
+    /// Stats still use RwLock (requires consistent multi-field updates)
     stats: Arc<RwLock<WsStats>>,
 }
 
@@ -192,12 +228,12 @@ impl WsClient {
 
         Self {
             config,
-            state: Arc::new(RwLock::new(WsConnectionState::Disconnected)),
-            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            state: Arc::new(AtomicU8::new(WsConnectionState::Disconnected.as_u8())),
+            subscriptions: DashMap::new(),
             message_tx,
             message_rx: Arc::new(RwLock::new(message_rx)),
             write_tx: Arc::new(Mutex::new(None)),
-            reconnect_count: Arc::new(RwLock::new(0)),
+            reconnect_count: AtomicU32::new(0),
             shutdown_tx: Arc::new(Mutex::new(None)),
             stats: Arc::new(RwLock::new(WsStats::default())),
         }
@@ -220,18 +256,14 @@ impl WsClient {
         fields(url = %self.config.url, timeout_ms = self.config.connect_timeout)
     )]
     pub async fn connect(&self) -> Result<()> {
-        {
-            let state = self.state.read().await;
-            if *state == WsConnectionState::Connected {
-                info!("WebSocket already connected");
-                return Ok(());
-            }
+        // Lock-free state check
+        if self.state() == WsConnectionState::Connected {
+            info!("WebSocket already connected");
+            return Ok(());
         }
 
-        {
-            let mut state = self.state.write().await;
-            *state = WsConnectionState::Connecting;
-        }
+        // Lock-free state update
+        self.set_state(WsConnectionState::Connecting);
 
         let url = self.config.url.clone();
         info!("Initiating WebSocket connection");
@@ -248,8 +280,9 @@ impl WsClient {
                     "WebSocket connection established successfully"
                 );
 
-                *self.state.write().await = WsConnectionState::Connected;
-                *self.reconnect_count.write().await = 0;
+                self.set_state(WsConnectionState::Connected);
+                // Lock-free reconnect count reset
+                self.reconnect_count.store(0, Ordering::Release);
 
                 {
                     let mut stats = self.stats.write().await;
@@ -268,7 +301,7 @@ impl WsClient {
                     error_debug = ?e,
                     "WebSocket connection failed"
                 );
-                *self.state.write().await = WsConnectionState::Error;
+                self.set_state(WsConnectionState::Error);
                 Err(Error::network(format!(
                     "WebSocket connection failed: {}",
                     e
@@ -279,7 +312,7 @@ impl WsClient {
                     timeout_ms = self.config.connect_timeout,
                     "WebSocket connection timeout exceeded"
                 );
-                *self.state.write().await = WsConnectionState::Error;
+                self.set_state(WsConnectionState::Error);
                 Err(Error::timeout("WebSocket connection timeout"))
             }
         }
@@ -299,8 +332,8 @@ impl WsClient {
 
         *self.write_tx.lock().await = None;
 
-        let mut state = self.state.write().await;
-        *state = WsConnectionState::Disconnected;
+        // Lock-free state update
+        self.set_state(WsConnectionState::Disconnected);
 
         info!("WebSocket disconnected successfully");
         Ok(())
@@ -323,41 +356,42 @@ impl WsClient {
         )
     )]
     pub async fn reconnect(&self) -> Result<()> {
-        let mut count = self.reconnect_count.write().await;
+        // Lock-free atomic increment and check
+        let count = self.reconnect_count.fetch_add(1, Ordering::AcqRel) + 1;
 
-        if *count >= self.config.max_reconnect_attempts {
+        if count > self.config.max_reconnect_attempts {
             error!(
-                attempts = *count,
+                attempts = count,
                 max = self.config.max_reconnect_attempts,
                 "Max reconnect attempts reached, giving up"
             );
             return Err(Error::network("Max reconnect attempts reached"));
         }
 
-        *count += 1;
-
         warn!(
-            attempt = *count,
+            attempt = count,
             max = self.config.max_reconnect_attempts,
             delay_ms = self.config.reconnect_interval,
             "Attempting WebSocket reconnection"
         );
 
-        *self.state.write().await = WsConnectionState::Reconnecting;
+        // Lock-free state update
+        self.set_state(WsConnectionState::Reconnecting);
 
         tokio::time::sleep(Duration::from_millis(self.config.reconnect_interval)).await;
 
         self.connect().await
     }
 
-    /// Returns the current reconnection attempt count.
-    pub async fn reconnect_count(&self) -> u32 {
-        *self.reconnect_count.read().await
+    /// Returns the current reconnection attempt count (lock-free).
+    #[inline]
+    pub fn reconnect_count(&self) -> u32 {
+        self.reconnect_count.load(Ordering::Acquire)
     }
 
-    /// Resets the reconnection attempt counter to zero.
-    pub async fn reset_reconnect_count(&self) {
-        *self.reconnect_count.write().await = 0;
+    /// Resets the reconnection attempt counter to zero (lock-free).
+    pub fn reset_reconnect_count(&self) {
+        self.reconnect_count.store(0, Ordering::Release);
         debug!("Reconnect count reset");
     }
 
@@ -426,14 +460,13 @@ impl WsClient {
             params: params.clone(),
         };
 
-        {
-            let mut subs = self.subscriptions.write().await;
-            subs.insert(sub_key.clone(), subscription);
-        }
+        // DashMap insert is lock-free for reads
+        self.subscriptions.insert(sub_key.clone(), subscription);
 
         info!(subscription_key = %sub_key, "Subscription registered");
 
-        let state = *self.state.read().await;
+        // Lock-free state check
+        let state = self.state();
         if state == WsConnectionState::Connected {
             self.send_subscribe_message(channel, symbol, params).await?;
             info!(subscription_key = %sub_key, "Subscription message sent");
@@ -468,14 +501,13 @@ impl WsClient {
     pub async fn unsubscribe(&self, channel: String, symbol: Option<String>) -> Result<()> {
         let sub_key = Self::subscription_key(&channel, &symbol);
 
-        {
-            let mut subs = self.subscriptions.write().await;
-            subs.remove(&sub_key);
-        }
+        // DashMap remove is lock-free for reads
+        self.subscriptions.remove(&sub_key);
 
         info!(subscription_key = %sub_key, "Subscription removed");
 
-        let state = *self.state.read().await;
+        // Lock-free state check
+        let state = self.state();
         if state == WsConnectionState::Connected {
             self.send_unsubscribe_message(channel, symbol).await?;
             info!(subscription_key = %sub_key, "Unsubscribe message sent");
@@ -494,14 +526,42 @@ impl WsClient {
         rx.recv().await
     }
 
-    /// Returns the current connection state.
-    pub async fn state(&self) -> WsConnectionState {
-        *self.state.read().await
+    /// Returns the current connection state (lock-free).
+    #[inline]
+    pub fn state(&self) -> WsConnectionState {
+        WsConnectionState::from_u8(self.state.load(Ordering::Acquire))
     }
 
-    /// Checks whether the WebSocket is currently connected.
-    pub async fn is_connected(&self) -> bool {
-        *self.state.read().await == WsConnectionState::Connected
+    /// Sets the connection state (lock-free).
+    #[inline]
+    fn set_state(&self, state: WsConnectionState) {
+        self.state.store(state.as_u8(), Ordering::Release);
+    }
+
+    /// Checks whether the WebSocket is currently connected (lock-free).
+    #[inline]
+    pub fn is_connected(&self) -> bool {
+        self.state() == WsConnectionState::Connected
+    }
+
+    /// Checks if subscribed to a specific channel (lock-free).
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - Channel name to check
+    /// * `symbol` - Optional trading pair symbol
+    ///
+    /// # Returns
+    ///
+    /// `true` if subscribed to the channel, `false` otherwise.
+    pub fn is_subscribed(&self, channel: &str, symbol: &Option<String>) -> bool {
+        let sub_key = Self::subscription_key(channel, symbol);
+        self.subscriptions.contains_key(&sub_key)
+    }
+
+    /// Returns the number of active subscriptions (lock-free).
+    pub fn subscription_count(&self) -> usize {
+        self.subscriptions.len()
     }
 
     /// Sends a raw WebSocket message.
@@ -704,7 +764,9 @@ impl WsClient {
                             close_frame = ?frame,
                             "Received WebSocket close frame"
                         );
-                        *state_clone.write().await = WsConnectionState::Disconnected;
+                        // Lock-free state update
+                        state_clone
+                            .store(WsConnectionState::Disconnected.as_u8(), Ordering::Release);
                         break;
                     }
                     Err(e) => {
@@ -713,7 +775,8 @@ impl WsClient {
                             error_debug = ?e,
                             "WebSocket read error"
                         );
-                        *state_clone.write().await = WsConnectionState::Error;
+                        // Lock-free state update
+                        state_clone.store(WsConnectionState::Error.as_u8(), Ordering::Release);
                         break;
                     }
                     _ => {
@@ -756,7 +819,8 @@ impl WsClient {
                                 timeout_ms = pong_timeout_ms,
                                 "Pong timeout detected, marking connection as error"
                             );
-                            *ping_state.write().await = WsConnectionState::Error;
+                            // Lock-free state update
+                            ping_state.store(WsConnectionState::Error.as_u8(), Ordering::Release);
                             break;
                         }
                     }
@@ -842,8 +906,14 @@ impl WsClient {
 
     /// Resubscribes to all previously subscribed channels.
     async fn resubscribe_all(&self) -> Result<()> {
-        let subs = self.subscriptions.read().await;
-        for subscription in subs.values() {
+        // Collect subscriptions to avoid holding DashMap reference during async calls
+        let subs: Vec<Subscription> = self
+            .subscriptions
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        for subscription in subs {
             self.send_subscribe_message(
                 subscription.channel.clone(),
                 subscription.symbol.clone(),
@@ -975,13 +1045,15 @@ impl AutoReconnectCoordinator {
                 break;
             }
 
-            let state = client.state().await;
+            // Lock-free state check
+            let state = client.state();
 
             if matches!(
                 state,
                 WsConnectionState::Disconnected | WsConnectionState::Error
             ) {
-                let attempt = client.reconnect_count().await;
+                // Lock-free reconnect count access
+                let attempt = client.reconnect_count();
 
                 info!(
                     attempt = attempt + 1,
@@ -1067,8 +1139,10 @@ mod tests {
         };
 
         let client = WsClient::new(config);
-        assert_eq!(client.state().await, WsConnectionState::Disconnected);
-        assert!(!client.is_connected().await);
+        // state() is now lock-free (no await needed)
+        assert_eq!(client.state(), WsConnectionState::Disconnected);
+        // is_connected() is now lock-free (no await needed)
+        assert!(!client.is_connected());
     }
 
     #[tokio::test]
@@ -1085,9 +1159,9 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        let subs = client.subscriptions.read().await;
-        assert_eq!(subs.len(), 1);
-        assert!(subs.contains_key("ticker:BTC/USDT"));
+        // Use DashMap API (lock-free)
+        assert_eq!(client.subscription_count(), 1);
+        assert!(client.is_subscribed("ticker", &Some("BTC/USDT".to_string())));
     }
 
     #[tokio::test]
@@ -1109,8 +1183,9 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        let subs = client.subscriptions.read().await;
-        assert_eq!(subs.len(), 0);
+        // Use DashMap API (lock-free)
+        assert_eq!(client.subscription_count(), 0);
+        assert!(!client.is_subscribed("ticker", &Some("BTC/USDT".to_string())));
     }
 
     #[test]
@@ -1124,5 +1199,185 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"subscribe\""));
         assert!(json.contains("\"channel\":\"ticker\""));
+    }
+
+    #[test]
+    fn test_ws_connection_state_from_u8() {
+        assert_eq!(
+            WsConnectionState::from_u8(0),
+            WsConnectionState::Disconnected
+        );
+        assert_eq!(WsConnectionState::from_u8(1), WsConnectionState::Connecting);
+        assert_eq!(WsConnectionState::from_u8(2), WsConnectionState::Connected);
+        assert_eq!(
+            WsConnectionState::from_u8(3),
+            WsConnectionState::Reconnecting
+        );
+        assert_eq!(WsConnectionState::from_u8(4), WsConnectionState::Error);
+        // Unknown values default to Error
+        assert_eq!(WsConnectionState::from_u8(5), WsConnectionState::Error);
+        assert_eq!(WsConnectionState::from_u8(255), WsConnectionState::Error);
+    }
+
+    #[test]
+    fn test_ws_connection_state_as_u8() {
+        assert_eq!(WsConnectionState::Disconnected.as_u8(), 0);
+        assert_eq!(WsConnectionState::Connecting.as_u8(), 1);
+        assert_eq!(WsConnectionState::Connected.as_u8(), 2);
+        assert_eq!(WsConnectionState::Reconnecting.as_u8(), 3);
+        assert_eq!(WsConnectionState::Error.as_u8(), 4);
+    }
+
+    #[test]
+    fn test_reconnect_count_lock_free() {
+        let config = WsConfig {
+            url: "wss://example.com/ws".to_string(),
+            ..Default::default()
+        };
+
+        let client = WsClient::new(config);
+
+        // Initial count should be 0
+        assert_eq!(client.reconnect_count(), 0);
+
+        // Reset should work
+        client.reset_reconnect_count();
+        assert_eq!(client.reconnect_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_subscription_operations() {
+        use std::sync::Arc;
+
+        let config = WsConfig {
+            url: "wss://example.com/ws".to_string(),
+            ..Default::default()
+        };
+
+        let client = Arc::new(WsClient::new(config));
+
+        // Spawn multiple tasks that add subscriptions concurrently
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let client_clone = Arc::clone(&client);
+            let handle = tokio::spawn(async move {
+                let channel = format!("channel{}", i);
+                let symbol = Some(format!("SYMBOL{}/USDT", i));
+                client_clone.subscribe(channel, symbol, None).await.unwrap();
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // All subscriptions should be present
+        assert_eq!(client.subscription_count(), 10);
+
+        // Verify each subscription exists
+        for i in 0..10 {
+            assert!(
+                client.is_subscribed(&format!("channel{}", i), &Some(format!("SYMBOL{}/USDT", i)))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_state_access() {
+        use std::sync::Arc;
+
+        let config = WsConfig {
+            url: "wss://example.com/ws".to_string(),
+            ..Default::default()
+        };
+
+        let client = Arc::new(WsClient::new(config));
+
+        // Spawn multiple tasks that read state concurrently
+        let mut handles = vec![];
+
+        for _ in 0..100 {
+            let client_clone = Arc::clone(&client);
+            let handle = tokio::spawn(async move {
+                // Lock-free state access should not panic or deadlock
+                let _ = client_clone.state();
+                let _ = client_clone.is_connected();
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // State should still be Disconnected
+        assert_eq!(client.state(), WsConnectionState::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_subscription_add_remove() {
+        use std::sync::Arc;
+
+        let config = WsConfig {
+            url: "wss://example.com/ws".to_string(),
+            ..Default::default()
+        };
+
+        let client = Arc::new(WsClient::new(config));
+
+        // Add some initial subscriptions
+        for i in 0..5 {
+            client
+                .subscribe(
+                    format!("channel{}", i),
+                    Some(format!("SYM{}/USDT", i)),
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        // Spawn tasks that add and remove subscriptions concurrently
+        let mut handles = vec![];
+
+        // Add new subscriptions
+        for i in 5..10 {
+            let client_clone = Arc::clone(&client);
+            let handle = tokio::spawn(async move {
+                client_clone
+                    .subscribe(
+                        format!("channel{}", i),
+                        Some(format!("SYM{}/USDT", i)),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+            });
+            handles.push(handle);
+        }
+
+        // Remove some existing subscriptions
+        for i in 0..3 {
+            let client_clone = Arc::clone(&client);
+            let handle = tokio::spawn(async move {
+                client_clone
+                    .unsubscribe(format!("channel{}", i), Some(format!("SYM{}/USDT", i)))
+                    .await
+                    .unwrap();
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Should have 7 subscriptions (5 initial + 5 added - 3 removed)
+        assert_eq!(client.subscription_count(), 7);
     }
 }

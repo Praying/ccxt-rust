@@ -6,8 +6,8 @@ use super::{Bybit, BybitAuth, error, parser};
 use ccxt_core::{
     Error, ParseError, Result,
     types::{
-        Amount, Balance, Market, OHLCV, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
-        Trade,
+        Amount, Balance, Market, OHLCV, OhlcvRequest, Order, OrderBook, OrderRequest, OrderSide,
+        OrderType, Price, Ticker, TimeInForce, Trade,
     },
 };
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -518,7 +518,90 @@ impl Bybit {
         Ok(trades)
     }
 
-    /// Fetch OHLCV (candlestick) data.
+    /// Fetch OHLCV (candlestick) data using the builder pattern.
+    ///
+    /// This is the preferred method for fetching OHLCV data. It accepts an [`OhlcvRequest`]
+    /// built using the builder pattern, which provides validation and a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - OHLCV request built via [`OhlcvRequest::builder()`]
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of [`OHLCV`] structures.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the market is not found or the API request fails.
+    ///
+    /// _Requirements: 2.3, 2.6_
+    pub async fn fetch_ohlcv_v2(&self, request: OhlcvRequest) -> Result<Vec<OHLCV>> {
+        let market = self.base().market(&request.symbol).await?;
+
+        // Convert timeframe to Bybit format
+        let timeframes = self.timeframes();
+        let bybit_timeframe = timeframes.get(&request.timeframe).ok_or_else(|| {
+            Error::invalid_request(format!("Unsupported timeframe: {}", request.timeframe))
+        })?;
+
+        let path = self.build_api_path("/market/kline");
+        let mut params = HashMap::new();
+        params.insert("category".to_string(), self.get_category().to_string());
+        params.insert("symbol".to_string(), market.id.clone());
+        params.insert("interval".to_string(), bybit_timeframe.clone());
+
+        // Bybit maximum limit is 1000
+        let actual_limit = request.limit.map(|l| l.min(1000)).unwrap_or(200);
+        params.insert("limit".to_string(), actual_limit.to_string());
+
+        if let Some(start_time) = request.since {
+            params.insert("start".to_string(), start_time.to_string());
+        }
+
+        if let Some(end_time) = request.until {
+            params.insert("end".to_string(), end_time.to_string());
+        }
+
+        let response = self.public_request("GET", &path, Some(&params)).await?;
+
+        let result = response
+            .get("result")
+            .ok_or_else(|| Error::from(ParseError::missing_field("result")))?;
+
+        let list = result
+            .get("list")
+            .ok_or_else(|| Error::from(ParseError::missing_field("list")))?;
+
+        let candles_array = list.as_array().ok_or_else(|| {
+            Error::from(ParseError::invalid_format(
+                "list",
+                "Expected array of candles",
+            ))
+        })?;
+
+        let mut ohlcv = Vec::new();
+        for candle_data in candles_array {
+            match parser::parse_ohlcv(candle_data) {
+                Ok(candle) => ohlcv.push(candle),
+                Err(e) => {
+                    warn!(error = %e, "Failed to parse OHLCV");
+                }
+            }
+        }
+
+        // Sort by timestamp ascending (oldest first)
+        ohlcv.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        Ok(ohlcv)
+    }
+
+    /// Fetch OHLCV (candlestick) data (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`fetch_ohlcv_v2`](Self::fetch_ohlcv_v2) with
+    /// [`OhlcvRequest::builder()`] instead for a more ergonomic API.
     ///
     /// # Arguments
     ///
@@ -530,6 +613,10 @@ impl Bybit {
     /// # Returns
     ///
     /// Returns a vector of [`OHLCV`] structures.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use fetch_ohlcv_v2 with OhlcvRequest::builder() instead"
+    )]
     pub async fn fetch_ohlcv(
         &self,
         symbol: &str,
@@ -699,6 +786,170 @@ impl Bybit {
     /// # Returns
     ///
     /// Returns the created [`Order`] structure with order details.
+    ///
+    /// _Requirements: 2.2, 2.6_
+    pub async fn create_order_v2(&self, request: OrderRequest) -> Result<Order> {
+        use crate::bybit::signed_request::HttpMethod;
+
+        let market = self.base().market(&request.symbol).await?;
+
+        let path = self.build_api_path("/order/create");
+
+        // Build order body
+        let mut map = serde_json::Map::new();
+        map.insert(
+            "category".to_string(),
+            serde_json::Value::String(self.get_category().to_string()),
+        );
+        map.insert(
+            "symbol".to_string(),
+            serde_json::Value::String(market.id.clone()),
+        );
+        map.insert(
+            "side".to_string(),
+            serde_json::Value::String(match request.side {
+                OrderSide::Buy => "Buy".to_string(),
+                OrderSide::Sell => "Sell".to_string(),
+            }),
+        );
+        map.insert(
+            "orderType".to_string(),
+            serde_json::Value::String(match request.order_type {
+                OrderType::Market => "Market".to_string(),
+                OrderType::Limit => "Limit".to_string(),
+                OrderType::LimitMaker => "Limit".to_string(),
+                OrderType::StopLoss | OrderType::StopMarket => "Market".to_string(),
+                OrderType::StopLossLimit | OrderType::StopLimit => "Limit".to_string(),
+                OrderType::TakeProfit => "Market".to_string(),
+                OrderType::TakeProfitLimit => "Limit".to_string(),
+                OrderType::TrailingStop => "Market".to_string(),
+            }),
+        );
+        map.insert(
+            "qty".to_string(),
+            serde_json::Value::String(request.amount.to_string()),
+        );
+
+        // Add price for limit orders
+        if let Some(p) = request.price {
+            if request.order_type == OrderType::Limit || request.order_type == OrderType::LimitMaker
+            {
+                map.insert(
+                    "price".to_string(),
+                    serde_json::Value::String(p.to_string()),
+                );
+            }
+        }
+
+        // Handle time in force
+        if let Some(tif) = request.time_in_force {
+            let tif_str = match tif {
+                TimeInForce::GTC => "GTC",
+                TimeInForce::IOC => "IOC",
+                TimeInForce::FOK => "FOK",
+                TimeInForce::PO => "PostOnly",
+            };
+            map.insert(
+                "timeInForce".to_string(),
+                serde_json::Value::String(tif_str.to_string()),
+            );
+        } else if request.order_type == OrderType::LimitMaker || request.post_only == Some(true) {
+            map.insert(
+                "timeInForce".to_string(),
+                serde_json::Value::String("PostOnly".to_string()),
+            );
+        }
+
+        // Handle client order ID
+        if let Some(client_id) = request.client_order_id {
+            map.insert(
+                "orderLinkId".to_string(),
+                serde_json::Value::String(client_id),
+            );
+        }
+
+        // Handle reduce only
+        if let Some(reduce_only) = request.reduce_only {
+            map.insert(
+                "reduceOnly".to_string(),
+                serde_json::Value::Bool(reduce_only),
+            );
+        }
+
+        // Handle stop price / trigger price
+        if let Some(trigger) = request.trigger_price.or(request.stop_price) {
+            map.insert(
+                "triggerPrice".to_string(),
+                serde_json::Value::String(trigger.to_string()),
+            );
+        }
+
+        // Handle take profit price
+        if let Some(tp) = request.take_profit_price {
+            map.insert(
+                "takeProfit".to_string(),
+                serde_json::Value::String(tp.to_string()),
+            );
+        }
+
+        // Handle stop loss price
+        if let Some(sl) = request.stop_loss_price {
+            map.insert(
+                "stopLoss".to_string(),
+                serde_json::Value::String(sl.to_string()),
+            );
+        }
+
+        // Handle position side (for hedge mode)
+        if let Some(pos_side) = request.position_side {
+            map.insert(
+                "positionIdx".to_string(),
+                serde_json::Value::String(match pos_side.as_str() {
+                    "LONG" => "1".to_string(),
+                    "SHORT" => "2".to_string(),
+                    _ => "0".to_string(), // BOTH
+                }),
+            );
+        }
+
+        let body = serde_json::Value::Object(map);
+
+        let response = self
+            .signed_request(&path)
+            .method(HttpMethod::Post)
+            .body(body)
+            .execute()
+            .await?;
+
+        let result = response
+            .get("result")
+            .ok_or_else(|| Error::from(ParseError::missing_field("result")))?;
+
+        parser::parse_order(result, Some(&market))
+    }
+
+    /// Create a new order (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`create_order_v2`](Self::create_order_v2) with
+    /// [`OrderRequest::builder()`] instead for a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - Trading pair symbol.
+    /// * `order_type` - Order type (Market, Limit).
+    /// * `side` - Order side (Buy or Sell).
+    /// * `amount` - Order quantity as [`Amount`] type.
+    /// * `price` - Optional price as [`Price`] type (required for limit orders).
+    ///
+    /// # Returns
+    ///
+    /// Returns the created [`Order`] structure with order details.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_order_v2 with OrderRequest::builder() instead"
+    )]
     pub async fn create_order(
         &self,
         symbol: &str,

@@ -6,9 +6,10 @@
 use super::super::{Binance, constants::endpoints, parser};
 use ccxt_core::{
     Error, ParseError, Result,
+    time::TimestampUtils,
     types::{
-        AggTrade, BidAsk, IntoTickerParams, LastPrice, MarkPrice, ServerTime, Stats24hr, Ticker,
-        Trade, TradingLimits,
+        AggTrade, BidAsk, IntoTickerParams, LastPrice, MarkPrice, OhlcvRequest, ServerTime,
+        Stats24hr, Ticker, Trade, TradingLimits,
     },
 };
 use reqwest::header::HeaderMap;
@@ -835,7 +836,109 @@ impl Binance {
         }
     }
 
-    /// Fetch OHLCV (candlestick) data.
+    /// Fetch OHLCV (candlestick) data using the builder pattern.
+    ///
+    /// This is the preferred method for fetching OHLCV data. It accepts an [`OhlcvRequest`]
+    /// built using the builder pattern, which provides validation and a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - OHLCV request built via [`OhlcvRequest::builder()`]
+    ///
+    /// # Returns
+    ///
+    /// Returns OHLCV data array: [timestamp, open, high, low, close, volume]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the market is not found or the API request fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::{ExchangeConfig, types::OhlcvRequest};
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Fetch OHLCV data using the builder
+    /// let request = OhlcvRequest::builder()
+    ///     .symbol("BTC/USDT")
+    ///     .timeframe("1h")
+    ///     .limit(100)
+    ///     .build()?;
+    ///
+    /// let ohlcv = binance.fetch_ohlcv_v2(request).await?;
+    /// println!("Fetched {} candles", ohlcv.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// _Requirements: 2.3, 2.6_
+    pub async fn fetch_ohlcv_v2(
+        &self,
+        request: OhlcvRequest,
+    ) -> Result<Vec<ccxt_core::types::OHLCV>> {
+        self.load_markets(false).await?;
+
+        let market = self.base().market(&request.symbol).await?;
+
+        let default_limit = 500u32;
+        let max_limit = 1500u32;
+
+        let adjusted_limit =
+            if request.since.is_some() && request.until.is_some() && request.limit.is_none() {
+                max_limit
+            } else if let Some(lim) = request.limit {
+                lim.min(max_limit)
+            } else {
+                default_limit
+            };
+
+        // For v2, we don't support price type parameter (use fetch_ohlcv for that)
+        let (base_url, endpoint, use_pair) = self.get_ohlcv_endpoint(&market, None)?;
+
+        let symbol_param = if use_pair {
+            market.symbol.replace('/', "")
+        } else {
+            market.id.clone()
+        };
+
+        let mut url = format!(
+            "{}{}?symbol={}&interval={}&limit={}",
+            base_url, endpoint, symbol_param, request.timeframe, adjusted_limit
+        );
+
+        if let Some(start_time) = request.since {
+            url.push_str(&format!("&startTime={}", start_time));
+
+            // Calculate endTime for inverse markets
+            if market.inverse.unwrap_or(false) && start_time > 0 && request.until.is_none() {
+                let duration = self.parse_timeframe(&request.timeframe)?;
+                let calculated_end_time =
+                    start_time + (adjusted_limit as i64 * duration * 1000) - 1;
+                let now = TimestampUtils::now_ms();
+                let end_time = calculated_end_time.min(now);
+                url.push_str(&format!("&endTime={}", end_time));
+            }
+        }
+
+        if let Some(end_time) = request.until {
+            url.push_str(&format!("&endTime={}", end_time));
+        }
+
+        let data = self.base().http_client.get(&url, None).await?;
+
+        parser::parse_ohlcvs(&data)
+    }
+
+    /// Fetch OHLCV (candlestick) data (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`fetch_ohlcv_v2`](Self::fetch_ohlcv_v2) with
+    /// [`OhlcvRequest::builder()`] instead for a more ergonomic API.
     ///
     /// # Arguments
     ///
@@ -850,6 +953,10 @@ impl Binance {
     /// # Returns
     ///
     /// Returns OHLCV data array: [timestamp, open, high, low, close, volume]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use fetch_ohlcv_v2 with OhlcvRequest::builder() instead"
+    )]
     pub async fn fetch_ohlcv(
         &self,
         symbol: &str,
@@ -905,10 +1012,7 @@ impl Binance {
                 let duration = self.parse_timeframe(timeframe)?;
                 let calculated_end_time =
                     start_time + (adjusted_limit as i64 * duration * 1000) - 1;
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System clock is set before UNIX_EPOCH (1970); this is not supported")
-                    .as_millis() as i64;
+                let now = TimestampUtils::now_ms();
                 let end_time = calculated_end_time.min(now);
                 url.push_str(&format!("&endTime={}", end_time));
             }

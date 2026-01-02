@@ -27,7 +27,11 @@ pub mod mark_price;
 pub mod market;
 pub mod market_data;
 pub mod ohlcv;
+/// OHLCV request types with Builder pattern
+pub mod ohlcv_request;
 pub mod order;
+/// Order request types with Builder pattern using typestate
+pub mod order_request;
 pub mod orderbook;
 /// Parameter types for trait methods with builder pattern support
 pub mod params;
@@ -69,11 +73,13 @@ pub use market::{
 };
 pub use market_data::{IndexPrice, Liquidation, PremiumIndex};
 pub use ohlcv::OHLCV;
+pub use ohlcv_request::{OhlcvRequest, OhlcvRequestBuilder};
 pub use order::{
     BatchCancelResult, BatchOrderRequest, BatchOrderResult, BatchOrderUpdate,
     CancelAllOrdersResult, CancelReplaceResponse, OcoOrder, OcoOrderInfo, Order, OrderReport,
     OrderSide, OrderStatus, OrderType, TimeInForce,
 };
+pub use order_request::{OrderRequest, OrderRequestBuilder};
 pub use orderbook::{OrderBook, OrderBookDelta, OrderBookEntry, OrderBookSide};
 pub use params::{
     AccountType, BalanceParams, LeverageParams, MarginMode, OhlcvParams, OrderBookParams,

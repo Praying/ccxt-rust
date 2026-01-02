@@ -6,14 +6,208 @@
 use super::super::{Binance, constants::endpoints, parser, signed_request::HttpMethod};
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Amount, Order, OrderSide, OrderType, Price},
+    types::{Amount, Order, OrderRequest, OrderSide, OrderType, Price, TimeInForce},
 };
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
 impl Binance {
-    /// Create a new order.
+    /// Create a new order using the builder pattern.
+    ///
+    /// This is the preferred method for creating orders. It accepts an [`OrderRequest`]
+    /// built using the builder pattern, which provides compile-time validation of
+    /// required fields and a more ergonomic API.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Order request built via [`OrderRequest::builder()`]
+    ///
+    /// # Returns
+    ///
+    /// Returns the created [`Order`] structure with order details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails, market is not found, or the API request fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::{ExchangeConfig, types::{OrderRequest, OrderSide, OrderType, Amount, Price}};
+    /// use rust_decimal_macros::dec;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    ///
+    /// // Create a market order using the builder
+    /// let request = OrderRequest::builder()
+    ///     .symbol("BTC/USDT")
+    ///     .side(OrderSide::Buy)
+    ///     .order_type(OrderType::Market)
+    ///     .amount(Amount::new(dec!(0.001)))
+    ///     .build();
+    ///
+    /// let order = binance.create_order_v2(request).await?;
+    /// println!("Order created: {:?}", order);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// _Requirements: 2.2, 2.6_
+    pub async fn create_order_v2(&self, request: OrderRequest) -> Result<Order> {
+        let market = self.base().market(&request.symbol).await?;
+        let mut request_params = BTreeMap::new();
+
+        request_params.insert("symbol".to_string(), market.id.clone());
+        request_params.insert(
+            "side".to_string(),
+            match request.side {
+                OrderSide::Buy => "BUY".to_string(),
+                OrderSide::Sell => "SELL".to_string(),
+            },
+        );
+        request_params.insert(
+            "type".to_string(),
+            match request.order_type {
+                OrderType::Market => "MARKET".to_string(),
+                OrderType::Limit => "LIMIT".to_string(),
+                OrderType::StopLoss => "STOP_LOSS".to_string(),
+                OrderType::StopLossLimit => "STOP_LOSS_LIMIT".to_string(),
+                OrderType::TakeProfit => "TAKE_PROFIT".to_string(),
+                OrderType::TakeProfitLimit => "TAKE_PROFIT_LIMIT".to_string(),
+                OrderType::LimitMaker => "LIMIT_MAKER".to_string(),
+                OrderType::StopMarket => "STOP_MARKET".to_string(),
+                OrderType::StopLimit => "STOP_LIMIT".to_string(),
+                OrderType::TrailingStop => "TRAILING_STOP_MARKET".to_string(),
+            },
+        );
+        request_params.insert("quantity".to_string(), request.amount.to_string());
+
+        // Handle price
+        if let Some(p) = request.price {
+            request_params.insert("price".to_string(), p.to_string());
+        }
+
+        // Handle stop price
+        if let Some(sp) = request.stop_price {
+            request_params.insert("stopPrice".to_string(), sp.to_string());
+        }
+
+        // Handle time in force
+        if let Some(tif) = request.time_in_force {
+            let tif_str = match tif {
+                TimeInForce::GTC => "GTC",
+                TimeInForce::IOC => "IOC",
+                TimeInForce::FOK => "FOK",
+                TimeInForce::PO => "GTX", // Post-only maps to GTX on Binance
+            };
+            request_params.insert("timeInForce".to_string(), tif_str.to_string());
+        } else if request.order_type == OrderType::Limit
+            || request.order_type == OrderType::StopLossLimit
+            || request.order_type == OrderType::TakeProfitLimit
+        {
+            // Limit orders require timeInForce parameter
+            request_params.insert("timeInForce".to_string(), "GTC".to_string());
+        }
+
+        // Handle client order ID
+        if let Some(client_id) = request.client_order_id {
+            request_params.insert("newClientOrderId".to_string(), client_id);
+        }
+
+        // Handle reduce only (futures)
+        if let Some(reduce_only) = request.reduce_only {
+            request_params.insert("reduceOnly".to_string(), reduce_only.to_string());
+        }
+
+        // Handle post only
+        if request.post_only == Some(true) {
+            // For spot, post-only is handled via timeInForce=GTX
+            if !request_params.contains_key("timeInForce") {
+                request_params.insert("timeInForce".to_string(), "GTX".to_string());
+            }
+        }
+
+        // Handle trigger price (for conditional orders)
+        if let Some(trigger) = request.trigger_price {
+            if !request_params.contains_key("stopPrice") {
+                request_params.insert("stopPrice".to_string(), trigger.to_string());
+            }
+        }
+
+        // Handle take profit price
+        if let Some(tp) = request.take_profit_price {
+            request_params.insert("takeProfitPrice".to_string(), tp.to_string());
+            if !request_params.contains_key("stopPrice") {
+                request_params.insert("stopPrice".to_string(), tp.to_string());
+            }
+        }
+
+        // Handle stop loss price
+        if let Some(sl) = request.stop_loss_price {
+            request_params.insert("stopLossPrice".to_string(), sl.to_string());
+            if !request_params.contains_key("stopPrice") {
+                request_params.insert("stopPrice".to_string(), sl.to_string());
+            }
+        }
+
+        // Handle trailing delta
+        if let Some(delta) = request.trailing_delta {
+            request_params.insert("trailingDelta".to_string(), delta.to_string());
+        }
+
+        // Handle trailing percent (convert to basis points for spot)
+        if let Some(percent) = request.trailing_percent {
+            if market.is_spot() {
+                // Convert percentage to basis points (e.g., 2.0% -> 200)
+                let delta = (percent * Decimal::from(100)).to_string();
+                if let Ok(delta_int) = delta.parse::<i64>() {
+                    request_params.insert("trailingDelta".to_string(), delta_int.to_string());
+                }
+            } else {
+                request_params.insert("trailingPercent".to_string(), percent.to_string());
+            }
+        }
+
+        // Handle activation price (for trailing stop orders)
+        if let Some(activation) = request.activation_price {
+            request_params.insert("activationPrice".to_string(), activation.to_string());
+        }
+
+        // Handle callback rate (for futures trailing stop orders)
+        if let Some(rate) = request.callback_rate {
+            request_params.insert("callbackRate".to_string(), rate.to_string());
+        }
+
+        // Handle working type (for futures)
+        if let Some(working_type) = request.working_type {
+            request_params.insert("workingType".to_string(), working_type);
+        }
+
+        // Handle position side (for hedge mode futures)
+        if let Some(position_side) = request.position_side {
+            request_params.insert("positionSide".to_string(), position_side);
+        }
+
+        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
+        let data = self
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .params(request_params)
+            .execute()
+            .await?;
+
+        parser::parse_order(&data, Some(&market))
+    }
+
+    /// Create a new order (deprecated).
+    ///
+    /// # Deprecated
+    ///
+    /// This method is deprecated. Use [`create_order_v2`](Self::create_order_v2) with
+    /// [`OrderRequest::builder()`] instead for a more ergonomic API.
     ///
     /// # Arguments
     ///
@@ -31,6 +225,10 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if authentication fails, market is not found, or the API request fails.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_order_v2 with OrderRequest::builder() instead"
+    )]
     pub async fn create_order(
         &self,
         symbol: &str,

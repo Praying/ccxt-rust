@@ -562,7 +562,7 @@ impl Capabilities {
         Capability::all()
             .iter()
             .filter(|cap| self.contains(Self::from(**cap)))
-            .map(|cap| cap.as_ccxt_name())
+            .map(Capability::as_ccxt_name)
             .collect()
     }
 
@@ -573,6 +573,9 @@ impl Capabilities {
     }
 
     /// Create from an iterator of capabilities
+    // Lint: should_implement_trait
+    // Reason: This method has different semantics than FromIterator - it's a convenience constructor
+    #[allow(clippy::should_implement_trait)]
     pub fn from_iter<I: IntoIterator<Item = Capability>>(iter: I) -> Self {
         let mut caps = Self::empty();
         for cap in iter {

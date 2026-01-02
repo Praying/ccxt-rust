@@ -11,6 +11,10 @@ use crate::config::{ProxyConfig, RetryPolicy};
 use crate::error::{Error, ParseError, Result};
 use crate::http_client::{HttpClient, HttpConfig};
 use crate::rate_limiter::{RateLimiter, RateLimiterConfig};
+// Lint: wildcard_imports
+// Reason: Types module contains many related types used throughout this file;
+// explicit imports would be excessively verbose and harder to maintain
+#[allow(clippy::wildcard_imports)]
 use crate::types::*;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromStr, ToPrimitive};
@@ -336,6 +340,9 @@ impl BaseExchange {
         let http_config = HttpConfig {
             timeout: config.timeout,
             #[allow(deprecated)]
+            // Lint: map_unwrap_or
+            // Reason: map().unwrap_or() is more readable here for extracting nested optional field
+            #[allow(clippy::map_unwrap_or)]
             max_retries: config.retry_policy.map(|p| p.max_retries).unwrap_or(3),
             verbose: false,
             user_agent: config
@@ -570,7 +577,7 @@ impl BaseExchange {
             .markets
             .get(symbol)
             .cloned()
-            .ok_or_else(|| Error::bad_symbol(format!("Market {} not found", symbol)))
+            .ok_or_else(|| Error::bad_symbol(format!("Market {symbol} not found")))
     }
 
     /// Gets market information by exchange-specific market ID
@@ -593,7 +600,7 @@ impl BaseExchange {
             .markets_by_id
             .get(id)
             .cloned()
-            .ok_or_else(|| Error::bad_symbol(format!("Market with id {} not found", id)))
+            .ok_or_else(|| Error::bad_symbol(format!("Market with id {id} not found")))
     }
 
     /// Gets currency information by currency code
@@ -616,7 +623,7 @@ impl BaseExchange {
             .currencies
             .get(code)
             .cloned()
-            .ok_or_else(|| Error::bad_symbol(format!("Currency {} not found", code)))
+            .ok_or_else(|| Error::bad_symbol(format!("Currency {code} not found")))
     }
 
     /// Gets all available trading symbols
@@ -733,10 +740,10 @@ impl BaseExchange {
         match status_code {
             400 => Error::invalid_request(response.to_string()),
             401 | 403 => Error::authentication(response.to_string()),
-            404 => Error::invalid_request(format!("Endpoint not found: {}", response)),
+            404 => Error::invalid_request(format!("Endpoint not found: {response}")),
             429 => Error::rate_limit(response.to_string(), None),
             500..=599 => Error::exchange(status_code.to_string(), response),
-            _ => Error::network(format!("HTTP {}: {}", status_code, response)),
+            _ => Error::network(format!("HTTP {status_code}: {response}")),
         }
     }
 
@@ -753,7 +760,7 @@ impl BaseExchange {
     pub fn safe_string(&self, dict: &Value, key: &str) -> Option<String> {
         dict.get(key)
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
     }
 
     /// Safely extracts an integer value from a JSON object
@@ -767,7 +774,7 @@ impl BaseExchange {
     ///
     /// Returns `Some(i64)` if the key exists and value is an integer, `None` otherwise.
     pub fn safe_integer(&self, dict: &Value, key: &str) -> Option<i64> {
-        dict.get(key).and_then(|v| v.as_i64())
+        dict.get(key).and_then(Value::as_i64)
     }
 
     /// Safely extracts a float value from a JSON object
@@ -781,7 +788,7 @@ impl BaseExchange {
     ///
     /// Returns `Some(f64)` if the key exists and value is a float, `None` otherwise.
     pub fn safe_float(&self, dict: &Value, key: &str) -> Option<f64> {
-        dict.get(key).and_then(|v| v.as_f64())
+        dict.get(key).and_then(Value::as_f64)
     }
 
     /// Safely extracts a boolean value from a JSON object
@@ -795,7 +802,7 @@ impl BaseExchange {
     ///
     /// Returns `Some(bool)` if the key exists and value is a boolean, `None` otherwise.
     pub fn safe_bool(&self, dict: &Value, key: &str) -> Option<bool> {
-        dict.get(key).and_then(|v| v.as_bool())
+        dict.get(key).and_then(Value::as_bool)
     }
 
     // ============================================================================
@@ -969,6 +976,9 @@ impl BaseExchange {
         let status_str = self
             .safe_string(order_data, "status")
             .unwrap_or_else(|| "open".to_string());
+        // Lint: match_same_arms
+        // Reason: Explicit "open" match documents the expected status value; wildcard is fallback default
+        #[allow(clippy::match_same_arms)]
         let status = match status_str.to_lowercase().as_str() {
             "open" => OrderStatus::Open,
             "closed" => OrderStatus::Closed,
@@ -1089,6 +1099,9 @@ impl BaseExchange {
         if let Some(bids_array) = orderbook_data.get("bids").and_then(|v| v.as_array()) {
             for bid in bids_array {
                 if let Some(arr) = bid.as_array() {
+                    // Lint: collapsible_if
+                    // Reason: Keeping separate for clarity - first check array, then check length
+                    #[allow(clippy::collapsible_if)]
                     if arr.len() >= 2 {
                         let price = self.safe_decimal_from_value(&arr[0]);
                         let amount = self.safe_decimal_from_value(&arr[1]);
@@ -1106,6 +1119,9 @@ impl BaseExchange {
         if let Some(asks_array) = orderbook_data.get("asks").and_then(|v| v.as_array()) {
             for ask in asks_array {
                 if let Some(arr) = ask.as_array() {
+                    // Lint: collapsible_if
+                    // Reason: Keeping separate for clarity - first check array, then check length
+                    #[allow(clippy::collapsible_if)]
                     if arr.len() >= 2 {
                         let price = self.safe_decimal_from_value(&arr[0]);
                         let amount = self.safe_decimal_from_value(&arr[1]);
@@ -1153,6 +1169,9 @@ impl BaseExchange {
     }
 
     /// Safely extracts a `Decimal` value from a JSON `Value`
+    // Lint: unused_self
+    // Reason: Method is part of BaseExchange API for consistency; may use self in future
+    #[allow(clippy::unused_self)]
     fn safe_decimal_from_value(&self, value: &Value) -> Option<Decimal> {
         match value {
             Value::Number(n) => {
@@ -1246,6 +1265,9 @@ impl BaseExchange {
     /// Rounds a value to the specified precision
     ///
     /// The `precision_value` can represent either decimal places (e.g., 8) or a step size (e.g., 0.01).
+    // Lint: unused_self
+    // Reason: Method is part of BaseExchange API for consistency; may use self.precision_mode in future
+    #[allow(clippy::unused_self)]
     fn round_to_precision(&self, value: Decimal, precision_value: Decimal) -> Decimal {
         if precision_value < Decimal::ONE {
             // Round by step size: round(value / step) * step

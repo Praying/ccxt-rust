@@ -1429,8 +1429,8 @@ impl BinanceWs {
     }
 
     /// Indicates whether the WebSocket connection is active
-    pub async fn is_connected(&self) -> bool {
-        self.client.is_connected().await
+    pub fn is_connected(&self) -> bool {
+        self.client.is_connected()
     }
 
     /// Watches a single ticker stream (internal helper)
