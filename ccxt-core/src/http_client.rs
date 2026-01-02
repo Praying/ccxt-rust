@@ -31,6 +31,8 @@ use tracing::{debug, error, info, instrument, warn};
 pub struct HttpConfig {
     /// Request timeout
     pub timeout: Duration,
+    /// TCP connection timeout (default: 10 seconds)
+    pub connect_timeout: Duration,
     /// Maximum retry attempts (deprecated, use `retry_config` instead)
     #[deprecated(note = "Use retry_config instead")]
     pub max_retries: u32,
@@ -52,6 +54,7 @@ impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(30),
+            connect_timeout: Duration::from_secs(10),
             #[allow(deprecated)]
             max_retries: 3, // Kept for backward compatibility, but deprecated
             verbose: false,
@@ -92,6 +95,7 @@ impl HttpClient {
     pub fn new(config: HttpConfig) -> Result<Self> {
         let mut builder = Client::builder()
             .timeout(config.timeout)
+            .connect_timeout(config.connect_timeout)
             .gzip(true)
             .user_agent(&config.user_agent);
 
@@ -159,7 +163,11 @@ impl HttpClient {
         self.retry_strategy = strategy;
     }
 
-    /// Executes an HTTP request with automatic retry mechanism.
+    /// Executes an HTTP request with automatic retry mechanism and timeout control.
+    ///
+    /// The entire retry flow is wrapped with `tokio::time::timeout` to ensure
+    /// that the total operation time (including all retries) does not exceed
+    /// the configured timeout.
     ///
     /// # Arguments
     ///
@@ -175,13 +183,14 @@ impl HttpClient {
     /// # Errors
     ///
     /// Returns an error if:
+    /// - The operation times out (including all retries)
     /// - All retry attempts fail
     /// - The server returns an error status code
     /// - Network communication fails
     #[instrument(
         name = "http_fetch",
         skip(self, headers, body),
-        fields(method = %method, url = %url)
+        fields(method = %method, url = %url, timeout_ms = %self.config.timeout.as_millis())
     )]
     pub async fn fetch(
         &self,
@@ -199,14 +208,39 @@ impl HttpClient {
             }
         }
 
-        self.execute_with_retry(|| {
-            let url = url.to_string();
-            let method = method.clone();
-            let headers = headers.clone();
-            let body = body.clone();
-            async move { self.fetch_once(&url, method, headers, body).await }
-        })
+        // Use tokio::time::timeout to wrap the entire retry flow
+        // This ensures that the total operation time (including all retries)
+        // does not exceed the configured timeout
+        let total_timeout = self.config.timeout;
+        let url_for_error = url.to_string();
+
+        match tokio::time::timeout(
+            total_timeout,
+            self.execute_with_retry(|| {
+                let url = url.to_string();
+                let method = method.clone();
+                let headers = headers.clone();
+                let body = body.clone();
+                async move { self.fetch_once(&url, method, headers, body).await }
+            }),
+        )
         .await
+        {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                // Log timeout event with URL and timeout duration
+                warn!(
+                    url = %url_for_error,
+                    timeout_ms = %total_timeout.as_millis(),
+                    "HTTP request timed out (including retries)"
+                );
+                Err(Error::timeout(format!(
+                    "Request to {} timed out after {}ms",
+                    url_for_error,
+                    total_timeout.as_millis()
+                )))
+            }
+        }
     }
 
     /// Executes an async operation with automatic retry mechanism.
@@ -563,6 +597,7 @@ mod tests {
     async fn test_http_config_default() {
         let config = HttpConfig::default();
         assert_eq!(config.timeout, Duration::from_secs(30));
+        assert_eq!(config.connect_timeout, Duration::from_secs(10));
         assert!(config.retry_config.is_none());
         assert!(!config.verbose);
         assert_eq!(config.user_agent, "ccxt-rust/1.0");
@@ -687,12 +722,25 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(e) = result {
-            match e {
-                Error::Network(_) => {
-                    // Expected timeout error
+            match &e {
+                Error::Timeout(msg) => {
+                    // Expected timeout error - verify it contains URL and timeout info
+                    assert!(
+                        msg.contains("httpbin.org/delay/5"),
+                        "Timeout error should contain URL"
+                    );
+                    assert!(
+                        msg.contains("1000ms"),
+                        "Timeout error should contain timeout duration"
+                    );
                 }
-                _ => panic!("Expected Network error, got: {:?}", e),
+                Error::Network(_) => {
+                    // May get network errors when service is unavailable (e.g., in CI environments)
+                }
+                _ => panic!("Expected Timeout or Network error, got: {:?}", e),
             }
+            // Verify the error is retryable
+            assert!(e.is_retryable(), "Timeout error should be retryable");
         }
     }
 

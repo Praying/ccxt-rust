@@ -25,7 +25,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Exchange configuration
 #[derive(Debug, Clone)]
@@ -48,8 +48,10 @@ pub struct ExchangeConfig {
     pub enable_rate_limit: bool,
     /// Rate limit in requests per second
     pub rate_limit: u32,
-    /// Request timeout
+    /// Request timeout (default: 30 seconds)
     pub timeout: Duration,
+    /// TCP connection timeout (default: 10 seconds)
+    pub connect_timeout: Duration,
     /// Retry policy
     pub retry_policy: Option<RetryPolicy>,
     /// Enable sandbox/testnet mode
@@ -79,6 +81,7 @@ impl Default for ExchangeConfig {
             enable_rate_limit: true,
             rate_limit: 10,
             timeout: Duration::from_secs(30),
+            connect_timeout: Duration::from_secs(10),
             retry_policy: None,
             sandbox: false,
             user_agent: Some(format!("ccxt-rust/{}", env!("CARGO_PKG_VERSION"))),
@@ -197,6 +200,18 @@ impl ExchangeConfigBuilder {
     /// Set the request timeout
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.config.timeout = timeout;
+        self
+    }
+
+    /// Set the TCP connection timeout
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.config.connect_timeout = timeout;
+        self
+    }
+
+    /// Set the TCP connection timeout in seconds (convenience method)
+    pub fn connect_timeout_secs(mut self, seconds: u64) -> Self {
+        self.config.connect_timeout = Duration::from_secs(seconds);
         self
     }
 
@@ -338,8 +353,25 @@ impl BaseExchange {
     pub fn new(config: ExchangeConfig) -> Result<Self> {
         info!("Initializing exchange: {}", config.id);
 
+        // Validate timeout configuration
+        if config.timeout.is_zero() {
+            return Err(Error::invalid_request("timeout cannot be zero"));
+        }
+        if config.connect_timeout.is_zero() {
+            return Err(Error::invalid_request("connect_timeout cannot be zero"));
+        }
+
+        // Warn if timeout exceeds 5 minutes
+        if config.timeout > Duration::from_secs(300) {
+            warn!(
+                timeout_secs = config.timeout.as_secs(),
+                "Request timeout exceeds 5 minutes"
+            );
+        }
+
         let http_config = HttpConfig {
             timeout: config.timeout,
+            connect_timeout: config.connect_timeout,
             #[allow(deprecated)]
             // Lint: map_unwrap_or
             // Reason: map().unwrap_or() is more readable here for extracting nested optional field
@@ -1443,7 +1475,23 @@ mod tests {
         assert!(config.api_key.is_none());
         assert!(config.enable_rate_limit);
         assert_eq!(config.timeout, Duration::from_secs(30));
+        assert_eq!(config.connect_timeout, Duration::from_secs(10));
         assert!(!config.sandbox);
+    }
+
+    #[test]
+    fn test_exchange_config_builder_connect_timeout() {
+        // Test connect_timeout method with Duration
+        let config = ExchangeConfigBuilder::new()
+            .connect_timeout(Duration::from_secs(5))
+            .build();
+        assert_eq!(config.connect_timeout, Duration::from_secs(5));
+
+        // Test connect_timeout_secs convenience method
+        let config = ExchangeConfigBuilder::new()
+            .connect_timeout_secs(15)
+            .build();
+        assert_eq!(config.connect_timeout, Duration::from_secs(15));
     }
 
     #[test]
@@ -1472,6 +1520,7 @@ mod parse_tests {
             password: None,
             uid: None,
             timeout: Duration::from_millis(10000),
+            connect_timeout: Duration::from_secs(10),
             sandbox: false,
             user_agent: None,
             enable_rate_limit: true,

@@ -213,6 +213,26 @@ impl BybitBuilder {
         self
     }
 
+    /// Sets the TCP connection timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Connection timeout duration.
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.config.connect_timeout = timeout;
+        self
+    }
+
+    /// Sets the TCP connection timeout in seconds (convenience method).
+    ///
+    /// # Arguments
+    ///
+    /// * `seconds` - Connection timeout duration in seconds.
+    pub fn connect_timeout_secs(mut self, seconds: u64) -> Self {
+        self.config.connect_timeout = Duration::from_secs(seconds);
+        self
+    }
+
     /// Sets the retry policy.
     pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
         self.config.retry_policy = Some(policy);
@@ -409,6 +429,18 @@ mod tests {
     fn test_builder_timeout() {
         let builder = BybitBuilder::new().timeout(Duration::from_secs(60));
         assert_eq!(builder.config.timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_builder_connect_timeout() {
+        let builder = BybitBuilder::new().connect_timeout(Duration::from_secs(15));
+        assert_eq!(builder.config.connect_timeout, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_builder_connect_timeout_secs() {
+        let builder = BybitBuilder::new().connect_timeout_secs(20);
+        assert_eq!(builder.config.connect_timeout, Duration::from_secs(20));
     }
 
     #[test]

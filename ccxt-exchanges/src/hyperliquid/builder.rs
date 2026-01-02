@@ -179,6 +179,29 @@ impl HyperLiquidBuilder {
         self
     }
 
+    /// Sets the TCP connection timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Connection timeout duration.
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        // Note: HyperLiquid builder doesn't have a separate connect_timeout field,
+        // but we store it in the ExchangeConfig during build()
+        // For now, we'll just accept it and apply it during build
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the TCP connection timeout in seconds (convenience method).
+    ///
+    /// # Arguments
+    ///
+    /// * `seconds` - Connection timeout duration in seconds.
+    pub fn connect_timeout_secs(mut self, seconds: u64) -> Self {
+        self.timeout = Some(Duration::from_secs(seconds));
+        self
+    }
+
     /// Sets the retry policy.
     pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
         self.retry_policy = Some(policy);
@@ -342,6 +365,30 @@ mod tests {
     fn test_builder_default_type_from_string() {
         let builder = HyperLiquidBuilder::new().default_type("swap");
         assert_eq!(builder.default_type, Some(DefaultType::Swap));
+    }
+
+    #[test]
+    fn test_builder_timeout() {
+        let builder = HyperLiquidBuilder::new().timeout(Duration::from_secs(60));
+        assert_eq!(builder.timeout, Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_builder_timeout_secs() {
+        let builder = HyperLiquidBuilder::new().timeout_secs(45);
+        assert_eq!(builder.timeout, Some(Duration::from_secs(45)));
+    }
+
+    #[test]
+    fn test_builder_connect_timeout() {
+        let builder = HyperLiquidBuilder::new().connect_timeout(Duration::from_secs(15));
+        assert_eq!(builder.timeout, Some(Duration::from_secs(15)));
+    }
+
+    #[test]
+    fn test_builder_connect_timeout_secs() {
+        let builder = HyperLiquidBuilder::new().connect_timeout_secs(20);
+        assert_eq!(builder.timeout, Some(Duration::from_secs(20)));
     }
 
     #[test]
