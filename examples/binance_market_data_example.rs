@@ -33,9 +33,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = env::var("BINANCE_API_KEY").unwrap_or_default();
     let api_secret = env::var("BINANCE_API_SECRET").unwrap_or_default();
 
+    let has_credentials = !api_key.is_empty() && !api_secret.is_empty();
+
     let config = ExchangeConfig {
-        api_key: Some(api_key.clone()),
-        secret: Some(api_secret.clone()),
+        api_key: Some(ccxt_core::SecretString::new(api_key)),
+        secret: Some(ccxt_core::SecretString::new(api_secret)),
         ..Default::default()
     };
     let exchange = Binance::new(config)?;
@@ -166,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // 6. Fetch historical trades (requires API key)
-    if !api_key.is_empty() {
+    if has_credentials {
         println!("6. 【fetch_historical_trades】Get BTC/USDT historical trades (requires API key)");
         match exchange
             .fetch_historical_trades("BTC/USDT", Some(5), None, None)
@@ -195,7 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ==================== Private API Examples ====================
 
-    if !api_key.is_empty() && !api_secret.is_empty() {
+    if has_credentials {
         println!("=== Private API Examples (requires API credentials) ===\n");
 
         // 7. Fetch all currency information

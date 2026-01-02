@@ -48,7 +48,10 @@ impl Bybit {
             .as_ref()
             .ok_or_else(|| Error::authentication("API secret is required"))?;
 
-        Ok(BybitAuth::new(api_key.clone(), secret.clone()))
+        Ok(BybitAuth::new(
+            api_key.expose_secret().to_string(),
+            secret.expose_secret().to_string(),
+        ))
     }
 
     /// Check that required credentials are configured.

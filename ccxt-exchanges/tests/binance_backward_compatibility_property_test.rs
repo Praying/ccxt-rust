@@ -27,8 +27,8 @@ fn arb_exchange_config() -> impl Strategy<Value = ExchangeConfig> {
     )
         .prop_map(|(sandbox, api_key, secret)| ExchangeConfig {
             sandbox,
-            api_key,
-            secret,
+            api_key: api_key.map(ccxt_core::SecretString::new),
+            secret: secret.map(ccxt_core::SecretString::new),
             ..Default::default()
         })
 }

@@ -14,8 +14,8 @@ fn create_test_binance() -> Binance {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("test_api_key".to_string()),
-        secret: Some("test_api_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("test_api_key")),
+        secret: Some(ccxt_core::SecretString::new("test_api_secret")),
         ..Default::default()
     };
     Binance::new(config).expect("Failed to create Binance instance")

@@ -24,8 +24,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("=== Timestamp Migration Example ===\n");
     // Initialize exchange
     let config = ExchangeConfig {
-        api_key: env::var("BINANCE_API_KEY").ok(),
-        secret: env::var("BINANCE_API_SECRET").ok(),
+        api_key: env::var("BINANCE_API_KEY")
+            .ok()
+            .map(ccxt_core::SecretString::new),
+        secret: env::var("BINANCE_API_SECRET")
+            .ok()
+            .map(ccxt_core::SecretString::new),
         sandbox: false,
         ..Default::default()
     };

@@ -53,6 +53,9 @@ tracing = { workspace = true }
 url = { workspace = true }
 futures-util = { workspace = true }
 
+# Security
+zeroize = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 wiremock = "0.6"

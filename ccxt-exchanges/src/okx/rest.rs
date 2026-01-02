@@ -56,9 +56,9 @@ impl Okx {
             .ok_or_else(|| Error::authentication("Passphrase is required"))?;
 
         Ok(OkxAuth::new(
-            api_key.clone(),
-            secret.clone(),
-            passphrase.clone(),
+            api_key.expose_secret().to_string(),
+            secret.expose_secret().to_string(),
+            passphrase.expose_secret().to_string(),
         ))
     }
 

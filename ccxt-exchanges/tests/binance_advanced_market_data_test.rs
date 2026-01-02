@@ -22,8 +22,12 @@ fn create_binance_client() -> Binance {
 
 /// Create authenticated Binance client for testing.
 fn create_authenticated_binance_client() -> Binance {
-    let api_key = std::env::var("BINANCE_API_KEY").ok();
-    let api_secret = std::env::var("BINANCE_API_SECRET").ok();
+    let api_key = std::env::var("BINANCE_API_KEY")
+        .ok()
+        .map(ccxt_core::SecretString::new);
+    let api_secret = std::env::var("BINANCE_API_SECRET")
+        .ok()
+        .map(ccxt_core::SecretString::new);
 
     let config = ExchangeConfig {
         id: "binance".to_string(),

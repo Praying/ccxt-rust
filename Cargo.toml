@@ -74,6 +74,9 @@ regex = "1.10"
 lazy_static = "1.4"
 bitflags = "2.9"
 
+# Security
+zeroize = { version = "1.8", features = ["derive"] }
+
 # Configuration
 config = "0.15"
 

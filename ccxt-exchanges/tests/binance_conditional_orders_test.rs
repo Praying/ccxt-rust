@@ -11,8 +11,8 @@ async fn test_create_stop_loss_market_order() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -59,8 +59,8 @@ async fn test_create_stop_loss_limit_order() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -106,8 +106,8 @@ async fn test_create_take_profit_market_order() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -154,8 +154,8 @@ async fn test_create_take_profit_limit_order() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -204,8 +204,8 @@ async fn test_create_trailing_stop_order_spot() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -245,8 +245,8 @@ async fn test_create_trailing_stop_order_with_activation() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -296,8 +296,8 @@ async fn test_create_order_with_stop_loss() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -343,8 +343,8 @@ async fn test_create_order_with_trailing_stop() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -391,8 +391,8 @@ async fn test_stop_loss_order_validation() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -419,8 +419,8 @@ async fn test_trailing_stop_order_validation() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -450,8 +450,8 @@ async fn test_stop_price_mapping() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -492,8 +492,8 @@ async fn test_trailing_stop_futures() {
     let config = ExchangeConfig {
         id: "binance".to_string(),
         name: "Binance".to_string(),
-        api_key: Some("your_api_key".to_string()),
-        secret: Some("your_secret".to_string()),
+        api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+        secret: Some(ccxt_core::SecretString::new("your_secret")),
         ..Default::default()
     };
     let exchange = Binance::new(config).expect("Failed to create Binance exchange");
@@ -586,8 +586,8 @@ mod integration_tests {
         let config = ExchangeConfig {
             id: "binance".to_string(),
             name: "Binance".to_string(),
-            api_key: Some("your_api_key".to_string()),
-            secret: Some("your_secret".to_string()),
+            api_key: Some(ccxt_core::SecretString::new("your_api_key")),
+            secret: Some(ccxt_core::SecretString::new("your_secret")),
             ..Default::default()
         };
         let exchange = Binance::new(config).expect("Failed to create Binance exchange");

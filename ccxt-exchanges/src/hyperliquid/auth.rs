@@ -4,16 +4,19 @@
 //! Unlike centralized exchanges that use HMAC-SHA256, HyperLiquid uses
 //! Ethereum's secp256k1 signatures with EIP-712 typed data.
 
+use ccxt_core::credentials::SecretBytes;
 use ccxt_core::error::{Error, Result};
 
 /// HyperLiquid EIP-712 authenticator.
 ///
 /// Handles wallet address derivation and EIP-712 typed data signing
 /// for authenticated API requests.
+///
+/// The private key is automatically zeroed from memory when dropped.
 #[derive(Debug, Clone)]
 pub struct HyperLiquidAuth {
-    /// The 32-byte private key.
-    private_key: [u8; 32],
+    /// The 32-byte private key (automatically zeroed on drop).
+    private_key: SecretBytes,
     /// The derived wallet address (checksummed).
     wallet_address: String,
 }
@@ -35,6 +38,10 @@ impl HyperLiquidAuth {
     /// - The private key is not valid hex
     /// - The private key is not exactly 32 bytes
     /// - The private key is not a valid secp256k1 scalar
+    ///
+    /// # Security
+    ///
+    /// The private key is automatically zeroed from memory when the authenticator is dropped.
     ///
     /// # Example
     ///
@@ -65,12 +72,18 @@ impl HyperLiquidAuth {
             )));
         }
 
-        // Convert to fixed-size array
-        let mut private_key = [0u8; 32];
-        private_key.copy_from_slice(&bytes);
+        // Convert to fixed-size array for address derivation
+        let mut private_key_array = [0u8; 32];
+        private_key_array.copy_from_slice(&bytes);
 
         // Derive wallet address using k256
-        let wallet_address = derive_address(&private_key)?;
+        let wallet_address = derive_address(&private_key_array)?;
+
+        // Store as SecretBytes for automatic zeroization
+        let private_key = SecretBytes::from_array(private_key_array);
+
+        // Zero the temporary array
+        private_key_array.iter_mut().for_each(|b| *b = 0);
 
         Ok(Self {
             private_key,
@@ -88,8 +101,9 @@ impl HyperLiquidAuth {
     /// # Security
     ///
     /// This method exposes the private key. Use with caution.
-    pub fn private_key_bytes(&self) -> &[u8; 32] {
-        &self.private_key
+    /// The returned reference should not be stored.
+    pub fn private_key_bytes(&self) -> &[u8] {
+        self.private_key.expose_secret()
     }
 
     /// Signs an L1 action using EIP-712 typed data signing.
@@ -112,8 +126,18 @@ impl HyperLiquidAuth {
         // Build the typed data hash
         let typed_data_hash = build_typed_data_hash(action, nonce, is_mainnet)?;
 
+        // Get private key as array for signing
+        let key_bytes = self.private_key.expose_secret();
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(key_bytes);
+
         // Sign the hash
-        sign_hash(&self.private_key, &typed_data_hash)
+        let result = sign_hash(&key_array, &typed_data_hash);
+
+        // Zero the temporary array
+        key_array.iter_mut().for_each(|b| *b = 0);
+
+        result
     }
 
     /// Signs a user agent connection request.
@@ -128,8 +152,18 @@ impl HyperLiquidAuth {
     pub fn sign_agent(&self, agent_address: &str) -> Result<Eip712Signature> {
         let message = format!("I authorize {} to trade on my behalf.", agent_address);
 
+        // Get private key as array for signing
+        let key_bytes = self.private_key.expose_secret();
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(key_bytes);
+
         // Sign as personal message
-        sign_personal_message(&self.private_key, &message)
+        let result = sign_personal_message(&key_array, &message);
+
+        // Zero the temporary array
+        key_array.iter_mut().for_each(|b| *b = 0);
+
+        result
     }
 }
 

@@ -59,8 +59,8 @@ pub fn create_binance_with_credentials(config: &TestConfig) -> AnyhowResult<Bina
         id: "binance".to_string(),
         name: "Binance".to_string(),
         sandbox: config.binance.use_testnet,
-        api_key: Some(api_key),
-        secret: Some(api_secret),
+        api_key: Some(ccxt_core::SecretString::new(api_key)),
+        secret: Some(ccxt_core::SecretString::new(api_secret)),
         ..Default::default()
     };
 

@@ -86,6 +86,7 @@ pub mod auth;
 pub mod base_exchange;
 pub mod capability;
 pub mod config;
+pub mod credentials;
 pub mod error;
 pub mod exchange;
 pub mod http_client;
@@ -110,6 +111,7 @@ pub mod test_config;
 
 // Re-exports of core types for convenience
 pub use base_exchange::{BaseExchange, ExchangeConfig, ExchangeConfigBuilder, MarketCache};
+pub use credentials::{SecretBytes, SecretString};
 // Re-export unified Exchange trait from exchange module
 pub use exchange::{ArcExchange, BoxedExchange, Exchange, ExchangeExt};
 // Re-export capabilities from capability module (new bitflags-based implementation)

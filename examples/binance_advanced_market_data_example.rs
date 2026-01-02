@@ -25,8 +25,12 @@ async fn main() {
     println!("=== Binance Advanced Market Data Example ===\n");
 
     let config = ExchangeConfig {
-        api_key: env::var("BINANCE_API_KEY").ok(),
-        secret: env::var("BINANCE_API_SECRET").ok(),
+        api_key: env::var("BINANCE_API_KEY")
+            .ok()
+            .map(ccxt_core::SecretString::new),
+        secret: env::var("BINANCE_API_SECRET")
+            .ok()
+            .map(ccxt_core::SecretString::new),
         sandbox: false,
         ..Default::default()
     };

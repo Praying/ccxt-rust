@@ -2,6 +2,7 @@
 //!
 //! These tests verify correctness properties using proptest.
 
+use ccxt_core::SecretString;
 use proptest::prelude::*;
 
 /// **Feature: bitget-exchange, Property 1: Builder Configuration Preservation**
@@ -59,7 +60,11 @@ mod builder_config_preservation {
                 .build()
                 .expect("Failed to build Bitget");
 
-            prop_assert_eq!(bitget.base().config.api_key.clone(), Some(api_key));
+            prop_assert_eq!(
+                bitget.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key.as_str()),
+                "Bitget builder should preserve api_key"
+            );
         }
 
         #[test]
@@ -69,7 +74,11 @@ mod builder_config_preservation {
                 .build()
                 .expect("Failed to build Bitget");
 
-            prop_assert_eq!(bitget.base().config.secret.clone(), Some(secret));
+            prop_assert_eq!(
+                bitget.base().config.secret.as_ref().map(|s| s.expose_secret()),
+                Some(secret.as_str()),
+                "Bitget builder should preserve secret"
+            );
         }
 
         #[test]
@@ -80,7 +89,11 @@ mod builder_config_preservation {
                 .expect("Failed to build Bitget");
 
             // Passphrase is stored in the password field
-            prop_assert_eq!(bitget.base().config.password.clone(), Some(passphrase));
+            prop_assert_eq!(
+                bitget.base().config.password.as_ref().map(|s| s.expose_secret()),
+                Some(passphrase.as_str()),
+                "Bitget builder should preserve passphrase"
+            );
         }
 
         #[test]
@@ -146,9 +159,21 @@ mod builder_config_preservation {
                 .expect("Failed to build Bitget");
 
             // Verify all configuration values are preserved
-            prop_assert_eq!(bitget.base().config.api_key.clone(), Some(api_key));
-            prop_assert_eq!(bitget.base().config.secret.clone(), Some(secret));
-            prop_assert_eq!(bitget.base().config.password.clone(), Some(passphrase));
+            prop_assert_eq!(
+                bitget.base().config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key.as_str()),
+                "Bitget builder should preserve api_key"
+            );
+            prop_assert_eq!(
+                bitget.base().config.secret.as_ref().map(|s| s.expose_secret()),
+                Some(secret.as_str()),
+                "Bitget builder should preserve secret"
+            );
+            prop_assert_eq!(
+                bitget.base().config.password.as_ref().map(|s| s.expose_secret()),
+                Some(passphrase.as_str()),
+                "Bitget builder should preserve passphrase"
+            );
             prop_assert_eq!(bitget.base().config.sandbox, sandbox);
             prop_assert_eq!(bitget.options().testnet, sandbox);
             prop_assert_eq!(bitget.options().product_type.clone(), product_type);

@@ -33,8 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Binance Futures Transfer Example");
     println!("=========================================\n");
 
-    let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_API_SECRET").ok();
+    let api_key = env::var("BINANCE_API_KEY")
+        .ok()
+        .map(ccxt_core::SecretString::new);
+    let secret = env::var("BINANCE_API_SECRET")
+        .ok()
+        .map(ccxt_core::SecretString::new);
 
     if api_key.is_none() || secret.is_none() {
         println!("⚠️  Warning: API keys not set, demonstrating code structure only");

@@ -9,7 +9,7 @@
 //! Run them explicitly with:
 //! cargo test --test binance_time_sync_integration_test -- --ignored
 
-use ccxt_core::{ExchangeConfig, time::TimestampUtils};
+use ccxt_core::{ExchangeConfig, SecretString, time::TimestampUtils};
 use ccxt_exchanges::binance::{Binance, BinanceOptions, TimeSyncConfig, TimeSyncManager};
 use std::env;
 use std::sync::Arc;
@@ -18,8 +18,8 @@ use std::time::Duration;
 /// Load API credentials from environment variables.
 fn get_api_credentials() -> ExchangeConfig {
     dotenvy::dotenv().ok();
-    let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_API_SECRET").ok();
+    let api_key = env::var("BINANCE_API_KEY").ok().map(SecretString::new);
+    let secret = env::var("BINANCE_API_SECRET").ok().map(SecretString::new);
 
     let mut config = ExchangeConfig::default();
     config.api_key = api_key;
