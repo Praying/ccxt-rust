@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use super::{Amount, Price, Symbol, Timestamp};
 
 /// Ticker data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Ticker {
     /// Exchange symbol
     pub symbol: Symbol,
@@ -74,33 +74,6 @@ pub struct Ticker {
     /// Raw exchange info
     #[serde(flatten)]
     pub info: HashMap<String, serde_json::Value>,
-}
-
-impl Default for Ticker {
-    fn default() -> Self {
-        Self {
-            symbol: String::new(),
-            timestamp: 0,
-            datetime: None,
-            high: None,
-            low: None,
-            bid: None,
-            bid_volume: None,
-            ask: None,
-            ask_volume: None,
-            vwap: None,
-            open: None,
-            close: None,
-            last: None,
-            previous_close: None,
-            change: None,
-            percentage: None,
-            average: None,
-            base_volume: None,
-            quote_volume: None,
-            info: HashMap::new(),
-        }
-    }
 }
 
 impl Ticker {

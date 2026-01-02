@@ -9,6 +9,9 @@ use super::{Amount, Price, Symbol, Timestamp};
 /// Maximum number of buffered messages for orderbook sync
 const MAX_BUFFERED_MESSAGES: usize = 100;
 
+/// Minimum resync interval in milliseconds
+const MIN_RESYNC_INTERVAL_MS: i64 = 1000;
+
 /// Orderbook delta update message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderBookDelta {
@@ -236,12 +239,12 @@ impl OrderBook {
 
         for entry in &self.bids {
             self.bids_map
-                .insert(entry.price.to_string(), entry.amount.as_decimal().clone());
+                .insert(entry.price.to_string(), entry.amount.as_decimal());
         }
 
         for entry in &self.asks {
             self.asks_map
-                .insert(entry.price.to_string(), entry.amount.as_decimal().clone());
+                .insert(entry.price.to_string(), entry.amount.as_decimal());
         }
 
         self.sort();
@@ -259,8 +262,35 @@ impl OrderBook {
 
     /// Apply a delta update (incremental update)
     pub fn apply_delta(&mut self, delta: &OrderBookDelta, is_futures: bool) -> Result<(), String> {
-        // Validate sequence for spot markets
-        if !is_futures {
+        // Validate sequence based on market type
+        if is_futures {
+            // Validate sequence for futures markets
+            if let Some(current_nonce) = self.nonce {
+                // For futures: pu should equal previous u
+                if let Some(pu) = delta.prev_final_update_id
+                    && pu != current_nonce
+                {
+                    // Sequence mismatch detected - mark for resync
+                    self.needs_resync = true;
+                    self.is_synced = false;
+                    tracing::warn!(
+                        "Futures sequence mismatch for {}: expected pu = {}, got {}. Marking for resync.",
+                        self.symbol,
+                        current_nonce,
+                        pu
+                    );
+                    return Err(format!(
+                        "Futures sequence mismatch: expected pu = {current_nonce}, got {pu}"
+                    ));
+                }
+
+                // Skip if outdated
+                if delta.final_update_id < current_nonce {
+                    return Ok(());
+                }
+            }
+        } else {
+            // Validate sequence for spot markets
             if let Some(current_nonce) = self.nonce {
                 // For spot: U should be current_nonce + 1
                 if delta.first_update_id > current_nonce + 1 {
@@ -285,33 +315,6 @@ impl OrderBook {
                     return Ok(());
                 }
             }
-        } else {
-            // Validate sequence for futures markets
-            if let Some(current_nonce) = self.nonce {
-                // For futures: pu should equal previous u
-                if let Some(pu) = delta.prev_final_update_id {
-                    if pu != current_nonce {
-                        // Sequence mismatch detected - mark for resync
-                        self.needs_resync = true;
-                        self.is_synced = false;
-                        tracing::warn!(
-                            "Futures sequence mismatch for {}: expected pu = {}, got {}. Marking for resync.",
-                            self.symbol,
-                            current_nonce,
-                            pu
-                        );
-                        return Err(format!(
-                            "Futures sequence mismatch: expected pu = {}, got {}",
-                            current_nonce, pu
-                        ));
-                    }
-                }
-
-                // Skip if outdated
-                if delta.final_update_id < current_nonce {
-                    return Ok(());
-                }
-            }
         }
 
         // Apply bid updates
@@ -322,8 +325,7 @@ impl OrderBook {
                 self.bids_map.remove(&price_str);
             } else {
                 // Update price level
-                self.bids_map
-                    .insert(price_str, entry.amount.as_decimal().clone());
+                self.bids_map.insert(price_str, entry.amount.as_decimal());
             }
         }
 
@@ -335,8 +337,7 @@ impl OrderBook {
                 self.asks_map.remove(&price_str);
             } else {
                 // Update price level
-                self.asks_map
-                    .insert(price_str, entry.amount.as_decimal().clone());
+                self.asks_map.insert(price_str, entry.amount.as_decimal());
             }
         }
 
@@ -386,7 +387,22 @@ impl OrderBook {
         // Process deltas in order
         while let Some(delta) = self.buffered_deltas.pop_front() {
             // Check if delta is valid for this snapshot
-            if !is_futures {
+            if is_futures {
+                // Futures: skip if u < snapshot nonce
+                if delta.final_update_id < snapshot_nonce {
+                    continue;
+                }
+
+                // First valid delta: pu (if present) should match snapshot_nonce
+                if processed == 0
+                    && let Some(pu) = delta.prev_final_update_id
+                    && pu != snapshot_nonce
+                {
+                    return Err(format!(
+                        "First futures delta invalid: pu ({pu}) != lastUpdateId ({snapshot_nonce})"
+                    ));
+                }
+            } else {
                 // Spot: skip if u <= snapshot nonce
                 if delta.final_update_id <= snapshot_nonce {
                     continue;
@@ -399,23 +415,6 @@ impl OrderBook {
                         delta.first_update_id,
                         snapshot_nonce + 1
                     ));
-                }
-            } else {
-                // Futures: skip if u < snapshot nonce
-                if delta.final_update_id < snapshot_nonce {
-                    continue;
-                }
-
-                // First valid delta: pu (if present) should match snapshot_nonce
-                if processed == 0 {
-                    if let Some(pu) = delta.prev_final_update_id {
-                        if pu != snapshot_nonce {
-                            return Err(format!(
-                                "First futures delta invalid: pu ({}) != lastUpdateId ({})",
-                                pu, snapshot_nonce
-                            ));
-                        }
-                    }
                 }
             }
 
@@ -463,7 +462,6 @@ impl OrderBook {
         }
 
         // Rate limit: at least 1000ms between resyncs
-        const MIN_RESYNC_INTERVAL_MS: i64 = 1000;
         current_time - self.last_resync_time >= MIN_RESYNC_INTERVAL_MS
     }
 

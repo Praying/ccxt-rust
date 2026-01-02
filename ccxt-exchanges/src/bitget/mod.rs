@@ -124,15 +124,13 @@ impl BitgetOptions {
     /// ```
     pub fn effective_product_type(&self) -> &str {
         match self.default_type {
-            DefaultType::Spot => "spot",
-            DefaultType::Margin => "spot", // Margin uses spot markets
             DefaultType::Swap | DefaultType::Futures => {
                 match self.default_sub_type.unwrap_or(DefaultSubType::Linear) {
                     DefaultSubType::Linear => "umcbl",  // USDT-M
                     DefaultSubType::Inverse => "dmcbl", // Coin-M
                 }
             }
-            DefaultType::Option => "spot", // Options not fully supported, fallback to spot
+            _ => "spot", // Margin, Spot and Option fallback to spot
         }
     }
 }
@@ -205,17 +203,17 @@ impl Bitget {
     }
 
     /// Returns the exchange ID.
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &'static str {
         "bitget"
     }
 
     /// Returns the exchange name.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         "Bitget"
     }
 
     /// Returns the API version.
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> &'static str {
         "v2"
     }
 

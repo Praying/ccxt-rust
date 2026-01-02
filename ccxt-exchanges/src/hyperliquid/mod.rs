@@ -215,17 +215,17 @@ impl HyperLiquid {
     }
 
     /// Returns the exchange ID.
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &'static str {
         "hyperliquid"
     }
 
     /// Returns the exchange name.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         "HyperLiquid"
     }
 
     /// Returns the API version.
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> &'static str {
         "1"
     }
 
@@ -284,7 +284,9 @@ impl HyperLiquid {
 
     /// Returns the wallet address if authenticated.
     pub fn wallet_address(&self) -> Option<&str> {
-        self.auth.as_ref().map(|a| a.wallet_address())
+        self.auth
+            .as_ref()
+            .map(auth::HyperLiquidAuth::wallet_address)
     }
 
     // TODO: Implement in task 11 (WebSocket Implementation)

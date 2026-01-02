@@ -7,7 +7,7 @@
 //! - `Decimal` type helper functions
 
 use rust_decimal::Decimal;
-use rust_decimal::prelude::*;
+use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;
 
 use crate::error::{Error, ParseError, Result};
@@ -82,12 +82,12 @@ pub fn number_to_string(value: Decimal) -> String {
 /// assert_eq!(precision_from_string("1e-8"), 8);
 /// ```
 pub fn precision_from_string(s: &str) -> i32 {
-    if s.contains('e') || s.contains('E') {
-        if let Some(e_pos) = s.find(|c| c == 'e' || c == 'E') {
-            let exp_str = &s[e_pos + 1..];
-            if let Ok(exp) = exp_str.parse::<i32>() {
-                return -exp;
-            }
+    if (s.contains('e') || s.contains('E'))
+        && let Some(e_pos) = s.find(['e', 'E'])
+    {
+        let exp_str = &s[e_pos + 1..];
+        if let Ok(exp) = exp_str.parse::<i32>() {
+            return -exp;
         }
     }
 
@@ -207,7 +207,7 @@ pub fn decimal_to_precision(
         match rounding_mode {
             RoundingMode::Round => {
                 let divided = value / to_nearest;
-                let rounded = round_decimal(divided, 0, RoundingMode::Round)?;
+                let rounded = round_decimal(divided, 0, RoundingMode::Round);
                 let result = to_nearest * rounded;
                 return Ok(format_decimal(result, padding_mode));
             }
@@ -229,25 +229,25 @@ pub fn decimal_to_precision(
     }
 
     match counting_mode {
-        CountingMode::DecimalPlaces => decimal_to_precision_decimal_places(
+        CountingMode::DecimalPlaces => Ok(decimal_to_precision_decimal_places(
             value,
             rounding_mode,
             num_precision_digits,
             padding_mode,
-        ),
-        CountingMode::SignificantDigits => decimal_to_precision_significant_digits(
+        )),
+        CountingMode::SignificantDigits => Ok(decimal_to_precision_significant_digits(
             value,
             rounding_mode,
             num_precision_digits,
             padding_mode,
-        ),
+        )),
         CountingMode::TickSize => {
             let tick_size = Decimal::from_str(&format!(
                 "0.{}",
                 "0".repeat((num_precision_digits - 1) as usize) + "1"
             ))
             .map_err(|e| {
-                ParseError::invalid_format("tick_size", format!("Invalid tick size: {}", e))
+                ParseError::invalid_format("tick_size", format!("Invalid tick size: {e}"))
             })?;
 
             decimal_to_precision_tick_size(value, rounding_mode, tick_size, padding_mode)
@@ -261,13 +261,9 @@ fn decimal_to_precision_decimal_places(
     rounding_mode: RoundingMode,
     decimal_places: i32,
     padding_mode: PaddingMode,
-) -> Result<String> {
-    let rounded = round_decimal(value, decimal_places, rounding_mode)?;
-    Ok(format_decimal_with_places(
-        rounded,
-        decimal_places,
-        padding_mode,
-    ))
+) -> String {
+    let rounded = round_decimal(value, decimal_places, rounding_mode);
+    format_decimal_with_places(rounded, decimal_places, padding_mode)
 }
 
 /// Formats decimal by counting significant digits.
@@ -276,9 +272,9 @@ fn decimal_to_precision_significant_digits(
     rounding_mode: RoundingMode,
     sig_digits: i32,
     padding_mode: PaddingMode,
-) -> Result<String> {
+) -> String {
     if value.is_zero() {
-        return Ok("0".to_string());
+        return "0".to_string();
     }
 
     let abs_value = value.abs();
@@ -289,12 +285,8 @@ fn decimal_to_precision_significant_digits(
 
     let decimal_places = sig_digits - magnitude - 1;
 
-    let rounded = round_decimal(value, decimal_places, rounding_mode)?;
-    Ok(format_decimal_with_places(
-        rounded,
-        decimal_places,
-        padding_mode,
-    ))
+    let rounded = round_decimal(value, decimal_places, rounding_mode);
+    format_decimal_with_places(rounded, decimal_places, padding_mode)
 }
 
 /// Formats decimal to align with tick size increments.
@@ -325,7 +317,7 @@ fn decimal_to_precision_tick_size(
 }
 
 /// Rounds a decimal value to the specified number of decimal places.
-fn round_decimal(value: Decimal, decimal_places: i32, mode: RoundingMode) -> Result<Decimal> {
+fn round_decimal(value: Decimal, decimal_places: i32, mode: RoundingMode) -> Decimal {
     if decimal_places < 0 {
         let scale = Decimal::from_i128_with_scale(10_i128.pow(decimal_places.unsigned_abs()), 0);
         let divided = value / scale;
@@ -334,7 +326,7 @@ fn round_decimal(value: Decimal, decimal_places: i32, mode: RoundingMode) -> Res
             RoundingMode::RoundDown => divided.floor(),
             RoundingMode::RoundUp => divided.ceil(),
         };
-        return Ok(rounded * scale);
+        return rounded * scale;
     }
 
     let scale = Decimal::from_i128_with_scale(10_i128.pow(decimal_places as u32), 0);
@@ -346,7 +338,7 @@ fn round_decimal(value: Decimal, decimal_places: i32, mode: RoundingMode) -> Res
         RoundingMode::RoundUp => scaled.ceil(),
     };
 
-    Ok(rounded / scale)
+    rounded / scale
 }
 
 /// Formats decimal by removing trailing zeros.
@@ -507,10 +499,10 @@ mod tests {
     fn test_round_decimal() {
         let num = Decimal::from_str("123.456").unwrap();
 
-        let rounded = round_decimal(num, 2, RoundingMode::Round).unwrap();
+        let rounded = round_decimal(num, 2, RoundingMode::Round);
         assert_eq!(rounded.to_string(), "123.46");
 
-        let truncated = round_decimal(num, 2, RoundingMode::RoundDown).unwrap();
+        let truncated = round_decimal(num, 2, RoundingMode::RoundDown);
         assert_eq!(truncated.to_string(), "123.45");
     }
 

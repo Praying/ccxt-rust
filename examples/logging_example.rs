@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     println!("=== CCXT-Rust Logging System Example ===\n");
 
     println!("1. Using default log configuration (Info level, Pretty format)");
-    init_logging(LogConfig::default());
+    init_logging(&LogConfig::default());
     println!("   ✓ Logging system initialized\n");
 
     let mut config = ExchangeConfig::default();

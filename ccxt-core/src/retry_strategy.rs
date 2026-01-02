@@ -142,10 +142,10 @@ impl RetryStrategy {
             Error::Network(_) => self.config.retry_on_network_error,
             Error::RateLimit { .. } => self.config.retry_on_rate_limit,
             Error::Exchange(details) => {
-                if self.config.retry_on_server_error && self.is_server_error(&details.message) {
+                if self.config.retry_on_server_error && Self::is_server_error(&details.message) {
                     return true;
                 }
-                if self.config.retry_on_timeout && self.is_timeout_error(&details.message) {
+                if self.config.retry_on_timeout && Self::is_timeout_error(&details.message) {
                     return true;
                 }
                 false
@@ -170,7 +170,7 @@ impl RetryStrategy {
             RetryStrategyType::Exponential => {
                 self.config.base_delay_ms * 2_u64.pow(attempt.saturating_sub(1))
             }
-            RetryStrategyType::Linear => self.config.base_delay_ms * attempt as u64,
+            RetryStrategyType::Linear => self.config.base_delay_ms * u64::from(attempt),
         };
 
         let mut delay = base_delay.min(self.config.max_delay_ms);
@@ -197,7 +197,7 @@ impl RetryStrategy {
     }
 
     /// Checks if the message indicates a server error (5xx).
-    fn is_server_error(&self, msg: &str) -> bool {
+    fn is_server_error(msg: &str) -> bool {
         let msg_lower = msg.to_lowercase();
         msg_lower.contains("500")
             || msg_lower.contains("502")
@@ -210,7 +210,7 @@ impl RetryStrategy {
     }
 
     /// Checks if the message indicates a timeout error.
-    fn is_timeout_error(&self, msg: &str) -> bool {
+    fn is_timeout_error(msg: &str) -> bool {
         let msg_lower = msg.to_lowercase();
         msg_lower.contains("timeout")
             || msg_lower.contains("timed out")
@@ -358,24 +358,20 @@ mod tests {
 
     #[test]
     fn test_is_server_error() {
-        let strategy = RetryStrategy::default_strategy();
-
-        assert!(strategy.is_server_error("500 Internal Server Error"));
-        assert!(strategy.is_server_error("502 Bad Gateway"));
-        assert!(strategy.is_server_error("503 Service Unavailable"));
-        assert!(strategy.is_server_error("504 Gateway Timeout"));
-        assert!(!strategy.is_server_error("400 Bad Request"));
-        assert!(!strategy.is_server_error("404 Not Found"));
+        assert!(RetryStrategy::is_server_error("500 Internal Server Error"));
+        assert!(RetryStrategy::is_server_error("502 Bad Gateway"));
+        assert!(RetryStrategy::is_server_error("503 Service Unavailable"));
+        assert!(RetryStrategy::is_server_error("504 Gateway Timeout"));
+        assert!(!RetryStrategy::is_server_error("400 Bad Request"));
+        assert!(!RetryStrategy::is_server_error("404 Not Found"));
     }
 
     #[test]
     fn test_is_timeout_error() {
-        let strategy = RetryStrategy::default_strategy();
-
-        assert!(strategy.is_timeout_error("Request timeout"));
-        assert!(strategy.is_timeout_error("Connection timed out"));
-        assert!(strategy.is_timeout_error("408 Request Timeout"));
-        assert!(!strategy.is_timeout_error("Connection refused"));
+        assert!(RetryStrategy::is_timeout_error("Request timeout"));
+        assert!(RetryStrategy::is_timeout_error("Connection timed out"));
+        assert!(RetryStrategy::is_timeout_error("408 Request Timeout"));
+        assert!(!RetryStrategy::is_timeout_error("Connection refused"));
     }
 
     #[test]

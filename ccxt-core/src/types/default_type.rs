@@ -80,10 +80,11 @@ pub enum DefaultTypeError {
 /// assert!(DefaultType::Futures.is_contract());
 /// assert!(!DefaultType::Spot.is_derivative());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DefaultType {
     /// Spot market - regular cryptocurrency trading
+    #[default]
     Spot,
     /// Swap market - perpetual contracts with no expiry
     Swap,
@@ -93,12 +94,6 @@ pub enum DefaultType {
     Margin,
     /// Option market - options contracts (calls and puts)
     Option,
-}
-
-impl Default for DefaultType {
-    fn default() -> Self {
-        Self::Spot
-    }
 }
 
 impl DefaultType {
@@ -198,13 +193,12 @@ impl FromStr for DefaultType {
         let lowercase = s.to_lowercase();
         match lowercase.as_str() {
             "spot" => Ok(Self::Spot),
-            "swap" => Ok(Self::Swap),
-            "futures" => Ok(Self::Futures),
+            // Legacy: "future" typically meant perpetual futures
+            "swap" | "future" => Ok(Self::Swap),
+            // Legacy: "delivery" meant dated futures
+            "futures" | "delivery" => Ok(Self::Futures),
             "margin" => Ok(Self::Margin),
             "option" => Ok(Self::Option),
-            // Legacy value mappings for backward compatibility
-            "future" => Ok(Self::Swap), // Legacy: "future" typically meant perpetual futures
-            "delivery" => Ok(Self::Futures), // Legacy: "delivery" meant dated futures
             _ => Err(DefaultTypeError::InvalidType(s.to_string())),
         }
     }
@@ -261,10 +255,10 @@ impl From<DefaultType> for MarketType {
     /// Note: Margin maps to Spot since margin trading uses spot markets with leverage.
     fn from(dt: DefaultType) -> Self {
         match dt {
-            DefaultType::Spot => MarketType::Spot,
+            // Margin is spot with leverage
+            DefaultType::Spot | DefaultType::Margin => MarketType::Spot,
             DefaultType::Swap => MarketType::Swap,
             DefaultType::Futures => MarketType::Futures,
-            DefaultType::Margin => MarketType::Spot, // Margin is spot with leverage
             DefaultType::Option => MarketType::Option,
         }
     }
@@ -374,19 +368,14 @@ pub fn resolve_market_type(symbol: Option<&str>, default_type: DefaultType) -> M
 /// let inverse = DefaultSubType::from_str("inverse").unwrap();
 /// assert_eq!(inverse.to_string(), "inverse");
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DefaultSubType {
     /// Linear contract - settled in quote currency (USDT-margined)
+    #[default]
     Linear,
     /// Inverse contract - settled in base currency (coin-margined)
     Inverse,
-}
-
-impl Default for DefaultSubType {
-    fn default() -> Self {
-        Self::Linear
-    }
 }
 
 impl DefaultSubType {

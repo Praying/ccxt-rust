@@ -144,12 +144,12 @@ impl LogConfig {
 /// use ccxt_core::logging::{init_logging, LogConfig};
 ///
 /// // Use default configuration
-/// init_logging(LogConfig::default());
+/// init_logging(&LogConfig::default());
 ///
 /// // Or use development configuration
-/// init_logging(LogConfig::development());
+/// init_logging(&LogConfig::development());
 /// ```
-pub fn init_logging(config: LogConfig) {
+pub fn init_logging(config: &LogConfig) {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(format!(
             "ccxt_core={},ccxt_exchanges={}",
@@ -209,7 +209,7 @@ pub fn init_logging(config: LogConfig) {
 /// Attempts to initialize the logging system, ignoring duplicate initialization errors.
 ///
 /// Suitable for test environments where multiple calls should not panic.
-pub fn try_init_logging(config: LogConfig) {
+pub fn try_init_logging(config: &LogConfig) {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(format!(
             "ccxt_core={},ccxt_exchanges={}",
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_try_init_logging() {
-        try_init_logging(LogConfig::test());
-        try_init_logging(LogConfig::test());
+        try_init_logging(&LogConfig::test());
+        try_init_logging(&LogConfig::test());
     }
 }

@@ -154,17 +154,17 @@ impl Okx {
     }
 
     /// Returns the exchange ID.
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &'static str {
         "okx"
     }
 
     /// Returns the exchange name.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         "OKX"
     }
 
     /// Returns the API version.
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> &'static str {
         "v5"
     }
 

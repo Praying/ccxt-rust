@@ -30,7 +30,10 @@ fn test_market_new_spot_with_parsed_symbol() {
 
     // Verify parsed_symbol is populated
     assert!(market.parsed_symbol.is_some());
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
     assert_eq!(parsed.base, "BTC");
     assert_eq!(parsed.quote, "USDT");
     assert!(parsed.settle.is_none());
@@ -60,7 +63,10 @@ fn test_market_new_futures_with_parsed_symbol() {
 
     // Verify parsed_symbol is populated
     assert!(market.parsed_symbol.is_some());
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
     assert_eq!(parsed.base, "BTC");
     assert_eq!(parsed.quote, "USDT");
     assert_eq!(parsed.settle, Some("USDT".to_string()));
@@ -91,7 +97,10 @@ fn test_market_new_swap_with_parsed_symbol() {
 
     // Verify parsed_symbol is populated
     assert!(market.parsed_symbol.is_some());
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
     assert_eq!(parsed.base, "BTC");
     assert_eq!(parsed.quote, "USDT");
     assert_eq!(parsed.settle, Some("USDT".to_string()));
@@ -118,7 +127,10 @@ fn test_market_new_swap_inverse_with_parsed_symbol() {
 
     // Verify parsed_symbol detects inverse contract
     assert!(market.parsed_symbol.is_some());
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
     assert_eq!(parsed.contract_type(), Some(ContractType::Inverse));
     assert!(parsed.is_inverse());
 }
@@ -130,21 +142,27 @@ fn test_market_new_swap_inverse_with_parsed_symbol() {
 /// Test that parse_symbol method works correctly
 #[test]
 fn test_market_parse_symbol_method() {
-    let mut market = Market::default();
-    market.symbol = "ETH/USDT".to_string();
-    market.base = "ETH".to_string();
-    market.quote = "USDT".to_string();
+    let market = ccxt_core::Market {
+        symbol: "ETH/USDT".to_string(),
+        base: "ETH".to_string(),
+        quote: "USDT".to_string(),
+        ..Default::default()
+    };
 
     // Initially parsed_symbol should be None
     assert!(market.parsed_symbol.is_none());
 
     // Call parse_symbol
+    let mut market = market;
     let result = market.parse_symbol();
     assert!(result);
 
     // Now parsed_symbol should be populated
     assert!(market.parsed_symbol.is_some());
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
     assert_eq!(parsed.base, "ETH");
     assert_eq!(parsed.quote, "USDT");
 }
@@ -152,8 +170,10 @@ fn test_market_parse_symbol_method() {
 /// Test that parse_symbol returns false for invalid symbols
 #[test]
 fn test_market_parse_symbol_invalid() {
-    let mut market = Market::default();
-    market.symbol = "INVALID".to_string(); // No slash separator
+    let mut market = ccxt_core::Market {
+        symbol: "INVALID".to_string(), // No slash separator
+        ..Default::default()
+    };
 
     let result = market.parse_symbol();
     assert!(!result);
@@ -169,11 +189,13 @@ fn test_market_parse_symbol_invalid() {
 fn test_market_set_parsed_symbol() {
     let mut market = Market::default();
 
-    let parsed = ParsedSymbol::linear_swap("SOL".to_string(), "USDT".to_string());
+    let parsed = ParsedSymbol::linear_swap("SOL", "USDT");
     market.set_parsed_symbol(parsed);
 
     assert!(market.parsed_symbol.is_some());
-    let stored = market.get_parsed_symbol().unwrap();
+    let stored = market
+        .get_parsed_symbol()
+        .expect("parsed_symbol should be Some");
     assert_eq!(stored.base, "SOL");
     assert_eq!(stored.quote, "USDT");
     assert!(stored.is_swap());
@@ -189,6 +211,7 @@ fn test_market_lookup_by_unified_symbol() {
     use std::collections::HashMap;
 
     // Create a collection of markets
+    #[allow(clippy::useless_vec)]
     let markets = vec![
         Market::new_spot(
             "BTCUSDT".to_string(),
@@ -222,13 +245,27 @@ fn test_market_lookup_by_unified_symbol() {
     assert!(market_map.contains_key("BTC/USDT:USDT"));
 
     // Verify the looked up market has correct parsed_symbol
-    let btc_spot = market_map.get("BTC/USDT").unwrap();
+    let btc_spot = market_map.get("BTC/USDT").expect("BTC/USDT should exist");
     assert!(btc_spot.parsed_symbol.is_some());
-    assert!(btc_spot.parsed_symbol.as_ref().unwrap().is_spot());
+    assert!(
+        btc_spot
+            .parsed_symbol
+            .as_ref()
+            .expect("parsed_symbol should be Some")
+            .is_spot()
+    );
 
-    let btc_swap = market_map.get("BTC/USDT:USDT").unwrap();
+    let btc_swap = market_map
+        .get("BTC/USDT:USDT")
+        .expect("BTC/USDT:USDT should exist");
     assert!(btc_swap.parsed_symbol.is_some());
-    assert!(btc_swap.parsed_symbol.as_ref().unwrap().is_swap());
+    assert!(
+        btc_swap
+            .parsed_symbol
+            .as_ref()
+            .expect("parsed_symbol should be Some")
+            .is_swap()
+    );
 }
 
 /// Test that markets with different types but same base/quote are distinguishable
@@ -258,8 +295,14 @@ fn test_market_type_distinction_by_symbol() {
     assert!(swap.parsed_symbol.is_some());
 
     // Market types should be correctly identified
-    let spot_parsed = spot.parsed_symbol.as_ref().unwrap();
-    let swap_parsed = swap.parsed_symbol.as_ref().unwrap();
+    let spot_parsed = spot
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
+    let swap_parsed = swap
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
 
     assert_eq!(spot_parsed.market_type(), SymbolMarketType::Spot);
     assert_eq!(swap_parsed.market_type(), SymbolMarketType::Swap);
@@ -281,7 +324,10 @@ fn test_parsed_symbol_consistency_with_market() {
         dec!(0.01),
     );
 
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
 
     // Verify consistency between Market fields and ParsedSymbol
     assert_eq!(market.base, parsed.base);
@@ -303,6 +349,9 @@ fn test_symbol_string_matches_parsed_symbol_display() {
         "USDT".to_string(),
     );
 
-    let parsed = market.parsed_symbol.as_ref().unwrap();
+    let parsed = market
+        .parsed_symbol
+        .as_ref()
+        .expect("parsed_symbol should be Some");
     assert_eq!(market.symbol, parsed.to_string());
 }

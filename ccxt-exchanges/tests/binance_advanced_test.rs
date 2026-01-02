@@ -151,7 +151,7 @@ async fn test_cancel_orders() -> Result<()> {
 
     // Note: This test requires actual order IDs.
     // In practice, create orders first, then use the returned order IDs.
-    let _order_ids = vec!["12345".to_string(), "67890".to_string()];
+    let _order_ids = ["12345".to_string(), "67890".to_string()];
 
     // Uncomment for actual testing:
     // let result = binance.cancel_orders(order_ids, "BTC/USDT").await?;

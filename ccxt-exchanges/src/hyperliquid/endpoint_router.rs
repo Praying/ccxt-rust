@@ -83,7 +83,7 @@ pub trait HyperLiquidEndpointRouter {
     /// let url = exchange.rest_endpoint();
     /// assert_eq!(url, "https://api.hyperliquid.xyz");
     /// ```
-    fn rest_endpoint(&self) -> &str;
+    fn rest_endpoint(&self) -> &'static str;
 
     /// Returns the WebSocket endpoint.
     ///
@@ -115,7 +115,7 @@ pub trait HyperLiquidEndpointRouter {
 use super::HyperLiquid;
 
 impl HyperLiquidEndpointRouter for HyperLiquid {
-    fn rest_endpoint(&self) -> &str {
+    fn rest_endpoint(&self) -> &'static str {
         // Return static reference based on sandbox mode
         // is_sandbox() checks both config.sandbox and options.testnet
         if self.is_sandbox() {

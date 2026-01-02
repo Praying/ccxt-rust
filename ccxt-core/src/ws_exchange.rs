@@ -212,7 +212,7 @@ use std::pin::Pin;
 
 use crate::error::Result;
 use crate::exchange::Exchange;
-use crate::types::*;
+use crate::types::{Balance, Ohlcv, Order, OrderBook, Ticker, Timeframe, Trade};
 use crate::ws_client::WsConnectionState;
 
 // ============================================================================

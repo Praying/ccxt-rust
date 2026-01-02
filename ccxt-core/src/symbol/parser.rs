@@ -111,8 +111,7 @@ impl SymbolParser {
         let parts: Vec<&str> = symbol.split('/').collect();
         if parts.len() != 2 {
             return Err(SymbolError::InvalidFormat(format!(
-                "Expected BASE/QUOTE format, got: {}",
-                symbol
+                "Expected BASE/QUOTE format, got: {symbol}"
             )));
         }
 
@@ -123,7 +122,7 @@ impl SymbolParser {
         Self::validate_currency(base)?;
         Self::validate_currency(quote)?;
 
-        Ok(ParsedSymbol::spot(base.to_string(), quote.to_string()))
+        Ok(ParsedSymbol::spot(base, quote))
     }
 
     /// Parse a derivative symbol (swap or futures)
@@ -136,8 +135,7 @@ impl SymbolParser {
         let colon_parts: Vec<&str> = symbol.split(':').collect();
         if colon_parts.len() != 2 {
             return Err(SymbolError::InvalidFormat(format!(
-                "Expected BASE/QUOTE:SETTLE format, got: {}",
-                symbol
+                "Expected BASE/QUOTE:SETTLE format, got: {symbol}"
             )));
         }
 
@@ -148,8 +146,7 @@ impl SymbolParser {
         let slash_parts: Vec<&str> = base_quote_part.split('/').collect();
         if slash_parts.len() != 2 {
             return Err(SymbolError::InvalidFormat(format!(
-                "Expected BASE/QUOTE format before colon, got: {}",
-                base_quote_part
+                "Expected BASE/QUOTE format before colon, got: {base_quote_part}"
             )));
         }
 
@@ -171,26 +168,17 @@ impl SymbolParser {
                 Self::validate_currency(settle)?;
 
                 let expiry = ExpiryDate::from_str(potential_date).map_err(|e| {
-                    SymbolError::InvalidDateFormat(format!("{}: {}", potential_date, e))
+                    SymbolError::InvalidDateFormat(format!("{potential_date}: {e}"))
                 })?;
 
-                return Ok(ParsedSymbol::futures(
-                    base.to_string(),
-                    quote.to_string(),
-                    settle.to_string(),
-                    expiry,
-                ));
+                return Ok(ParsedSymbol::futures(base, quote, settle, expiry));
             }
         }
 
         // Swap symbol: BASE/QUOTE:SETTLE (no date suffix)
         Self::validate_currency(settle_part)?;
 
-        Ok(ParsedSymbol::swap(
-            base.to_string(),
-            quote.to_string(),
-            settle_part.to_string(),
-        ))
+        Ok(ParsedSymbol::swap(base, quote, settle_part))
     }
 
     /// Validate a symbol string without full parsing
@@ -229,15 +217,13 @@ impl SymbolParser {
 
         if code.len() > 10 {
             return Err(SymbolError::InvalidCurrency(format!(
-                "Currency code too long: {}",
-                code
+                "Currency code too long: {code}"
             )));
         }
 
         if !code.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(SymbolError::InvalidCurrency(format!(
-                "Currency code contains invalid characters: {}",
-                code
+                "Currency code contains invalid characters: {code}"
             )));
         }
 

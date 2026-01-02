@@ -5,6 +5,7 @@
 // Allow clippy warnings for test code
 #![allow(clippy::to_string_in_format_args)]
 #![allow(unused_imports)]
+#![allow(deprecated)]
 
 use anyhow::Context;
 

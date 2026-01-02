@@ -101,7 +101,6 @@ pub fn parse_market(data: &Value) -> Result<Market> {
     // Instrument type
     let inst_type = data["instType"].as_str().unwrap_or("SPOT");
     let market_type = match inst_type {
-        "SPOT" => MarketType::Spot,
         "SWAP" => MarketType::Swap,
         "FUTURES" => MarketType::Futures,
         "OPTION" => MarketType::Option,
@@ -135,7 +134,7 @@ pub fn parse_market(data: &Value) -> Result<Market> {
     let contract_size = parse_decimal(data, "ctVal");
 
     // Settlement currency for derivatives
-    let settle = data["settleCcy"].as_str().map(|s| s.to_string());
+    let settle = data["settleCcy"].as_str().map(ToString::to_string);
     let settle_id = settle.clone();
 
     // Expiry for futures/options
@@ -198,7 +197,7 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         expiry,
         expiry_datetime,
         strike: parse_decimal(data, "stk"),
-        option_type: data["optType"].as_str().map(|s| s.to_string()),
+        option_type: data["optType"].as_str().map(ToString::to_string),
         precision: MarketPrecision {
             price: price_precision,
             amount: amount_precision,
@@ -379,14 +378,13 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
             .unwrap_or_default()
     };
 
-    let id = data["tradeId"].as_str().map(|s| s.to_string());
+    let id = data["tradeId"].as_str().map(ToString::to_string);
 
     let timestamp = parse_timestamp(data, "ts").unwrap_or(0);
 
     // OKX uses "side" field with "buy" or "sell" values
     let side = match data["side"].as_str() {
-        Some("buy") | Some("Buy") | Some("BUY") => OrderSide::Buy,
-        Some("sell") | Some("Sell") | Some("SELL") => OrderSide::Sell,
+        Some("sell" | "Sell" | "SELL") => OrderSide::Sell,
         _ => OrderSide::Buy, // Default to buy if not specified
     };
 
@@ -400,7 +398,7 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
 
     Ok(Trade {
         id,
-        order: data["ordId"].as_str().map(|s| s.to_string()),
+        order: data["ordId"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp_to_datetime(timestamp),
         symbol,
@@ -505,11 +503,8 @@ pub fn parse_ohlcv(data: &Value) -> Result<OHLCV> {
 /// Returns the corresponding CCXT [`OrderStatus`].
 pub fn parse_order_status(status: &str) -> OrderStatus {
     match status.to_lowercase().as_str() {
-        "live" => OrderStatus::Open,
-        "partially_filled" => OrderStatus::Open,
         "filled" => OrderStatus::Closed,
-        "canceled" | "cancelled" => OrderStatus::Cancelled,
-        "mmp_canceled" => OrderStatus::Cancelled,
+        "canceled" | "cancelled" | "mmp_canceled" => OrderStatus::Cancelled,
         "expired" => OrderStatus::Expired,
         "rejected" => OrderStatus::Rejected,
         _ => OrderStatus::Open, // Default to Open for unknown statuses
@@ -548,19 +543,16 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     // Parse order side
     let side = match data["side"].as_str() {
-        Some("buy") | Some("Buy") | Some("BUY") => OrderSide::Buy,
-        Some("sell") | Some("Sell") | Some("SELL") => OrderSide::Sell,
+        Some("buy" | "Buy" | "BUY") => OrderSide::Buy,
+        Some("sell" | "Sell" | "SELL") => OrderSide::Sell,
         _ => return Err(Error::from(ParseError::invalid_format("data", "side"))),
     };
 
     // Parse order type
     let order_type = match data["ordType"].as_str() {
-        Some("market") | Some("Market") | Some("MARKET") => OrderType::Market,
-        Some("limit") | Some("Limit") | Some("LIMIT") => OrderType::Limit,
+        Some("market" | "Market" | "MARKET") => OrderType::Market,
         Some("post_only") => OrderType::LimitMaker,
-        Some("fok") => OrderType::Limit, // Fill or Kill
-        Some("ioc") => OrderType::Limit, // Immediate or Cancel
-        _ => OrderType::Limit,           // Default to limit
+        _ => OrderType::Limit, // Default to limit (covers limit, fok, ioc)
     };
 
     let price = parse_decimal(data, "px");
@@ -582,7 +574,7 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     Ok(Order {
         id,
-        client_order_id: data["clOrdId"].as_str().map(|s| s.to_string()),
+        client_order_id: data["clOrdId"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp.and_then(timestamp_to_datetime),
         last_trade_timestamp: parse_timestamp(data, "uTime"),
@@ -635,22 +627,22 @@ pub fn parse_balance(data: &Value) -> Result<Balance> {
     // OKX returns balance in details array
     if let Some(details) = data["details"].as_array() {
         for detail in details {
-            parse_balance_entry(detail, &mut balances)?;
+            parse_balance_entry(detail, &mut balances);
         }
     } else if let Some(balances_array) = data.as_array() {
         // Handle array of balance objects
         for balance in balances_array {
             if let Some(details) = balance["details"].as_array() {
                 for detail in details {
-                    parse_balance_entry(detail, &mut balances)?;
+                    parse_balance_entry(detail, &mut balances);
                 }
             } else {
-                parse_balance_entry(balance, &mut balances)?;
+                parse_balance_entry(balance, &mut balances);
             }
         }
     } else {
         // Handle single balance object
-        parse_balance_entry(data, &mut balances)?;
+        parse_balance_entry(data, &mut balances);
     }
 
     Ok(Balance {
@@ -660,11 +652,11 @@ pub fn parse_balance(data: &Value) -> Result<Balance> {
 }
 
 /// Parse a single balance entry from OKX response.
-fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry>) -> Result<()> {
+fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry>) {
     let currency = data["ccy"]
         .as_str()
         .or_else(|| data["currency"].as_str())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     if let Some(currency) = currency {
         // OKX uses different field names depending on account type
@@ -693,8 +685,6 @@ fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry
             );
         }
     }
-
-    Ok(())
 }
 
 // ============================================================================

@@ -135,7 +135,7 @@ pub trait Account: PublicExchange {
     async fn get_balance(&self, currency: &str) -> Result<BalanceEntry> {
         let balance = self.fetch_balance().await?;
         balance.get(currency).cloned().ok_or_else(|| {
-            Error::invalid_request(format!("Currency {} not found in balance", currency))
+            Error::invalid_request(format!("Currency {currency} not found in balance"))
         })
     }
 

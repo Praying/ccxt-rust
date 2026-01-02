@@ -314,7 +314,7 @@ impl HttpClient {
                 error = %e,
                 "Failed to read response body"
             );
-            Error::network(format!("Failed to read response body: {}", e))
+            Error::network(format!("Failed to read response body: {e}"))
         })?;
 
         // Log response details (truncate body preview for large responses)
@@ -329,15 +329,15 @@ impl HttpClient {
         let mut result: Value =
             serde_json::from_str(&body_text).unwrap_or_else(|_| Value::String(body_text.clone()));
 
-        if self.config.return_response_headers {
-            if let Value::Object(ref mut map) = result {
-                let headers_value = headers_to_json(&headers);
-                map.insert("responseHeaders".to_string(), headers_value);
-            }
+        if self.config.return_response_headers
+            && let Value::Object(ref mut map) = result
+        {
+            let headers_value = headers_to_json(&headers);
+            map.insert("responseHeaders".to_string(), headers_value);
         }
 
         if !status.is_success() {
-            let err = self.handle_http_error(status, &body_text, result);
+            let err = Self::handle_http_error(status, &body_text, &result);
             error!(
                 status = status.as_u16(),
                 error = %err,
@@ -353,10 +353,10 @@ impl HttpClient {
     /// Handles HTTP error status codes and converts them to appropriate errors.
     #[instrument(
         name = "http_handle_error",
-        skip(self, body, result),
+        skip(body, result),
         fields(status = status.as_u16())
     )]
-    fn handle_http_error(&self, status: StatusCode, body: &str, result: Value) -> Error {
+    fn handle_http_error(status: StatusCode, body: &str, result: &Value) -> Error {
         // Truncate body for logging to avoid excessive log sizes
         let body_preview: String = body.chars().take(200).collect();
 
@@ -378,7 +378,7 @@ impl HttpClient {
                 Error::invalid_request("Not found")
             }
             StatusCode::TOO_MANY_REQUESTS => {
-                let retry_after = if let Value::Object(ref map) = result {
+                let retry_after = if let Value::Object(map) = result {
                     if let Some(Value::Object(headers)) = map.get("responseHeaders") {
                         headers
                             .get("retry-after")
@@ -397,7 +397,7 @@ impl HttpClient {
                         "Rate limit exceeded with retry-after header"
                     );
                     Error::rate_limit(
-                        format!("Rate limit exceeded, retry after {} seconds", seconds),
+                        format!("Rate limit exceeded, retry after {seconds} seconds"),
                         Some(Duration::from_secs(seconds)),
                     )
                 } else {
@@ -423,7 +423,7 @@ impl HttpClient {
                     body_preview = %body_preview,
                     "Unhandled HTTP error"
                 );
-                Error::network(format!("HTTP {} error: {}", status, body))
+                Error::network(format!("HTTP {status} error: {body}"))
             }
         }
     }
@@ -540,7 +540,7 @@ impl HttpClient {
 /// Converts a `HeaderMap` to a JSON `Value`.
 fn headers_to_json(headers: &HeaderMap) -> Value {
     let mut map = serde_json::Map::new();
-    for (key, value) in headers.iter() {
+    for (key, value) in headers {
         let key_str = key.as_str().to_string();
         let value_str = value.to_str().unwrap_or("").to_string();
         map.insert(key_str, Value::String(value_str));

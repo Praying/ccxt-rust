@@ -20,11 +20,11 @@ use super::HyperLiquid;
 impl Exchange for HyperLiquid {
     // ==================== Metadata ====================
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "hyperliquid"
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "HyperLiquid"
     }
 
@@ -108,7 +108,7 @@ impl Exchange for HyperLiquid {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[String]>) -> Result<Vec<Ticker>> {
-        let symbols_vec = symbols.map(|s| s.to_vec());
+        let symbols_vec = symbols.map(<[String]>::to_vec);
         HyperLiquid::fetch_tickers(self, symbols_vec).await
     }
 

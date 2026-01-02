@@ -43,11 +43,11 @@ use ccxt_core::exchange::ExchangeExt;
 impl Exchange for Binance {
     // ==================== Metadata ====================
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "binance"
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Binance"
     }
 
@@ -116,7 +116,7 @@ impl Exchange for Binance {
 
     async fn fetch_tickers(&self, symbols: Option<&[String]>) -> Result<Vec<Ticker>> {
         // Convert slice to Vec for existing implementation
-        let symbols_vec = symbols.map(|s| s.to_vec());
+        let symbols_vec = symbols.map(<[String]>::to_vec);
         Binance::fetch_tickers(self, symbols_vec).await
     }
 
@@ -142,6 +142,7 @@ impl Exchange for Binance {
         // Convert Timeframe enum to string for existing implementation
         let timeframe_str = timeframe.to_string();
         // Use i64 directly for the updated method signature
+        #[allow(deprecated)]
         let ohlcv_data =
             Binance::fetch_ohlcv(self, symbol, &timeframe_str, since, limit, None).await?;
 
@@ -170,6 +171,7 @@ impl Exchange for Binance {
         price: Option<Price>,
     ) -> Result<Order> {
         // Direct delegation - no type conversion needed
+        #[allow(deprecated)]
         Binance::create_order(self, symbol, order_type, side, amount, price, None).await
     }
 
@@ -274,11 +276,11 @@ impl Exchange for Binance {
 
 #[async_trait]
 impl PublicExchange for Binance {
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "binance"
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Binance"
     }
 

@@ -566,8 +566,7 @@ impl Binance {
         let is_portfolio_margin = params
             .as_ref()
             .and_then(|p| p.get("portfolioMargin"))
-            .map(|v| v == "true")
-            .unwrap_or(false);
+            .is_some_and(|v| v == "true");
 
         // Select API endpoint based on market type and Portfolio Margin mode
         let url = match market.market_type {
@@ -589,7 +588,7 @@ impl Binance {
                     }
                 }
             }
-            _ => {
+            MarketType::Option => {
                 return Err(Error::invalid_request(format!(
                     "fetch_trading_fee not supported for market type: {:?}",
                     market.market_type
@@ -666,10 +665,10 @@ impl Binance {
                     market_ids.push(market.id.clone());
                 }
             }
-            if !market_ids.is_empty() {
-                Some(market_ids.join(","))
-            } else {
+            if market_ids.is_empty() {
                 None
+            } else {
+                Some(market_ids.join(","))
             }
         } else {
             None
@@ -763,7 +762,7 @@ impl Binance {
 
         response["listenKey"]
             .as_str()
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .ok_or_else(|| Error::from(ParseError::missing_field("listenKey")))
     }
 

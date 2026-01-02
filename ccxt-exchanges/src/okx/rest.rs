@@ -32,7 +32,7 @@ impl Okx {
         note = "Use `signed_request()` builder instead which handles timestamps internally"
     )]
     #[allow(dead_code)]
-    fn get_timestamp(&self) -> String {
+    fn get_timestamp() -> String {
         chrono::Utc::now()
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
             .to_string()
@@ -72,7 +72,7 @@ impl Okx {
     }
 
     /// Build the API path for OKX V5 API.
-    fn build_api_path(&self, endpoint: &str) -> String {
+    fn build_api_path(endpoint: &str) -> String {
         format!("/api/v5{}", endpoint)
     }
 
@@ -187,18 +187,18 @@ impl Okx {
 
         let auth = self.get_auth()?;
         let urls = self.urls();
-        let timestamp = self.get_timestamp();
+        let timestamp = Self::get_timestamp();
 
         // Build query string for GET requests
         let query_string = if let Some(p) = params {
-            if !p.is_empty() {
+            if p.is_empty() {
+                String::new()
+            } else {
                 let query: Vec<String> = p
                     .iter()
                     .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                     .collect();
                 format!("?{}", query.join("&"))
-            } else {
-                String::new()
             }
         } else {
             String::new()
@@ -283,7 +283,7 @@ impl Okx {
     /// # }
     /// ```
     pub async fn fetch_markets(&self) -> Result<Arc<HashMap<String, Arc<Market>>>> {
-        let path = self.build_api_path("/public/instruments");
+        let path = Self::build_api_path("/public/instruments");
         let mut params = HashMap::new();
         params.insert("instType".to_string(), self.get_inst_type().to_string());
 
@@ -364,7 +364,7 @@ impl Okx {
     pub async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/market/ticker");
+        let path = Self::build_api_path("/market/ticker");
         let mut params = HashMap::new();
         params.insert("instId".to_string(), market.id.clone());
 
@@ -409,7 +409,7 @@ impl Okx {
         }
         drop(cache);
 
-        let path = self.build_api_path("/market/tickers");
+        let path = Self::build_api_path("/market/tickers");
         let mut params = HashMap::new();
         params.insert("instType".to_string(), self.get_inst_type().to_string());
 
@@ -478,13 +478,13 @@ impl Okx {
     pub async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> Result<OrderBook> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/market/books");
+        let path = Self::build_api_path("/market/books");
         let mut params = HashMap::new();
         params.insert("instId".to_string(), market.id.clone());
 
         // OKX valid limits: 1-400, default 100
         // Cap to maximum allowed value
-        let actual_limit = limit.map(|l| l.min(400)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(400));
         params.insert("sz".to_string(), actual_limit.to_string());
 
         let response = self.public_request("GET", &path, Some(&params)).await?;
@@ -524,12 +524,12 @@ impl Okx {
     pub async fn fetch_trades(&self, symbol: &str, limit: Option<u32>) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/market/trades");
+        let path = Self::build_api_path("/market/trades");
         let mut params = HashMap::new();
         params.insert("instId".to_string(), market.id.clone());
 
         // OKX maximum limit is 500
-        let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(500));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         let response = self.public_request("GET", &path, Some(&params)).await?;
@@ -588,13 +588,13 @@ impl Okx {
             Error::invalid_request(format!("Unsupported timeframe: {}", request.timeframe))
         })?;
 
-        let path = self.build_api_path("/market/candles");
+        let path = Self::build_api_path("/market/candles");
         let mut params = HashMap::new();
         params.insert("instId".to_string(), market.id.clone());
         params.insert("bar".to_string(), okx_timeframe.clone());
 
         // OKX maximum limit is 300
-        let actual_limit = request.limit.map(|l| l.min(300)).unwrap_or(100);
+        let actual_limit = request.limit.map_or(100, |l| l.min(300));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         if let Some(start_time) = request.since {
@@ -670,13 +670,13 @@ impl Okx {
             Error::invalid_request(format!("Unsupported timeframe: {}", timeframe))
         })?;
 
-        let path = self.build_api_path("/market/candles");
+        let path = Self::build_api_path("/market/candles");
         let mut params = HashMap::new();
         params.insert("instId".to_string(), market.id.clone());
         params.insert("bar".to_string(), okx_timeframe.clone());
 
         // OKX maximum limit is 300
-        let actual_limit = limit.map(|l| l.min(300)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(300));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         if let Some(start_time) = since {
@@ -726,7 +726,7 @@ impl Okx {
     ///
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_balance(&self) -> Result<Balance> {
-        let path = self.build_api_path("/account/balance");
+        let path = Self::build_api_path("/account/balance");
         let response = self.signed_request(&path).execute().await?;
 
         let data = response
@@ -770,10 +770,10 @@ impl Okx {
     ) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/trade/fills");
+        let path = Self::build_api_path("/trade/fills");
 
         // OKX maximum limit is 100
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(100));
 
         let mut builder = self
             .signed_request(&path)
@@ -837,7 +837,7 @@ impl Okx {
     pub async fn create_order_v2(&self, request: OrderRequest) -> Result<Order> {
         let market = self.base().market(&request.symbol).await?;
 
-        let path = self.build_api_path("/trade/order");
+        let path = Self::build_api_path("/trade/order");
 
         // Build order body
         let mut map = serde_json::Map::new();
@@ -859,14 +859,12 @@ impl Okx {
         map.insert(
             "ordType".to_string(),
             serde_json::Value::String(match request.order_type {
-                OrderType::Market => "market".to_string(),
-                OrderType::Limit => "limit".to_string(),
                 OrderType::LimitMaker => "post_only".to_string(),
-                OrderType::StopLoss | OrderType::StopMarket => "market".to_string(),
-                OrderType::StopLossLimit | OrderType::StopLimit => "limit".to_string(),
-                OrderType::TakeProfit => "market".to_string(),
-                OrderType::TakeProfitLimit => "limit".to_string(),
-                OrderType::TrailingStop => "market".to_string(),
+                OrderType::StopLoss
+                | OrderType::StopMarket
+                | OrderType::TakeProfit
+                | OrderType::TrailingStop => "market".to_string(),
+                _ => "limit".to_string(),
             }),
         );
         map.insert(
@@ -973,7 +971,7 @@ impl Okx {
     ) -> Result<Order> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/trade/order");
+        let path = Self::build_api_path("/trade/order");
 
         // Build order body
         let mut map = serde_json::Map::new();
@@ -996,7 +994,6 @@ impl Okx {
             "ordType".to_string(),
             serde_json::Value::String(match order_type {
                 OrderType::Market => "market".to_string(),
-                OrderType::Limit => "limit".to_string(),
                 OrderType::LimitMaker => "post_only".to_string(),
                 _ => "limit".to_string(),
             }),
@@ -1053,7 +1050,7 @@ impl Okx {
     pub async fn cancel_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/trade/cancel-order");
+        let path = Self::build_api_path("/trade/cancel-order");
 
         let mut map = serde_json::Map::new();
         map.insert(
@@ -1105,7 +1102,7 @@ impl Okx {
     pub async fn fetch_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/trade/order");
+        let path = Self::build_api_path("/trade/order");
 
         let response = self
             .signed_request(&path)
@@ -1150,10 +1147,10 @@ impl Okx {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
-        let path = self.build_api_path("/trade/orders-pending");
+        let path = Self::build_api_path("/trade/orders-pending");
 
         // OKX maximum limit is 100
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(100));
 
         let market = if let Some(sym) = symbol {
             let m = self.base().market(sym).await?;
@@ -1190,7 +1187,7 @@ impl Okx {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse open order");
@@ -1218,10 +1215,10 @@ impl Okx {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
-        let path = self.build_api_path("/trade/orders-history");
+        let path = Self::build_api_path("/trade/orders-history");
 
         // OKX maximum limit is 100
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(100));
 
         let market = if let Some(sym) = symbol {
             let m = self.base().market(sym).await?;
@@ -1258,7 +1255,7 @@ impl Okx {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse closed order");

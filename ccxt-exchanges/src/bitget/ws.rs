@@ -624,7 +624,7 @@ fn is_orderbook_message(msg: &Value, symbol: &str) -> bool {
         let inst_id = arg.get("instId").and_then(|i| i.as_str());
 
         // Bitget uses books, books5, books15 for orderbook channels
-        let is_orderbook_channel = channel.map(|c| c.starts_with("books")).unwrap_or(false);
+        let is_orderbook_channel = channel.is_some_and(|c| c.starts_with("books"));
         is_orderbook_channel && inst_id == Some(symbol)
     } else {
         false
@@ -649,8 +649,7 @@ fn format_unified_symbol(symbol: &str) -> String {
     let quote_currencies = ["USDT", "USDC", "BTC", "ETH", "EUR", "USD"];
 
     for quote in &quote_currencies {
-        if symbol.ends_with(quote) {
-            let base = &symbol[..symbol.len() - quote.len()];
+        if let Some(base) = symbol.strip_suffix(quote) {
             if !base.is_empty() {
                 return format!("{}/{}", base, quote);
             }

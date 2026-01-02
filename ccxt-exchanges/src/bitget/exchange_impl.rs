@@ -21,11 +21,11 @@ use super::Bitget;
 impl Exchange for Bitget {
     // ==================== Metadata ====================
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "bitget"
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Bitget"
     }
 
@@ -110,7 +110,7 @@ impl Exchange for Bitget {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[String]>) -> Result<Vec<Ticker>> {
-        let symbols_vec = symbols.map(|s| s.to_vec());
+        let symbols_vec = symbols.map(<[String]>::to_vec);
         Bitget::fetch_tickers(self, symbols_vec).await
     }
 
@@ -130,6 +130,7 @@ impl Exchange for Bitget {
         limit: Option<u32>,
     ) -> Result<Vec<Ohlcv>> {
         let timeframe_str = timeframe.to_string();
+        #[allow(deprecated)]
         let ohlcv_data = Bitget::fetch_ohlcv(self, symbol, &timeframe_str, since, limit).await?;
 
         // Convert OHLCV to Ohlcv with proper type conversions
@@ -157,6 +158,7 @@ impl Exchange for Bitget {
         price: Option<Price>,
     ) -> Result<Order> {
         // Direct delegation - no type conversion needed
+        #[allow(deprecated)]
         Bitget::create_order(self, symbol, order_type, side, amount, price).await
     }
 

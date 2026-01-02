@@ -8,21 +8,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Precision mode for currency operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PrecisionMode {
     /// Decimal places precision
+    #[default]
     DecimalPlaces,
     /// Significant digits precision
     SignificantDigits,
     /// Tick size precision
     TickSize,
-}
-
-impl Default for PrecisionMode {
-    fn default() -> Self {
-        Self::DecimalPlaces
-    }
 }
 
 impl std::fmt::Display for PrecisionMode {
@@ -36,7 +31,7 @@ impl std::fmt::Display for PrecisionMode {
 }
 
 /// Min/Max range for limits
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MinMax {
     /// Minimum value
     pub min: Option<Decimal>,
@@ -52,18 +47,9 @@ impl MinMax {
 
     /// Check if value is within range
     pub fn is_valid(&self, value: Decimal) -> bool {
-        let min_ok = self.min.map_or(true, |min| value >= min);
-        let max_ok = self.max.map_or(true, |max| value <= max);
+        let min_ok = self.min.is_none_or(|min| value >= min);
+        let max_ok = self.max.is_none_or(|max| value <= max);
         min_ok && max_ok
-    }
-}
-
-impl Default for MinMax {
-    fn default() -> Self {
-        Self {
-            min: None,
-            max: None,
-        }
     }
 }
 

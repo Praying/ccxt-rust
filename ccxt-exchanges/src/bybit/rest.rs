@@ -31,7 +31,7 @@ impl Bybit {
         note = "Use `signed_request()` builder instead which handles timestamps internally"
     )]
     #[allow(dead_code)]
-    fn get_timestamp(&self) -> String {
+    fn get_timestamp() -> String {
         chrono::Utc::now().timestamp_millis().to_string()
     }
 
@@ -57,14 +57,13 @@ impl Bybit {
     }
 
     /// Build the API path for Bybit V5 API.
-    fn build_api_path(&self, endpoint: &str) -> String {
+    fn build_api_path(endpoint: &str) -> String {
         format!("/v5{}", endpoint)
     }
 
     /// Get the category for API requests based on account type.
     fn get_category(&self) -> &str {
         match self.options().account_type.as_str() {
-            "SPOT" => "spot",
             "CONTRACT" | "LINEAR" => "linear",
             "INVERSE" => "inverse",
             "OPTION" => "option",
@@ -137,19 +136,19 @@ impl Bybit {
 
         let auth = self.get_auth()?;
         let urls = self.urls();
-        let timestamp = self.get_timestamp();
+        let timestamp = Self::get_timestamp();
         let recv_window = self.options().recv_window;
 
         // Build query string for GET requests
         let query_string = if let Some(p) = params {
-            if !p.is_empty() {
+            if p.is_empty() {
+                String::new()
+            } else {
                 let query: Vec<String> = p
                     .iter()
                     .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                     .collect();
                 query.join("&")
-            } else {
-                String::new()
             }
         } else {
             String::new()
@@ -237,7 +236,7 @@ impl Bybit {
     /// # }
     /// ```
     pub async fn fetch_markets(&self) -> Result<Arc<HashMap<String, Arc<Market>>>> {
-        let path = self.build_api_path("/market/instruments-info");
+        let path = Self::build_api_path("/market/instruments-info");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
 
@@ -322,7 +321,7 @@ impl Bybit {
     pub async fn fetch_ticker(&self, symbol: &str) -> Result<Ticker> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/market/tickers");
+        let path = Self::build_api_path("/market/tickers");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
         params.insert("symbol".to_string(), market.id.clone());
@@ -371,7 +370,7 @@ impl Bybit {
         }
         drop(cache);
 
-        let path = self.build_api_path("/market/tickers");
+        let path = Self::build_api_path("/market/tickers");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
 
@@ -444,14 +443,14 @@ impl Bybit {
     pub async fn fetch_order_book(&self, symbol: &str, limit: Option<u32>) -> Result<OrderBook> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/market/orderbook");
+        let path = Self::build_api_path("/market/orderbook");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
         params.insert("symbol".to_string(), market.id.clone());
 
         // Bybit valid limits: 1-500, default 25
         // Cap to maximum allowed value
-        let actual_limit = limit.map(|l| l.min(500)).unwrap_or(25);
+        let actual_limit = limit.map_or(25, |l| l.min(500));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         let response = self.public_request("GET", &path, Some(&params)).await?;
@@ -476,13 +475,13 @@ impl Bybit {
     pub async fn fetch_trades(&self, symbol: &str, limit: Option<u32>) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/market/recent-trade");
+        let path = Self::build_api_path("/market/recent-trade");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
         params.insert("symbol".to_string(), market.id.clone());
 
         // Bybit maximum limit is 1000
-        let actual_limit = limit.map(|l| l.min(1000)).unwrap_or(60);
+        let actual_limit = limit.map_or(60, |l| l.min(1000));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         let response = self.public_request("GET", &path, Some(&params)).await?;
@@ -545,14 +544,14 @@ impl Bybit {
             Error::invalid_request(format!("Unsupported timeframe: {}", request.timeframe))
         })?;
 
-        let path = self.build_api_path("/market/kline");
+        let path = Self::build_api_path("/market/kline");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
         params.insert("symbol".to_string(), market.id.clone());
         params.insert("interval".to_string(), bybit_timeframe.clone());
 
         // Bybit maximum limit is 1000
-        let actual_limit = request.limit.map(|l| l.min(1000)).unwrap_or(200);
+        let actual_limit = request.limit.map_or(200, |l| l.min(1000));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         if let Some(start_time) = request.since {
@@ -632,14 +631,14 @@ impl Bybit {
             Error::invalid_request(format!("Unsupported timeframe: {}", timeframe))
         })?;
 
-        let path = self.build_api_path("/market/kline");
+        let path = Self::build_api_path("/market/kline");
         let mut params = HashMap::new();
         params.insert("category".to_string(), self.get_category().to_string());
         params.insert("symbol".to_string(), market.id.clone());
         params.insert("interval".to_string(), bybit_timeframe.clone());
 
         // Bybit maximum limit is 1000
-        let actual_limit = limit.map(|l| l.min(1000)).unwrap_or(200);
+        let actual_limit = limit.map_or(200, |l| l.min(1000));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         if let Some(start_time) = since {
@@ -693,7 +692,7 @@ impl Bybit {
     ///
     /// Returns an error if authentication fails or the API request fails.
     pub async fn fetch_balance(&self) -> Result<Balance> {
-        let path = self.build_api_path("/account/wallet-balance");
+        let path = Self::build_api_path("/account/wallet-balance");
 
         let response = self
             .signed_request(&path)
@@ -727,10 +726,10 @@ impl Bybit {
     ) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/execution/list");
+        let path = Self::build_api_path("/execution/list");
 
         // Bybit maximum limit is 100
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(50);
+        let actual_limit = limit.map_or(50, |l| l.min(100));
 
         let response = self
             .signed_request(&path)
@@ -793,7 +792,7 @@ impl Bybit {
 
         let market = self.base().market(&request.symbol).await?;
 
-        let path = self.build_api_path("/order/create");
+        let path = Self::build_api_path("/order/create");
 
         // Build order body
         let mut map = serde_json::Map::new();
@@ -815,14 +814,12 @@ impl Bybit {
         map.insert(
             "orderType".to_string(),
             serde_json::Value::String(match request.order_type {
-                OrderType::Market => "Market".to_string(),
-                OrderType::Limit => "Limit".to_string(),
-                OrderType::LimitMaker => "Limit".to_string(),
-                OrderType::StopLoss | OrderType::StopMarket => "Market".to_string(),
-                OrderType::StopLossLimit | OrderType::StopLimit => "Limit".to_string(),
-                OrderType::TakeProfit => "Market".to_string(),
-                OrderType::TakeProfitLimit => "Limit".to_string(),
-                OrderType::TrailingStop => "Market".to_string(),
+                OrderType::Market
+                | OrderType::StopLoss
+                | OrderType::StopMarket
+                | OrderType::TakeProfit
+                | OrderType::TrailingStop => "Market".to_string(),
+                _ => "Limit".to_string(),
             }),
         );
         map.insert(
@@ -962,7 +959,7 @@ impl Bybit {
 
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/order/create");
+        let path = Self::build_api_path("/order/create");
 
         // Build order body
         let mut map = serde_json::Map::new();
@@ -985,8 +982,6 @@ impl Bybit {
             "orderType".to_string(),
             serde_json::Value::String(match order_type {
                 OrderType::Market => "Market".to_string(),
-                OrderType::Limit => "Limit".to_string(),
-                OrderType::LimitMaker => "Limit".to_string(),
                 _ => "Limit".to_string(),
             }),
         );
@@ -1044,7 +1039,7 @@ impl Bybit {
 
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/order/cancel");
+        let path = Self::build_api_path("/order/cancel");
 
         let mut map = serde_json::Map::new();
         map.insert(
@@ -1088,7 +1083,7 @@ impl Bybit {
     pub async fn fetch_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
 
-        let path = self.build_api_path("/order/realtime");
+        let path = Self::build_api_path("/order/realtime");
 
         let response = self
             .signed_request(&path)
@@ -1137,10 +1132,10 @@ impl Bybit {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
-        let path = self.build_api_path("/order/realtime");
+        let path = Self::build_api_path("/order/realtime");
 
         // Bybit maximum limit is 50
-        let actual_limit = limit.map(|l| l.min(50)).unwrap_or(50);
+        let actual_limit = limit.map_or(50, |l| l.min(50));
 
         let market = if let Some(sym) = symbol {
             Some(self.base().market(sym).await?)
@@ -1177,7 +1172,7 @@ impl Bybit {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse open order");
@@ -1205,10 +1200,10 @@ impl Bybit {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Order>> {
-        let path = self.build_api_path("/order/history");
+        let path = Self::build_api_path("/order/history");
 
         // Bybit maximum limit is 50
-        let actual_limit = limit.map(|l| l.min(50)).unwrap_or(50);
+        let actual_limit = limit.map_or(50, |l| l.min(50));
 
         let market = if let Some(sym) = symbol {
             Some(self.base().market(sym).await?)
@@ -1245,7 +1240,7 @@ impl Bybit {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse closed order");
@@ -1263,8 +1258,7 @@ mod tests {
 
     #[test]
     fn test_build_api_path() {
-        let bybit = Bybit::builder().build().unwrap();
-        let path = bybit.build_api_path("/market/instruments-info");
+        let path = Bybit::build_api_path("/market/instruments-info");
         assert_eq!(path, "/v5/market/instruments-info");
     }
 

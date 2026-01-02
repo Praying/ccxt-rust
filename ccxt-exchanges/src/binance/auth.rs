@@ -133,16 +133,16 @@ impl BinanceAuth {
     /// # Returns
     ///
     /// Returns a URL-encoded query string with parameters sorted by key.
+    #[allow(clippy::unused_self)]
     pub(crate) fn build_query_string(&self, params: &BTreeMap<String, String>) -> String {
         let mut pairs: Vec<_> = params.iter().collect();
         pairs.sort_by_key(|(k, _)| *k);
 
-        let query_string = pairs
+        pairs
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
-            .join("&");
-        query_string
+            .join("&")
     }
 
     /// Adds authentication headers to the request.
@@ -179,21 +179,21 @@ impl BinanceAuth {
 /// # Returns
 ///
 /// Returns the complete URL with query parameters.
-pub fn build_signed_url(
+pub fn build_signed_url<S: std::hash::BuildHasher>(
     base_url: &str,
     endpoint: &str,
-    params: &HashMap<String, String>,
+    params: &HashMap<String, String, S>,
 ) -> String {
     let query_string = params
         .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
+        .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<_>>()
         .join("&");
 
     if query_string.is_empty() {
-        format!("{}{}", base_url, endpoint)
+        format!("{base_url}{endpoint}")
     } else {
-        format!("{}{}?{}", base_url, endpoint, query_string)
+        format!("{base_url}{endpoint}?{query_string}")
     }
 }
 

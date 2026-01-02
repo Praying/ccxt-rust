@@ -74,7 +74,7 @@ impl std::fmt::Display for OrderType {
             Self::StopLimit => "stop_limit",
             Self::TrailingStop => "trailing_stop",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 /// Time in force - order validity duration
@@ -102,7 +102,7 @@ impl std::fmt::Display for TimeInForce {
             Self::FOK => "FOK",
             Self::PO => "PO",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -135,7 +135,7 @@ impl std::fmt::Display for OrderStatus {
             Self::Rejected => "rejected",
             Self::Partial => "partial",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -302,7 +302,7 @@ impl Order {
     pub fn is_filled(&self) -> bool {
         self.status == OrderStatus::Closed
             && self.filled.is_some()
-            && self.remaining.map(|r| r.is_zero()).unwrap_or(false)
+            && self.remaining.is_some_and(|r| r.is_zero())
     }
 
     /// Check if order is cancelled
@@ -312,17 +312,16 @@ impl Order {
 
     /// Get DateTime from timestamp
     pub fn datetime_utc(&self) -> Option<DateTime<Utc>> {
-        self.timestamp
-            .and_then(|ts| DateTime::from_timestamp_millis(ts))
+        self.timestamp.and_then(DateTime::from_timestamp_millis)
     }
 
     /// Calculate fill percentage
     pub fn fill_percentage(&self) -> Option<Decimal> {
         if let Some(filled) = self.filled {
-            if !self.amount.is_zero() {
-                Some(filled / self.amount * Decimal::from(100))
-            } else {
+            if self.amount.is_zero() {
                 None
+            } else {
+                Some(filled / self.amount * Decimal::from(100))
             }
         } else {
             None

@@ -1,11 +1,9 @@
-use ccxt_core::error::Error;
 use ccxt_core::time::{TimestampUtils, parse_date, parse_iso8601};
 
 /// Security tests for timestamp handling to prevent common vulnerabilities
 ///
 /// These tests verify that the timestamp implementation is secure against
 /// various attack vectors including injection, overflow, and manipulation attacks.
-
 #[cfg(test)]
 mod timestamp_security_tests {
     use super::*;
@@ -457,7 +455,7 @@ mod property_based_security_tests {
             timestamp in 0i64..TimestampUtils::YEAR_2100_MS
         ) {
             // Valid timestamps should always format successfully
-            let validated = TimestampUtils::validate_timestamp(timestamp).unwrap();
+            let validated = TimestampUtils::validate_timestamp(timestamp).expect("Valid timestamp should validate");
             let formatted = TimestampUtils::format_iso8601(validated);
             assert!(formatted.is_ok(), "Valid timestamp {} should format successfully", timestamp);
         }

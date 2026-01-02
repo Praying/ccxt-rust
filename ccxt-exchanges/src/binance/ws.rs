@@ -151,7 +151,7 @@ impl ListenKeyManager {
                 if let Some(key) = key_opt {
                     // Attempt to refresh the key
                     match binance.refresh_listen_key(&key).await {
-                        Ok(_) => {
+                        Ok(()) => {
                             *created_at.write().await = Some(Instant::now());
                             // Listen key refreshed successfully
                         }
@@ -684,7 +684,7 @@ impl MessageRouter {
                 reconnect_config,
                 ws_url,
             )
-            .await
+            .await;
         });
 
         *self.router_task.lock().await = Some(handle);
@@ -852,21 +852,16 @@ impl MessageRouter {
 
                     tokio::time::sleep(Duration::from_millis(delay)).await;
 
-                    match Self::reconnect(&ws_url, ws_client.clone()).await {
-                        Ok(_) => {
-                            reconnect_attempt = 0; // Reset counter on success
-                            continue;
-                        }
-                        Err(_) => {
-                            reconnect_attempt += 1;
-                            continue;
-                        }
+                    if let Ok(()) = Self::reconnect(&ws_url, ws_client.clone()).await {
+                        reconnect_attempt = 0; // Reset counter on success
+                        continue;
                     }
-                } else {
-                    // Stop attempting to reconnect
-                    is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
-                    break;
+                    reconnect_attempt += 1;
+                    continue;
                 }
+                // Stop attempting to reconnect
+                is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
+                break;
             }
 
             // Receive the next message (requires re-acquiring the lock)
@@ -879,42 +874,33 @@ impl MessageRouter {
                 }
             };
 
-            match message_opt {
-                Some(value) => {
-                    // Handle the message; ignore failures but continue the loop
-                    if let Err(_e) = Self::handle_message(value, subscription_manager.clone()).await
-                    {
+            if let Some(value) = message_opt {
+                // Handle the message; ignore failures but continue the loop
+                if let Err(_e) = Self::handle_message(value, subscription_manager.clone()).await {
+                    continue;
+                }
+
+                // Reset the reconnection counter because the connection is healthy
+                reconnect_attempt = 0;
+            } else {
+                // Connection failure; attempt to reconnect
+                let config = reconnect_config.read().await;
+                if config.should_retry(reconnect_attempt) {
+                    let delay = config.calculate_delay(reconnect_attempt);
+                    drop(config);
+
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+
+                    if let Ok(()) = Self::reconnect(&ws_url, ws_client.clone()).await {
+                        reconnect_attempt = 0;
                         continue;
                     }
-
-                    // Reset the reconnection counter because the connection is healthy
-                    reconnect_attempt = 0;
+                    reconnect_attempt += 1;
+                    continue;
                 }
-                None => {
-                    // Connection failure; attempt to reconnect
-                    let config = reconnect_config.read().await;
-                    if config.should_retry(reconnect_attempt) {
-                        let delay = config.calculate_delay(reconnect_attempt);
-                        drop(config);
-
-                        tokio::time::sleep(Duration::from_millis(delay)).await;
-
-                        match Self::reconnect(&ws_url, ws_client.clone()).await {
-                            Ok(_) => {
-                                reconnect_attempt = 0;
-                                continue;
-                            }
-                            Err(_) => {
-                                reconnect_attempt += 1;
-                                continue;
-                            }
-                        }
-                    } else {
-                        // Reconnection not permitted anymore; stop the loop
-                        is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
-                        break;
-                    }
-                }
+                // Reconnection not permitted anymore; stop the loop
+                is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
+                break;
             }
         }
     }
@@ -1695,7 +1681,9 @@ impl BinanceWs {
         let mut orderbooks = self.orderbooks.lock().await;
         if let Some(cached_ob) = orderbooks.get_mut(symbol) {
             // Transfer buffered deltas to the snapshot instance
-            snapshot.buffered_deltas = cached_ob.buffered_deltas.clone();
+            snapshot
+                .buffered_deltas
+                .clone_from(&cached_ob.buffered_deltas);
 
             // Apply buffered deltas to catch up
             if let Ok(processed) = snapshot.process_buffered_deltas(is_futures) {
@@ -1771,13 +1759,13 @@ impl BinanceWs {
                 }
 
                 // Process depth updates only
-                if let Some(event_type) = message.get("e").and_then(|v| v.as_str()) {
+                if let Some(event_type) = message.get("e").and_then(serde_json::Value::as_str) {
                     if event_type == "depthUpdate" {
                         match self
                             .handle_orderbook_delta(symbol, &message, is_futures)
                             .await
                         {
-                            Ok(_) => {
+                            Ok(()) => {
                                 // Return the updated order book once synchronized
                                 let orderbooks = self.orderbooks.lock().await;
                                 if let Some(ob) = orderbooks.get(symbol) {
@@ -1841,20 +1829,10 @@ impl BinanceWs {
                                                 return Err(resync_err);
                                             }
                                         }
-                                    } else {
-                                        tracing::debug!(
-                                            "Resync rate limited for {}, skipping",
-                                            symbol
-                                        );
-                                        continue;
                                     }
-                                } else {
-                                    tracing::error!(
-                                        "Failed to handle orderbook delta: {}",
-                                        err_msg
-                                    );
-                                    continue;
+                                    tracing::debug!("Resync rate limited for {}, skipping", symbol);
                                 }
+                                tracing::error!("Failed to handle orderbook delta: {}", err_msg);
                             }
                         }
                     }
@@ -1924,9 +1902,11 @@ impl BinanceWs {
                 }
 
                 // Handle depth updates
-                if let Some(event_type) = message.get("e").and_then(|v| v.as_str()) {
+                if let Some(event_type) = message.get("e").and_then(serde_json::Value::as_str) {
                     if event_type == "depthUpdate" {
-                        if let Some(msg_symbol) = message.get("s").and_then(|v| v.as_str()) {
+                        if let Some(msg_symbol) =
+                            message.get("s").and_then(serde_json::Value::as_str)
+                        {
                             if let Err(e) = self
                                 .handle_orderbook_delta(msg_symbol, &message, is_futures)
                                 .await
@@ -2105,7 +2085,7 @@ impl BinanceWs {
     ///
     /// # Returns
     /// Parsed `Trade` structure
-    fn parse_ws_trade(&self, data: &Value) -> Result<Trade> {
+    fn parse_ws_trade(data: &Value) -> Result<Trade> {
         use ccxt_core::types::{Fee, OrderSide, OrderType, TakerOrMaker};
         use rust_decimal::Decimal;
         use std::str::FromStr;
@@ -2113,37 +2093,40 @@ impl BinanceWs {
         // Extract symbol field
         let symbol = data
             .get("s")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| Error::invalid_request("Missing symbol field".to_string()))?
             .to_string();
 
         // Trade ID (field `t`)
         let id = data
             .get("t")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|v| v.to_string());
 
         // Trade timestamp (field `T`)
-        let timestamp = data.get("T").and_then(|v| v.as_i64()).unwrap_or(0);
+        let timestamp = data
+            .get("T")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
 
         // Executed price (field `L` - last executed price)
         let price = data
             .get("L")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
         // Executed amount (field `l` - last executed quantity)
         let amount = data
             .get("l")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
         // Quote asset amount (field `Y` - last quote asset transacted quantity)
         let cost = data
             .get("Y")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok())
             .or_else(|| {
                 // Fallback: compute from price * amount when `Y` is unavailable
@@ -2157,7 +2140,7 @@ impl BinanceWs {
         // Trade side (field `S`)
         let side = data
             .get("S")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| match s.to_uppercase().as_str() {
                 "BUY" => Some(OrderSide::Buy),
                 "SELL" => Some(OrderSide::Sell),
@@ -2166,36 +2149,39 @@ impl BinanceWs {
             .unwrap_or(OrderSide::Buy);
 
         // Order type (field `o`)
-        let trade_type =
-            data.get("o")
-                .and_then(|v| v.as_str())
-                .and_then(|s| match s.to_uppercase().as_str() {
-                    "LIMIT" => Some(OrderType::Limit),
-                    "MARKET" => Some(OrderType::Market),
-                    _ => None,
-                });
+        let trade_type = data
+            .get("o")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| match s.to_uppercase().as_str() {
+                "LIMIT" => Some(OrderType::Limit),
+                "MARKET" => Some(OrderType::Market),
+                _ => None,
+            });
 
         // Associated order ID (field `i`)
         let order_id = data
             .get("i")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|v| v.to_string());
 
         // Maker/taker flag (field `m` - true when buyer is the maker)
-        let taker_or_maker = data.get("m").and_then(|v| v.as_bool()).map(|is_maker| {
-            if is_maker {
-                TakerOrMaker::Maker
-            } else {
-                TakerOrMaker::Taker
-            }
-        });
+        let taker_or_maker = data
+            .get("m")
+            .and_then(serde_json::Value::as_bool)
+            .map(|is_maker| {
+                if is_maker {
+                    TakerOrMaker::Maker
+                } else {
+                    TakerOrMaker::Taker
+                }
+            });
 
         // Fee information (fields `n` = fee amount, `N` = fee currency)
-        let fee = if let Some(fee_cost_str) = data.get("n").and_then(|v| v.as_str()) {
+        let fee = if let Some(fee_cost_str) = data.get("n").and_then(serde_json::Value::as_str) {
             if let Ok(fee_cost) = Decimal::from_str(fee_cost_str) {
                 let currency = data
                     .get("N")
-                    .and_then(|v| v.as_str())
+                    .and_then(serde_json::Value::as_str)
                     .unwrap_or("UNKNOWN")
                     .to_string();
                 Some(Fee {
@@ -2217,7 +2203,7 @@ impl BinanceWs {
         // Preserve the raw payload in the `info` map
         let mut info = HashMap::new();
         if let Value::Object(map) = data {
-            for (k, v) in map.iter() {
+            for (k, v) in map {
                 info.insert(k.clone(), v.clone());
             }
         }
@@ -2308,7 +2294,7 @@ impl BinanceWs {
     ///   "ma": "USDT"              // Margin asset
     /// }
     /// ```
-    async fn parse_ws_position(&self, data: &Value) -> Result<Position> {
+    fn parse_ws_position(data: &Value) -> Result<Position> {
         // Extract required fields
         let symbol = data["s"]
             .as_str()
@@ -2347,9 +2333,9 @@ impl BinanceWs {
         let entry_price = data["ep"].as_str().and_then(|s| s.parse::<f64>().ok());
         let unrealized_pnl = data["up"].as_str().and_then(|s| s.parse::<f64>().ok());
         let realized_pnl = data["cr"].as_str().and_then(|s| s.parse::<f64>().ok());
-        let margin_mode = data["mt"].as_str().map(|s| s.to_string());
+        let margin_mode = data["mt"].as_str().map(ToString::to_string);
         let initial_margin = data["iw"].as_str().and_then(|s| s.parse::<f64>().ok());
-        let _margin_asset = data["ma"].as_str().map(|s| s.to_string());
+        let _margin_asset = data["ma"].as_str().map(ToString::to_string);
 
         // Construct the `Position` object
         Ok(Position {
@@ -2414,11 +2400,7 @@ impl BinanceWs {
 
         // Apply `since` filter when provided
         if let Some(since_ts) = since {
-            positions.retain(|pos| {
-                pos.timestamp
-                    .map(|ts| ts as i64 >= since_ts)
-                    .unwrap_or(false)
-            });
+            positions.retain(|pos| pos.timestamp.is_some_and(|ts| ts >= since_ts));
         }
 
         // Sort by timestamp descending (latest first)
@@ -2539,7 +2521,9 @@ impl Binance {
 
         // Select channel name
         let channel_name = if let Some(p) = &params {
-            p.get("name").and_then(|v| v.as_str()).unwrap_or("ticker")
+            p.get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("ticker")
         } else {
             "ticker"
         };
@@ -2591,7 +2575,9 @@ impl Binance {
 
         // Determine channel name
         let channel_name = if let Some(p) = &params {
-            p.get("name").and_then(|v| v.as_str()).unwrap_or("ticker")
+            p.get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("ticker")
         } else {
             "ticker"
         };
@@ -2674,7 +2660,9 @@ impl Binance {
 
         // Determine update frequency
         let use_1s_freq = if let Some(p) = &params {
-            p.get("use1sFreq").and_then(|v| v.as_bool()).unwrap_or(true)
+            p.get("use1sFreq")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
         } else {
             true
         };
@@ -2750,7 +2738,9 @@ impl Binance {
 
         // Determine update speed
         let update_speed = if let Some(p) = &params {
-            p.get("speed").and_then(|v| v.as_i64()).unwrap_or(100) as i32
+            p.get("speed")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(100) as i32
         } else {
             100
         };
@@ -2841,7 +2831,9 @@ impl Binance {
 
         // Determine update speed
         let update_speed = if let Some(p) = &params {
-            p.get("speed").and_then(|v| v.as_i64()).unwrap_or(100) as i32
+            p.get("speed")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(100) as i32
         } else {
             100
         };
@@ -2874,7 +2866,9 @@ impl Binance {
 
         // Determine update frequency
         let use_1s_freq = if let Some(p) = &params {
-            p.get("use1sFreq").and_then(|v| v.as_bool()).unwrap_or(true)
+            p.get("use1sFreq")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
         } else {
             true
         };
@@ -2929,6 +2923,9 @@ impl Binance {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Trade>> {
+        const MAX_RETRIES: u32 = 50;
+        const MAX_TRADES: usize = 1000;
+
         // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
@@ -2945,7 +2942,6 @@ impl Binance {
 
         // Process incoming messages
         let mut retries = 0;
-        const MAX_RETRIES: u32 = 50;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
@@ -2963,7 +2959,6 @@ impl Binance {
                         .or_insert_with(VecDeque::new);
 
                     // Enforce cache size limit
-                    const MAX_TRADES: usize = 1000;
                     if trades.len() >= MAX_TRADES {
                         trades.pop_front();
                     }
@@ -3012,6 +3007,9 @@ impl Binance {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<OHLCV>> {
+        const MAX_RETRIES: u32 = 50;
+        const MAX_OHLCVS: usize = 1000;
+
         // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
@@ -3028,7 +3026,6 @@ impl Binance {
 
         // Process incoming messages
         let mut retries = 0;
-        const MAX_RETRIES: u32 = 50;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
@@ -3045,7 +3042,6 @@ impl Binance {
                     let ohlcvs = ohlcvs_map.entry(cache_key).or_insert_with(VecDeque::new);
 
                     // Enforce cache size limit
-                    const MAX_OHLCVS: usize = 1000;
                     if ohlcvs.len() >= MAX_OHLCVS {
                         ohlcvs.pop_front();
                     }
@@ -3085,6 +3081,8 @@ impl Binance {
     /// # Returns
     /// Latest bid/ask snapshot
     pub async fn watch_bids_asks(&self, symbol: &str) -> Result<BidAsk> {
+        const MAX_RETRIES: u32 = 50;
+
         // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
@@ -3104,7 +3102,6 @@ impl Binance {
 
         // Process incoming messages
         let mut retries = 0;
-        const MAX_RETRIES: u32 = 50;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
@@ -3169,13 +3166,15 @@ impl Binance {
         self: Arc<Self>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<Balance> {
+        const MAX_RETRIES: u32 = 100;
+
         // Ensure market metadata is loaded
         self.base.load_markets(false).await?;
 
         // Resolve account type
         let account_type = if let Some(p) = &params {
             p.get("type")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .unwrap_or_else(|| self.options.default_type.as_str())
         } else {
             self.options.default_type.as_str()
@@ -3184,7 +3183,7 @@ impl Binance {
         // Determine configuration flags
         let fetch_snapshot = if let Some(p) = &params {
             p.get("fetchBalanceSnapshot")
-                .and_then(|v| v.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false)
         } else {
             false
@@ -3192,7 +3191,7 @@ impl Binance {
 
         let await_snapshot = if let Some(p) = &params {
             p.get("awaitBalanceSnapshot")
-                .and_then(|v| v.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(true)
         } else {
             true
@@ -3219,7 +3218,6 @@ impl Binance {
 
         // Process balance update messages
         let mut retries = 0;
-        const MAX_RETRIES: u32 = 100;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
@@ -3231,18 +3229,18 @@ impl Binance {
                 // Determine message event type
                 if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
                     // Handle supported balance message types
-                    match event_type {
-                        "balanceUpdate" | "outboundAccountPosition" | "ACCOUNT_UPDATE" => {
-                            // Parse and update local balance cache
-                            if let Ok(()) = ws.handle_balance_message(&msg, account_type).await {
-                                // Retrieve the updated balance snapshot
-                                let balances = ws.balances.read().await;
-                                if let Some(balance) = balances.get(account_type) {
-                                    return Ok(balance.clone());
-                                }
+                    if matches!(
+                        event_type,
+                        "balanceUpdate" | "outboundAccountPosition" | "ACCOUNT_UPDATE"
+                    ) {
+                        // Parse and update local balance cache
+                        if let Ok(()) = ws.handle_balance_message(&msg, account_type).await {
+                            // Retrieve the updated balance snapshot
+                            let balances = ws.balances.read().await;
+                            if let Some(balance) = balances.get(account_type) {
+                                return Ok(balance.clone());
                             }
                         }
-                        _ => {}
                     }
                 }
             }
@@ -3302,46 +3300,45 @@ impl Binance {
         loop {
             if let Some(msg) = ws.client.receive().await {
                 if let Value::Object(data) = msg {
-                    if let Some(event_type) = data.get("e").and_then(|v| v.as_str()) {
-                        match event_type {
-                            "executionReport" => {
-                                // Parse order payload
-                                let order = self.parse_ws_order(&data)?;
+                    if let Some(event_type) = data.get("e").and_then(serde_json::Value::as_str) {
+                        if event_type == "executionReport" {
+                            // Parse order payload
+                            let order = Binance::parse_ws_order(&data);
 
-                                // Update order cache
-                                let mut orders = ws.orders.write().await;
-                                let symbol_orders = orders
-                                    .entry(order.symbol.clone())
-                                    .or_insert_with(HashMap::new);
-                                symbol_orders.insert(order.id.clone(), order.clone());
-                                drop(orders);
+                            // Update order cache
+                            let mut orders = ws.orders.write().await;
+                            let symbol_orders = orders
+                                .entry(order.symbol.clone())
+                                .or_insert_with(HashMap::new);
+                            symbol_orders.insert(order.id.clone(), order.clone());
+                            drop(orders);
 
-                                // Check for trade execution events
-                                if let Some(exec_type) = data.get("x").and_then(|v| v.as_str()) {
-                                    if exec_type == "TRADE" {
-                                        // Parse execution trade payload
-                                        if let Ok(trade) =
-                                            ws.parse_ws_trade(&Value::Object(data.clone()))
-                                        {
-                                            // Update my trades cache
-                                            let mut trades = ws.my_trades.write().await;
-                                            let symbol_trades = trades
-                                                .entry(trade.symbol.clone())
-                                                .or_insert_with(VecDeque::new);
+                            // Check for trade execution events
+                            if let Some(exec_type) =
+                                data.get("x").and_then(serde_json::Value::as_str)
+                            {
+                                if exec_type == "TRADE" {
+                                    // Parse execution trade payload
+                                    if let Ok(trade) =
+                                        BinanceWs::parse_ws_trade(&Value::Object(data.clone()))
+                                    {
+                                        // Update my trades cache
+                                        let mut trades = ws.my_trades.write().await;
+                                        let symbol_trades = trades
+                                            .entry(trade.symbol.clone())
+                                            .or_insert_with(VecDeque::new);
 
-                                            // Prepend newest trade and enforce max length of 1000
-                                            symbol_trades.push_front(trade);
-                                            if symbol_trades.len() > 1000 {
-                                                symbol_trades.pop_back();
-                                            }
+                                        // Prepend newest trade and enforce max length of 1000
+                                        symbol_trades.push_front(trade);
+                                        if symbol_trades.len() > 1000 {
+                                            symbol_trades.pop_back();
                                         }
                                     }
                                 }
-
-                                // Return filtered orders
-                                return self.filter_orders(&ws, symbol, since, limit).await;
                             }
-                            _ => continue,
+
+                            // Return filtered orders
+                            return self.filter_orders(&ws, symbol, since, limit).await;
                         }
                     }
                 }
@@ -3352,25 +3349,32 @@ impl Binance {
     }
 
     /// Parses a WebSocket order message
-    fn parse_ws_order(&self, data: &serde_json::Map<String, Value>) -> Result<Order> {
+    fn parse_ws_order(data: &serde_json::Map<String, Value>) -> Order {
         use ccxt_core::types::{OrderSide, OrderStatus, OrderType};
         use rust_decimal::Decimal;
         use std::str::FromStr;
 
         // Extract core fields
-        let symbol = data.get("s").and_then(|v| v.as_str()).unwrap_or("");
+        let symbol = data
+            .get("s")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         let order_id = data
             .get("i")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|id| id.to_string())
             .unwrap_or_default();
-        let client_order_id = data.get("c").and_then(|v| v.as_str()).map(String::from);
+        let client_order_id = data
+            .get("c")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from);
 
         // Map order status
-        let status_str = data.get("X").and_then(|v| v.as_str()).unwrap_or("NEW");
+        let status_str = data
+            .get("X")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("NEW");
         let status = match status_str {
-            "NEW" => OrderStatus::Open,
-            "PARTIALLY_FILLED" => OrderStatus::Open,
             "FILLED" => OrderStatus::Closed,
             "CANCELED" => OrderStatus::Cancelled,
             "REJECTED" => OrderStatus::Rejected,
@@ -3379,17 +3383,21 @@ impl Binance {
         };
 
         // Map order side
-        let side_str = data.get("S").and_then(|v| v.as_str()).unwrap_or("BUY");
+        let side_str = data
+            .get("S")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("BUY");
         let side = match side_str {
-            "BUY" => OrderSide::Buy,
             "SELL" => OrderSide::Sell,
             _ => OrderSide::Buy,
         };
 
         // Map order type
-        let type_str = data.get("o").and_then(|v| v.as_str()).unwrap_or("LIMIT");
+        let type_str = data
+            .get("o")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("LIMIT");
         let order_type = match type_str {
-            "LIMIT" => OrderType::Limit,
             "MARKET" => OrderType::Market,
             "STOP_LOSS" => OrderType::StopLoss,
             "STOP_LOSS_LIMIT" => OrderType::StopLossLimit,
@@ -3402,30 +3410,27 @@ impl Binance {
         // Parse amount and price fields
         let amount = data
             .get("q")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok())
             .unwrap_or(Decimal::ZERO);
 
         let price = data
             .get("p")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok());
 
         let filled = data
             .get("z")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok());
 
         let cost = data
             .get("Z")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .and_then(|s| Decimal::from_str(s).ok());
 
         // Derive remaining quantity
-        let remaining = match filled {
-            Some(fill) => Some(amount - fill),
-            None => None,
-        };
+        let remaining = filled.map(|fill| amount - fill);
 
         // Compute average price
         let average = match (filled, cost) {
@@ -3434,10 +3439,10 @@ impl Binance {
         };
 
         // Parse timestamps
-        let timestamp = data.get("T").and_then(|v| v.as_i64());
-        let last_trade_timestamp = data.get("T").and_then(|v| v.as_i64());
+        let timestamp = data.get("T").and_then(serde_json::Value::as_i64);
+        let last_trade_timestamp = data.get("T").and_then(serde_json::Value::as_i64);
 
-        Ok(Order {
+        Order {
             id: order_id,
             client_order_id,
             timestamp,
@@ -3460,12 +3465,15 @@ impl Binance {
             fee: None,
             fees: None,
             trades: None,
-            time_in_force: data.get("f").and_then(|v| v.as_str()).map(String::from),
+            time_in_force: data
+                .get("f")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from),
             post_only: None,
             reduce_only: None,
             stop_price: data
                 .get("P")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .and_then(|s| Decimal::from_str(s).ok()),
             trigger_price: None,
             take_profit_price: None,
@@ -3474,9 +3482,12 @@ impl Binance {
             trailing_percent: None,
             activation_price: None,
             callback_rate: None,
-            working_type: data.get("wt").and_then(|v| v.as_str()).map(String::from),
+            working_type: data
+                .get("wt")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from),
             info: data.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-        })
+        }
     }
 
     /// Filters cached orders by symbol, time range, and limit
@@ -3504,7 +3515,7 @@ impl Binance {
 
         // Apply optional `since` filter
         if let Some(since_ts) = since {
-            orders.retain(|order| order.timestamp.map_or(false, |ts| ts >= since_ts));
+            orders.retain(|order| order.timestamp.is_some_and(|ts| ts >= since_ts));
         }
 
         // Sort by timestamp descending
@@ -3559,13 +3570,14 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Trade>> {
+        const MAX_RETRIES: u32 = 100;
+
         // Establish authenticated WebSocket connection
         let ws = self.create_authenticated_ws();
         ws.connect().await?;
 
         // Process trade update messages
         let mut retries = 0;
-        const MAX_RETRIES: u32 = 100;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
@@ -3578,7 +3590,7 @@ impl Binance {
                 if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
                     // Handle executionReport events containing trade updates
                     if event_type == "executionReport" {
-                        if let Ok(trade) = ws.parse_ws_trade(&msg) {
+                        if let Ok(trade) = BinanceWs::parse_ws_trade(&msg) {
                             let symbol_key = trade.symbol.clone();
 
                             // Update cached trades
@@ -3676,13 +3688,14 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Position>> {
+        const MAX_RETRIES: u32 = 100;
+
         // Establish authenticated WebSocket connection
         let ws = self.create_authenticated_ws();
         ws.connect().await?;
 
         // Process position update messages
         let mut retries = 0;
-        const MAX_RETRIES: u32 = 100;
 
         while retries < MAX_RETRIES {
             if let Some(msg) = ws.client.receive().await {
@@ -3699,7 +3712,8 @@ impl Binance {
                                 account_data.get("P").and_then(|p| p.as_array())
                             {
                                 for position_data in positions_array {
-                                    if let Ok(position) = ws.parse_ws_position(position_data).await
+                                    if let Ok(position) =
+                                        BinanceWs::parse_ws_position(position_data)
                                     {
                                         let symbol_key = position.symbol.clone();
                                         let side_key = position
@@ -3736,7 +3750,7 @@ impl Binance {
         }
 
         // Filter and return positions
-        let symbols_ref = symbols.as_ref().map(|v| v.as_slice());
+        let symbols_ref = symbols.as_deref();
         ws.filter_positions(symbols_ref, since, limit).await
     }
 }

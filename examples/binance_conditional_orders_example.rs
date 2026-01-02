@@ -1,5 +1,6 @@
 // Allow clippy warnings for example code - examples prioritize readability over strict linting
 #![allow(unused_variables)]
+#![allow(deprecated)]
 
 use ccxt_core::ExchangeConfig;
 use ccxt_core::types::{Amount, Price};

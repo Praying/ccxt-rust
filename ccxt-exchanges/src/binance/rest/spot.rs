@@ -438,7 +438,7 @@ impl Binance {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse order");
@@ -628,7 +628,7 @@ impl Binance {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse order");
@@ -657,6 +657,7 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if authentication fails or the API request fails.
+    #[allow(deprecated)]
     pub async fn create_stop_loss_order(
         &self,
         symbol: &str,
@@ -705,6 +706,7 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if authentication fails or the API request fails.
+    #[allow(deprecated)]
     pub async fn create_take_profit_order(
         &self,
         symbol: &str,
@@ -753,6 +755,7 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if authentication fails or the API request fails.
+    #[allow(deprecated)]
     pub async fn create_trailing_stop_order(
         &self,
         symbol: &str,

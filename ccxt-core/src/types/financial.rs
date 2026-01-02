@@ -61,9 +61,9 @@ impl Price {
     /// ```rust
     /// use ccxt_core::types::financial::Price;
     ///
-    /// let price = Price::from_str("50000.50").unwrap();
+    /// let price = Price::parse("50000.50").unwrap();
     /// ```
-    pub fn from_str(s: &str) -> Result<Self, rust_decimal::Error> {
+    pub fn parse(s: &str) -> Result<Self, rust_decimal::Error> {
         s.parse::<Decimal>().map(Self)
     }
 
@@ -102,7 +102,7 @@ impl FromStr for Price {
     type Err = rust_decimal::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s)
+        Self::parse(s)
     }
 }
 
@@ -140,7 +140,7 @@ impl Amount {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed as a valid `Decimal`.
-    pub fn from_str(s: &str) -> Result<Self, rust_decimal::Error> {
+    pub fn parse(s: &str) -> Result<Self, rust_decimal::Error> {
         s.parse::<Decimal>().map(Self)
     }
 
@@ -199,7 +199,7 @@ impl FromStr for Amount {
     type Err = rust_decimal::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s)
+        Self::parse(s)
     }
 }
 
@@ -237,7 +237,7 @@ impl Cost {
     /// # Errors
     ///
     /// Returns an error if the string cannot be parsed as a valid `Decimal`.
-    pub fn from_str(s: &str) -> Result<Self, rust_decimal::Error> {
+    pub fn parse(s: &str) -> Result<Self, rust_decimal::Error> {
         s.parse::<Decimal>().map(Self)
     }
 
@@ -282,7 +282,7 @@ impl FromStr for Cost {
     type Err = rust_decimal::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s)
+        Self::parse(s)
     }
 }
 

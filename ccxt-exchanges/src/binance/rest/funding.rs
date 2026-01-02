@@ -199,7 +199,7 @@ impl Binance {
 
         let data = self
             .signed_request(url)
-            .optional_param("coin", code.map(|c| c.to_uppercase()))
+            .optional_param("coin", code.map(str::to_uppercase))
             .optional_param("startTime", since)
             .optional_param("limit", limit)
             .params(params.unwrap_or_default())
@@ -268,7 +268,7 @@ impl Binance {
 
         let data = self
             .signed_request(url)
-            .optional_param("coin", code.map(|c| c.to_uppercase()))
+            .optional_param("coin", code.map(str::to_uppercase))
             .optional_param("startTime", since)
             .optional_param("limit", limit)
             .params(params.unwrap_or_default())

@@ -34,7 +34,7 @@ fn symbol_strategy() -> impl Strategy<Value = Option<String>> {
         Just(Some("BTCUSDT".to_string())),
         Just(Some("ETHUSDT".to_string())),
         Just(Some("SOLUSDT".to_string())),
-        "[A-Z]{3,6}".prop_map(|s| Some(s)),
+        "[A-Z]{3,6}".prop_map(Some),
     ]
 }
 
@@ -80,7 +80,7 @@ proptest! {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .unwrap();
+                    .expect("Failed to build tokio runtime");
 
                 rt.block_on(async {
                     for op_id in 0..ops_per_thread {
@@ -106,7 +106,7 @@ proptest! {
                             }
                             _ => {
                                 // Check subscription
-                                let _ = client_clone.is_subscribed(&channel, &symbol);
+                                let _ = client_clone.is_subscribed(&channel, symbol.as_ref());
                             }
                         }
                     }
@@ -148,7 +148,7 @@ proptest! {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .unwrap();
+                    .expect("Failed to build tokio runtime");
 
                 rt.block_on(async {
                     for op_id in 0..ops_per_thread {
@@ -194,7 +194,7 @@ proptest! {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             rt.block_on(async {
                 for i in 0..5 {
                     let _ = client.subscribe(format!("channel_{}", i), None, None).await;
@@ -211,7 +211,7 @@ proptest! {
                 let mut results = Vec::with_capacity(ops_per_thread);
                 for i in 0..ops_per_thread {
                     let channel = format!("channel_{}", i % 10);
-                    let is_sub = client_clone.is_subscribed(&channel, &None);
+                    let is_sub = client_clone.is_subscribed(&channel, None);
                     results.push(is_sub);
                 }
                 results
@@ -361,13 +361,13 @@ proptest! {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("Failed to build tokio runtime");
 
         rt.block_on(async {
             let _ = client.subscribe(channel.clone(), symbol.clone(), None).await;
         });
 
-        let is_subscribed = client.is_subscribed(&channel, &symbol);
+        let is_subscribed = client.is_subscribed(&channel, symbol.as_ref());
         prop_assert!(is_subscribed, "Should be subscribed after add");
     }
 
@@ -386,14 +386,14 @@ proptest! {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("Failed to build tokio runtime");
 
         rt.block_on(async {
             let _ = client.subscribe(channel.clone(), symbol.clone(), None).await;
             let _ = client.unsubscribe(channel.clone(), symbol.clone()).await;
         });
 
-        let is_subscribed = client.is_subscribed(&channel, &symbol);
+        let is_subscribed = client.is_subscribed(&channel, symbol.as_ref());
         prop_assert!(!is_subscribed, "Should not be subscribed after remove");
     }
 
@@ -444,23 +444,23 @@ mod unit_tests {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("Failed to build tokio runtime");
 
         rt.block_on(async {
             // Add subscription
             client
                 .subscribe("ticker".to_string(), Some("BTCUSDT".to_string()), None)
                 .await
-                .unwrap();
-            assert!(client.is_subscribed("ticker", &Some("BTCUSDT".to_string())));
+                .expect("Failed to subscribe");
+            assert!(client.is_subscribed("ticker", Some(&"BTCUSDT".to_string())));
             assert_eq!(client.subscription_count(), 1);
 
             // Remove subscription
             client
                 .unsubscribe("ticker".to_string(), Some("BTCUSDT".to_string()))
                 .await
-                .unwrap();
-            assert!(!client.is_subscribed("ticker", &Some("BTCUSDT".to_string())));
+                .expect("Failed to unsubscribe");
+            assert!(!client.is_subscribed("ticker", Some(&"BTCUSDT".to_string())));
             assert_eq!(client.subscription_count(), 0);
         });
     }
@@ -481,17 +481,17 @@ mod unit_tests {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .unwrap();
+                    .expect("Failed to build tokio runtime");
                 rt.block_on(async {
                     c.subscribe(format!("channel_{}", i), None, None)
                         .await
-                        .unwrap();
+                        .expect("Failed to subscribe");
                 });
             }));
         }
 
         for h in handles {
-            h.join().unwrap();
+            h.join().expect("Thread should not panic");
         }
 
         assert_eq!(client.subscription_count(), 4);

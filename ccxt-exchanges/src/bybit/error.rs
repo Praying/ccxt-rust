@@ -109,12 +109,12 @@ impl BybitErrorCode {
 pub fn parse_error(response: &Value) -> Error {
     let code = response
         .get("retCode")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .unwrap_or(0);
 
     let msg = response
         .get("retMsg")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("Unknown error");
 
     let error_code = BybitErrorCode::from_code(code);
@@ -133,8 +133,9 @@ pub fn parse_error(response: &Value) -> Error {
             Error::insufficient_balance(msg.to_string())
         }
         BybitErrorCode::BadSymbol => Error::bad_symbol(msg.to_string()),
-        BybitErrorCode::OrderNotFound => Error::exchange(code.to_string(), msg),
-        BybitErrorCode::Unknown(_) => Error::exchange(code.to_string(), msg),
+        BybitErrorCode::OrderNotFound | BybitErrorCode::Unknown(_) => {
+            Error::exchange(code.to_string(), msg)
+        }
     }
 }
 
@@ -150,11 +151,7 @@ pub fn parse_error(response: &Value) -> Error {
 ///
 /// `true` if the response indicates an error, `false` otherwise.
 pub fn is_error_response(response: &Value) -> bool {
-    response
-        .get("retCode")
-        .and_then(|v| v.as_i64())
-        .map(|code| code != 0)
-        .unwrap_or(true)
+    response.get("retCode").and_then(serde_json::Value::as_i64) != Some(0)
 }
 
 /// Extracts the error code from a Bybit API response.
@@ -169,7 +166,7 @@ pub fn is_error_response(response: &Value) -> bool {
 pub fn extract_error_code(response: &Value) -> i64 {
     response
         .get("retCode")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .unwrap_or(0)
 }
 
@@ -185,7 +182,7 @@ pub fn extract_error_code(response: &Value) -> i64 {
 pub fn extract_error_message(response: &Value) -> &str {
     response
         .get("retMsg")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("Unknown error")
 }
 

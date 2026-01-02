@@ -46,19 +46,19 @@ pub enum SymbolError {
 impl fmt::Display for SymbolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidFormat(msg) => write!(f, "Invalid symbol format: {}", msg),
+            Self::InvalidFormat(msg) => write!(f, "Invalid symbol format: {msg}"),
             Self::MissingComponent(component) => {
-                write!(f, "Missing required component: {}", component)
+                write!(f, "Missing required component: {component}")
             }
-            Self::InvalidCurrency(code) => write!(f, "Invalid currency code: {}", code),
+            Self::InvalidCurrency(code) => write!(f, "Invalid currency code: {code}"),
             Self::InvalidExpiryDate { year, month, day } => {
-                write!(f, "Invalid expiry date: {:02}{:02}{:02}", year, month, day)
+                write!(f, "Invalid expiry date: {year:02}{month:02}{day:02}")
             }
             Self::UnexpectedDateSuffix => write!(f, "Unexpected date suffix in swap symbol"),
             Self::MissingDateSuffix => write!(f, "Missing date suffix in futures symbol"),
             Self::EmptySymbol => write!(f, "Symbol string is empty"),
             Self::MultipleColons => write!(f, "Symbol contains multiple colons"),
-            Self::InvalidDateFormat(msg) => write!(f, "Invalid date format: {}", msg),
+            Self::InvalidDateFormat(msg) => write!(f, "Invalid date format: {msg}"),
         }
     }
 }

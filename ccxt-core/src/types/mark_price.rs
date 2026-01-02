@@ -191,8 +191,7 @@ impl MarkPrice {
     /// `true` if deviation exceeds threshold, `false` if index price is unavailable.
     pub fn is_deviation_excessive(&self, threshold_percent: Decimal) -> bool {
         self.basis_rate()
-            .map(|rate| rate.abs() > threshold_percent)
-            .unwrap_or(false)
+            .is_some_and(|rate| rate.abs() > threshold_percent)
     }
 
     /// Checks if the mark price is at a premium (mark price > index price).
@@ -200,7 +199,7 @@ impl MarkPrice {
     /// # Returns
     /// `true` if at premium, `false` if index price is unavailable.
     pub fn is_premium(&self) -> bool {
-        self.basis().map(|b| b > Decimal::ZERO).unwrap_or(false)
+        self.basis().is_some_and(|b| b > Decimal::ZERO)
     }
 
     /// Checks if the mark price is at a discount (mark price < index price).
@@ -208,7 +207,7 @@ impl MarkPrice {
     /// # Returns
     /// `true` if at discount, `false` if index price is unavailable.
     pub fn is_discount(&self) -> bool {
-        self.basis().map(|b| b < Decimal::ZERO).unwrap_or(false)
+        self.basis().is_some_and(|b| b < Decimal::ZERO)
     }
 
     /// Checks if the funding rate is positive.
@@ -216,9 +215,7 @@ impl MarkPrice {
     /// # Returns
     /// `true` if funding rate is positive, `false` if not available.
     pub fn is_funding_positive(&self) -> bool {
-        self.last_funding_rate
-            .map(|fr| fr > Decimal::ZERO)
-            .unwrap_or(false)
+        self.last_funding_rate.is_some_and(|fr| fr > Decimal::ZERO)
     }
 
     /// Checks if the data is valid.

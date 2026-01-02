@@ -83,7 +83,7 @@ pub trait BitgetEndpointRouter {
     /// let url = bitget.rest_endpoint();
     /// assert_eq!(url, "https://api.bitget.com");
     /// ```
-    fn rest_endpoint(&self) -> &str;
+    fn rest_endpoint(&self) -> &'static str;
 
     /// Returns the WebSocket endpoint for a specific endpoint type.
     ///
@@ -132,7 +132,7 @@ pub trait BitgetEndpointRouter {
 use super::Bitget;
 
 impl BitgetEndpointRouter for Bitget {
-    fn rest_endpoint(&self) -> &str {
+    fn rest_endpoint(&self) -> &'static str {
         // Return static reference based on sandbox mode
         // This matches the pattern used by other exchanges
         if self.is_sandbox() {

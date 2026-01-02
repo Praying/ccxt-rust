@@ -34,7 +34,10 @@ async fn test_create_stop_loss_market_order() {
             assert_eq!(order.side, OrderSide::Sell);
             assert_eq!(order.order_type, OrderType::StopLoss);
             assert!(order.stop_price.is_some());
-            assert_eq!(order.stop_price.unwrap(), dec!(45000.0));
+            assert_eq!(
+                order.stop_price.expect("stop_price should be Some"),
+                dec!(45000.0)
+            );
             println!(
                 "✅ Market stop-loss order created successfully: {:?}",
                 order
@@ -80,8 +83,11 @@ async fn test_create_stop_loss_limit_order() {
             assert_eq!(order.order_type, OrderType::StopLossLimit);
             assert!(order.stop_price.is_some());
             assert!(order.price.is_some());
-            assert_eq!(order.stop_price.unwrap(), dec!(45000.0));
-            assert_eq!(order.price.unwrap(), dec!(44900.0));
+            assert_eq!(
+                order.stop_price.expect("stop_price should be Some"),
+                dec!(45000.0)
+            );
+            assert_eq!(order.price.expect("price should be Some"), dec!(44900.0));
             println!("✅ Limit stop-loss order created successfully: {:?}", order);
         }
         Err(e) => {
@@ -123,7 +129,10 @@ async fn test_create_take_profit_market_order() {
             assert_eq!(order.side, OrderSide::Sell);
             assert_eq!(order.order_type, OrderType::TakeProfit);
             assert!(order.take_profit_price.is_some());
-            assert_eq!(order.stop_price.unwrap(), dec!(55000.0));
+            assert_eq!(
+                order.stop_price.expect("stop_price should be Some"),
+                dec!(55000.0)
+            );
             println!(
                 "✅ Market take-profit order created successfully: {:?}",
                 order
@@ -169,8 +178,11 @@ async fn test_create_take_profit_limit_order() {
             assert_eq!(order.order_type, OrderType::TakeProfitLimit);
             assert!(order.take_profit_price.is_some());
             assert!(order.price.is_some());
-            assert_eq!(order.stop_price.unwrap(), dec!(55000.0));
-            assert_eq!(order.price.unwrap(), dec!(55100.0));
+            assert_eq!(
+                order.stop_price.expect("stop_price should be Some"),
+                dec!(55000.0)
+            );
+            assert_eq!(order.price.expect("price should be Some"), dec!(55100.0));
             println!(
                 "✅ Limit take-profit order created successfully: {:?}",
                 order
@@ -257,7 +269,12 @@ async fn test_create_trailing_stop_order_with_activation() {
             assert_eq!(order.order_type, OrderType::TrailingStop);
             assert!(order.trailing_percent.is_some());
             assert!(order.activation_price.is_some());
-            assert_eq!(order.activation_price.unwrap(), dec!(52000.0));
+            assert_eq!(
+                order
+                    .activation_price
+                    .expect("activation_price should be Some"),
+                dec!(52000.0)
+            );
             println!(
                 "✅ Trailing stop order with activation price created successfully: {:?}",
                 order
@@ -456,7 +473,10 @@ async fn test_stop_price_mapping() {
     match result {
         Ok(order) => {
             assert!(order.stop_price.is_some());
-            assert_eq!(order.stop_price.unwrap(), dec!(45000.0));
+            assert_eq!(
+                order.stop_price.expect("stop_price should be Some"),
+                dec!(45000.0)
+            );
             println!("✅ stopLossPrice自动映射到stopPrice成功");
         }
         Err(e) => {

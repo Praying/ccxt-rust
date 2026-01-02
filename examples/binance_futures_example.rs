@@ -5,6 +5,7 @@
 
 // Allow clippy warnings for example code - examples prioritize readability over strict linting
 #![allow(clippy::disallowed_methods)]
+#![allow(deprecated)]
 
 use ccxt_core::ExchangeConfig;
 use ccxt_core::error::Result;

@@ -71,7 +71,7 @@ pub trait BybitEndpointRouter {
     /// let url = bybit.rest_endpoint();
     /// assert!(url.contains("api.bybit.com"));
     /// ```
-    fn rest_endpoint(&self) -> &str;
+    fn rest_endpoint(&self) -> &'static str;
 
     /// Returns the public WebSocket endpoint for a specific category.
     ///
@@ -132,7 +132,7 @@ pub trait BybitEndpointRouter {
 use super::Bybit;
 
 impl BybitEndpointRouter for Bybit {
-    fn rest_endpoint(&self) -> &str {
+    fn rest_endpoint(&self) -> &'static str {
         // Use the existing urls() method which already handles sandbox mode
         // We need to return a reference, so we'll use a static approach
         // based on sandbox mode
