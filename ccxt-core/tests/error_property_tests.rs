@@ -53,24 +53,24 @@ fn error_strategy() -> impl Strategy<Value = Error> {
         // Network error
         error_message_strategy().prop_map(Error::network),
         // Authentication error
-        error_message_strategy().prop_map(|msg| Error::authentication(msg)),
+        error_message_strategy().prop_map(Error::authentication),
         // Rate limit error
         (error_message_strategy(), retry_duration_strategy())
             .prop_map(|(msg, retry)| Error::rate_limit(msg, retry)),
         // Invalid request error
-        error_message_strategy().prop_map(|msg| Error::invalid_request(msg)),
+        error_message_strategy().prop_map(Error::invalid_request),
         // Insufficient balance error
-        error_message_strategy().prop_map(|msg| Error::insufficient_balance(msg)),
+        error_message_strategy().prop_map(Error::insufficient_balance),
         // Invalid order error
         error_message_strategy().prop_map(|msg| Error::InvalidOrder(msg.into())),
         // Order not found error
         error_message_strategy().prop_map(|msg| Error::OrderNotFound(msg.into())),
         // Market not found error
-        error_message_strategy().prop_map(|msg| Error::market_not_found(msg)),
+        error_message_strategy().prop_map(Error::market_not_found),
         // Timeout error
-        error_message_strategy().prop_map(|msg| Error::timeout(msg)),
+        error_message_strategy().prop_map(Error::timeout),
         // Not implemented error
-        error_message_strategy().prop_map(|msg| Error::not_implemented(msg)),
+        error_message_strategy().prop_map(Error::not_implemented),
         // WebSocket error
         error_message_strategy().prop_map(Error::websocket),
     ]
@@ -110,7 +110,7 @@ fn parse_error_strategy() -> impl Strategy<Value = ParseError> {
         proptest::strategy::LazyJust::new(|| ParseError::missing_field("test_field")),
         (error_message_strategy(), error_message_strategy())
             .prop_map(|(field, msg)| ParseError::invalid_value(field, msg)),
-        error_message_strategy().prop_map(|msg| ParseError::timestamp_owned(msg)),
+        error_message_strategy().prop_map(ParseError::timestamp_owned),
         (error_message_strategy(), error_message_strategy())
             .prop_map(|(field, msg)| ParseError::invalid_format(field, msg)),
     ]

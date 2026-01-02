@@ -135,7 +135,7 @@ pub trait OkxEndpointRouter {
     /// let url = okx.rest_endpoint();
     /// assert_eq!(url, "https://www.okx.com");
     /// ```
-    fn rest_endpoint(&self) -> &str;
+    fn rest_endpoint(&self) -> &'static str;
 
     /// Returns the WebSocket endpoint for a specific channel type.
     ///
@@ -215,7 +215,7 @@ pub trait OkxEndpointRouter {
 use super::Okx;
 
 impl OkxEndpointRouter for Okx {
-    fn rest_endpoint(&self) -> &str {
+    fn rest_endpoint(&self) -> &'static str {
         // OKX uses the same REST domain for both production and demo trading.
         // Demo mode is indicated by the `x-simulated-trading: 1` header,
         // not by a different URL.

@@ -275,22 +275,21 @@ impl FromStr for ExpiryDate {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() != 6 {
             return Err(SymbolError::InvalidFormat(format!(
-                "Expiry date must be 6 characters (YYMMDD), got: {}",
-                s
+                "Expiry date must be 6 characters (YYMMDD), got: {s}"
             )));
         }
 
         let year: u8 = s[0..2]
             .parse()
-            .map_err(|_| SymbolError::InvalidFormat(format!("Invalid year in expiry: {}", s)))?;
+            .map_err(|_| SymbolError::InvalidFormat(format!("Invalid year in expiry: {s}")))?;
 
         let month: u8 = s[2..4]
             .parse()
-            .map_err(|_| SymbolError::InvalidFormat(format!("Invalid month in expiry: {}", s)))?;
+            .map_err(|_| SymbolError::InvalidFormat(format!("Invalid month in expiry: {s}")))?;
 
         let day: u8 = s[4..6]
             .parse()
-            .map_err(|_| SymbolError::InvalidFormat(format!("Invalid day in expiry: {}", s)))?;
+            .map_err(|_| SymbolError::InvalidFormat(format!("Invalid day in expiry: {s}")))?;
 
         Self::new(year, month, day)
     }
@@ -375,7 +374,7 @@ impl fmt::Display for ContractType {
 /// let futures = ParsedSymbol::futures("BTC".to_string(), "USDT".to_string(), "USDT".to_string(), expiry);
 /// assert_eq!(futures.to_string(), "BTC/USDT:USDT-241231");
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ParsedSymbol {
     /// Base currency (e.g., "BTC")
     pub base: String,
@@ -403,10 +402,10 @@ impl ParsedSymbol {
     /// let symbol = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
     /// assert_eq!(symbol.to_string(), "BTC/USDT");
     /// ```
-    pub fn spot(base: String, quote: String) -> Self {
+    pub fn spot(base: impl AsRef<str>, quote: impl AsRef<str>) -> Self {
         Self {
-            base: base.to_uppercase(),
-            quote: quote.to_uppercase(),
+            base: base.as_ref().to_uppercase(),
+            quote: quote.as_ref().to_uppercase(),
             settle: None,
             expiry: None,
         }
@@ -427,10 +426,10 @@ impl ParsedSymbol {
     /// let symbol = ParsedSymbol::linear_swap("BTC".to_string(), "USDT".to_string());
     /// assert_eq!(symbol.to_string(), "BTC/USDT:USDT");
     /// ```
-    pub fn linear_swap(base: String, quote: String) -> Self {
-        let quote_upper = quote.to_uppercase();
+    pub fn linear_swap(base: impl AsRef<str>, quote: impl AsRef<str>) -> Self {
+        let quote_upper = quote.as_ref().to_uppercase();
         Self {
-            base: base.to_uppercase(),
+            base: base.as_ref().to_uppercase(),
             quote: quote_upper.clone(),
             settle: Some(quote_upper),
             expiry: None,
@@ -452,11 +451,11 @@ impl ParsedSymbol {
     /// let symbol = ParsedSymbol::inverse_swap("BTC".to_string(), "USD".to_string());
     /// assert_eq!(symbol.to_string(), "BTC/USD:BTC");
     /// ```
-    pub fn inverse_swap(base: String, quote: String) -> Self {
-        let base_upper = base.to_uppercase();
+    pub fn inverse_swap(base: impl AsRef<str>, quote: impl AsRef<str>) -> Self {
+        let base_upper = base.as_ref().to_uppercase();
         Self {
             base: base_upper.clone(),
-            quote: quote.to_uppercase(),
+            quote: quote.as_ref().to_uppercase(),
             settle: Some(base_upper),
             expiry: None,
         }
@@ -469,11 +468,11 @@ impl ParsedSymbol {
     /// * `base` - Base currency code
     /// * `quote` - Quote currency code
     /// * `settle` - Settlement currency code
-    pub fn swap(base: String, quote: String, settle: String) -> Self {
+    pub fn swap(base: impl AsRef<str>, quote: impl AsRef<str>, settle: impl AsRef<str>) -> Self {
         Self {
-            base: base.to_uppercase(),
-            quote: quote.to_uppercase(),
-            settle: Some(settle.to_uppercase()),
+            base: base.as_ref().to_uppercase(),
+            quote: quote.as_ref().to_uppercase(),
+            settle: Some(settle.as_ref().to_uppercase()),
             expiry: None,
         }
     }
@@ -496,11 +495,16 @@ impl ParsedSymbol {
     /// let symbol = ParsedSymbol::futures("BTC".to_string(), "USDT".to_string(), "USDT".to_string(), expiry);
     /// assert_eq!(symbol.to_string(), "BTC/USDT:USDT-241231");
     /// ```
-    pub fn futures(base: String, quote: String, settle: String, expiry: ExpiryDate) -> Self {
+    pub fn futures(
+        base: impl AsRef<str>,
+        quote: impl AsRef<str>,
+        settle: impl AsRef<str>,
+        expiry: ExpiryDate,
+    ) -> Self {
         Self {
-            base: base.to_uppercase(),
-            quote: quote.to_uppercase(),
-            settle: Some(settle.to_uppercase()),
+            base: base.as_ref().to_uppercase(),
+            quote: quote.as_ref().to_uppercase(),
+            settle: Some(settle.as_ref().to_uppercase()),
             expiry: Some(expiry),
         }
     }
@@ -514,9 +518,7 @@ impl ParsedSymbol {
         match (&self.settle, &self.expiry) {
             (None, None) => SymbolMarketType::Spot,
             (Some(_), None) => SymbolMarketType::Swap,
-            (Some(_), Some(_)) => SymbolMarketType::Futures,
-            // Edge case: expiry without settle (shouldn't happen in valid symbols)
-            (None, Some(_)) => SymbolMarketType::Futures,
+            (Some(_) | None, Some(_)) => SymbolMarketType::Futures,
         }
     }
 
@@ -589,26 +591,15 @@ impl Hash for ParsedSymbol {
     }
 }
 
-impl Default for ParsedSymbol {
-    fn default() -> Self {
-        Self {
-            base: String::new(),
-            quote: String::new(),
-            settle: None,
-            expiry: None,
-        }
-    }
-}
-
 impl fmt::Display for ParsedSymbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.base, self.quote)?;
 
         if let Some(ref settle) = self.settle {
-            write!(f, ":{}", settle)?;
+            write!(f, ":{settle}")?;
 
             if let Some(ref expiry) = self.expiry {
-                write!(f, "-{}", expiry)?;
+                write!(f, "-{expiry}")?;
             }
         }
 

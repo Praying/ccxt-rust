@@ -101,10 +101,8 @@ pub fn parse_market(data: &Value) -> Result<Market> {
     // Contract type - Bybit uses "contractType" for derivatives
     let contract_type = data["contractType"].as_str();
     let market_type = match contract_type {
-        Some("LinearPerpetual") => MarketType::Swap,
-        Some("InversePerpetual") => MarketType::Swap,
-        Some("LinearFutures") => MarketType::Futures,
-        Some("InverseFutures") => MarketType::Futures,
+        Some("LinearPerpetual" | "InversePerpetual") => MarketType::Swap,
+        Some("LinearFutures" | "InverseFutures") => MarketType::Futures,
         _ => MarketType::Spot,
     };
 
@@ -147,7 +145,7 @@ pub fn parse_market(data: &Value) -> Result<Market> {
     let contract_size = parse_decimal(data, "contractSize");
 
     // Settlement currency for derivatives
-    let settle = data["settleCoin"].as_str().map(|s| s.to_string());
+    let settle = data["settleCoin"].as_str().map(ToString::to_string);
     let settle_id = settle.clone();
 
     // Expiry for futures
@@ -159,7 +157,6 @@ pub fn parse_market(data: &Value) -> Result<Market> {
     // - Swap: BASE/QUOTE:SETTLE (e.g., "BTC/USDT:USDT")
     // - Futures: BASE/QUOTE:SETTLE-YYMMDD (e.g., "BTC/USDT:USDT-241231")
     let symbol = match market_type {
-        MarketType::Spot => format!("{}/{}", base, quote),
         MarketType::Swap => {
             if let Some(ref s) = settle {
                 format!("{}/{}:{}", base, quote, s)
@@ -196,7 +193,7 @@ pub fn parse_market(data: &Value) -> Result<Market> {
                 format!("{}/{}:{}", base, quote, settle_ccy)
             }
         }
-        MarketType::Option => format!("{}/{}", base, quote),
+        _ => format!("{}/{}", base, quote), // Spot and Option
     };
 
     // Parse the symbol to get structured representation
@@ -265,7 +262,7 @@ pub fn parse_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> {
         // Bybit uses concatenated format like "BTCUSDT"
         data["symbol"]
             .as_str()
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .unwrap_or_default()
     };
 
@@ -392,14 +389,14 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
     } else {
         data["symbol"]
             .as_str()
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .unwrap_or_default()
     };
 
     let id = data["execId"]
         .as_str()
         .or_else(|| data["id"].as_str())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     let timestamp = parse_timestamp(data, "time")
         .or_else(|| parse_timestamp(data, "T"))
@@ -407,8 +404,7 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
 
     // Bybit uses "side" field with "Buy" or "Sell" values
     let side = match data["side"].as_str() {
-        Some("Buy") | Some("buy") | Some("BUY") => OrderSide::Buy,
-        Some("Sell") | Some("sell") | Some("SELL") => OrderSide::Sell,
+        Some("Sell" | "sell" | "SELL") => OrderSide::Sell,
         _ => OrderSide::Buy, // Default to buy if not specified
     };
 
@@ -424,7 +420,7 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
 
     Ok(Trade {
         id,
-        order: data["orderId"].as_str().map(|s| s.to_string()),
+        order: data["orderId"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp_to_datetime(timestamp),
         symbol,
@@ -581,15 +577,12 @@ pub fn parse_ohlcv(data: &Value) -> Result<OHLCV> {
 /// Returns the corresponding CCXT [`OrderStatus`].
 pub fn parse_order_status(status: &str) -> OrderStatus {
     match status {
-        "New" | "Created" | "Untriggered" => OrderStatus::Open,
-        "PartiallyFilled" => OrderStatus::Open,
         "Filled" => OrderStatus::Closed,
         "Cancelled" | "Canceled" | "PartiallyFilledCanceled" | "Deactivated" => {
             OrderStatus::Cancelled
         }
         "Rejected" => OrderStatus::Rejected,
         "Expired" => OrderStatus::Expired,
-        "Triggered" => OrderStatus::Open,
         _ => OrderStatus::Open, // Default to Open for unknown statuses
     }
 }
@@ -610,7 +603,7 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
     } else {
         data["symbol"]
             .as_str()
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .unwrap_or_default()
     };
 
@@ -627,15 +620,14 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     // Parse order side
     let side = match data["side"].as_str() {
-        Some("Buy") | Some("buy") | Some("BUY") => OrderSide::Buy,
-        Some("Sell") | Some("sell") | Some("SELL") => OrderSide::Sell,
+        Some("Buy" | "buy" | "BUY") => OrderSide::Buy,
+        Some("Sell" | "sell" | "SELL") => OrderSide::Sell,
         _ => return Err(Error::from(ParseError::invalid_format("data", "side"))),
     };
 
     // Parse order type
     let order_type = match data["orderType"].as_str() {
-        Some("Market") | Some("MARKET") => OrderType::Market,
-        Some("Limit") | Some("LIMIT") => OrderType::Limit,
+        Some("Market" | "MARKET") => OrderType::Market,
         _ => OrderType::Limit, // Default to limit
     };
 
@@ -658,14 +650,14 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     Ok(Order {
         id,
-        client_order_id: data["orderLinkId"].as_str().map(|s| s.to_string()),
+        client_order_id: data["orderLinkId"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp.and_then(timestamp_to_datetime),
         last_trade_timestamp: parse_timestamp(data, "updatedTime"),
         status,
         symbol,
         order_type,
-        time_in_force: data["timeInForce"].as_str().map(|s| s.to_string()),
+        time_in_force: data["timeInForce"].as_str().map(ToString::to_string),
         side,
         price,
         average,
@@ -706,20 +698,20 @@ pub fn parse_balance(data: &Value) -> Result<Balance> {
     // Bybit returns balance in coin array
     if let Some(coins) = data["coin"].as_array() {
         for coin in coins {
-            parse_balance_entry(coin, &mut balances)?;
+            parse_balance_entry(coin, &mut balances);
         }
     } else if let Some(list) = data["list"].as_array() {
         // Handle list format from wallet balance endpoint
         for item in list {
             if let Some(coins) = item["coin"].as_array() {
                 for coin in coins {
-                    parse_balance_entry(coin, &mut balances)?;
+                    parse_balance_entry(coin, &mut balances);
                 }
             }
         }
     } else {
         // Handle single balance object
-        parse_balance_entry(data, &mut balances)?;
+        parse_balance_entry(data, &mut balances);
     }
 
     Ok(Balance {
@@ -729,11 +721,11 @@ pub fn parse_balance(data: &Value) -> Result<Balance> {
 }
 
 /// Parse a single balance entry from Bybit response.
-fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry>) -> Result<()> {
+fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry>) {
     let currency = data["coin"]
         .as_str()
         .or_else(|| data["currency"].as_str())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     if let Some(currency) = currency {
         // Bybit uses different field names depending on account type
@@ -762,8 +754,6 @@ fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry
             );
         }
     }
-
-    Ok(())
 }
 
 // ============================================================================

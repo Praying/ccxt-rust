@@ -607,10 +607,10 @@ impl Binance {
     /// match binance.fetch_dapi_commission_rate("BTC/USD:BTC", None).await {
     ///     Ok(commission) => {
     ///         let maker = commission.get("makerCommissionRate")
-    ///             .and_then(|v| v.as_str())
+    ///             .and_then(serde_json::Value::as_str)
     ///             .unwrap_or("N/A");
     ///         let taker = commission.get("takerCommissionRate")
-    ///             .and_then(|v| v.as_str())
+    ///             .and_then(serde_json::Value::as_str)
     ///             .unwrap_or("N/A");
     ///         println!("Maker: {}, Taker: {}", maker, taker);
     ///     }
@@ -742,7 +742,7 @@ impl Binance {
     ///         if let Some(arr) = adl.as_array() {
     ///             for item in arr {
     ///                 if let Some(quantile) = item.get("adlQuantile") {
-    ///                     if let Some(long_q) = quantile.get("LONG").and_then(|v| v.as_i64()) {
+    ///                     if let Some(long_q) = quantile.get("LONG").and_then(serde_json::Value::as_i64) {
     ///                         if long_q >= 4 {
     ///                             println!("Warning: High ADL risk for long position!");
     ///                         }

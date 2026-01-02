@@ -931,6 +931,7 @@ mod balance_parsing_accuracy {
     use serde_json::json;
 
     // Strategy for generating valid account values
+    #[allow(dead_code)]
     fn account_value_strategy() -> impl Strategy<Value = String> {
         (0u64..1000000u64).prop_map(|v| v.to_string())
     }

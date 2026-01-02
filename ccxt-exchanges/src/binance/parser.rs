@@ -78,8 +78,8 @@ fn parse_order_book_entries(data: &Value) -> Vec<OrderBookEntry> {
             arr.iter()
                 .filter_map(|item| {
                     let price = if let Some(arr) = item.as_array() {
-                        arr.get(0)
-                            .and_then(|v| v.as_str())
+                        arr.first()
+                            .and_then(serde_json::Value::as_str)
                             .and_then(|s| Decimal::from_str(s).ok())
                     } else {
                         None
@@ -87,7 +87,7 @@ fn parse_order_book_entries(data: &Value) -> Vec<OrderBookEntry> {
 
                     let amount = if let Some(arr) = item.as_array() {
                         arr.get(1)
-                            .and_then(|v| v.as_str())
+                            .and_then(serde_json::Value::as_str)
                             .and_then(|s| Decimal::from_str(s).ok())
                     } else {
                         None
@@ -142,7 +142,7 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         .as_str()
         .ok_or_else(|| Error::from(ParseError::missing_field("status")))?;
 
-    let active = Some(status == "TRADING");
+    let active = status == "TRADING";
 
     // Check if margin trading is supported
     let margin = data["isMarginTradingAllowed"].as_bool().unwrap_or(false);
@@ -213,7 +213,7 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         quote_id: Some(quote_asset),
         settle_id: None,
         market_type: MarketType::Spot,
-        active: active.unwrap_or(true),
+        active,
         margin,
         contract: Some(false),
         linear: None,
@@ -335,13 +335,13 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
     let id = data["id"]
         .as_u64()
         .or_else(|| data["a"].as_u64())
-        .map(|i| i.to_string());
+        .map(|v| v.to_string());
 
     let timestamp = data["time"].as_i64().or_else(|| data["T"].as_i64());
 
-    let side = if data["isBuyerMaker"].as_bool().unwrap_or(false) {
-        OrderSide::Sell
-    } else if data["m"].as_bool().unwrap_or(false) {
+    let side = if data["isBuyerMaker"].as_bool().unwrap_or(false)
+        || data["m"].as_bool().unwrap_or(false)
+    {
         OrderSide::Sell
     } else {
         OrderSide::Buy
@@ -359,7 +359,7 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         order: data["orderId"]
             .as_u64()
             .or_else(|| data["orderid"].as_u64())
-            .map(|i| i.to_string()),
+            .map(|v| v.to_string()),
         timestamp: timestamp.unwrap_or(0),
         datetime: timestamp.map(|t| {
             chrono::DateTime::from_timestamp(t / 1000, 0)
@@ -420,11 +420,11 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
         .ok_or_else(|| Error::from(ParseError::missing_field("status")))?;
 
     let status = match status_str {
-        status::NEW | status::PARTIALLY_FILLED => OrderStatus::Open,
         status::FILLED => OrderStatus::Closed,
         status::CANCELED => OrderStatus::Cancelled,
         status::EXPIRED => OrderStatus::Expired,
         status::REJECTED => OrderStatus::Rejected,
+        // NEW, PARTIALLY_FILLED, and any unknown status default to Open
         _ => OrderStatus::Open,
     };
 
@@ -436,13 +436,11 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     let order_type = match data["type"].as_str() {
         Some("MARKET") => OrderType::Market,
-        Some("LIMIT") => OrderType::Limit,
         Some("STOP_LOSS") => OrderType::StopLoss,
         Some("STOP_LOSS_LIMIT") => OrderType::StopLossLimit,
         Some("TAKE_PROFIT") => OrderType::TakeProfit,
-        Some("TAKE_PROFIT_LIMIT") => OrderType::TakeProfitLimit,
-        Some("STOP_MARKET") | Some("STOP") => OrderType::StopMarket,
-        Some("TAKE_PROFIT_MARKET") => OrderType::TakeProfitLimit,
+        Some("TAKE_PROFIT_LIMIT" | "TAKE_PROFIT_MARKET") => OrderType::TakeProfitLimit,
+        Some("STOP_MARKET" | "STOP") => OrderType::StopMarket,
         Some("TRAILING_STOP_MARKET") => OrderType::TrailingStop,
         Some("LIMIT_MAKER") => OrderType::LimitMaker,
         _ => OrderType::Limit,
@@ -473,7 +471,7 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     Ok(Order {
         id,
-        client_order_id: data["clientOrderId"].as_str().map(|s| s.to_string()),
+        client_order_id: data["clientOrderId"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp.map(|t| {
             chrono::DateTime::from_timestamp(t / 1000, 0)
@@ -504,7 +502,7 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
         trailing_percent: parse_decimal_multi(data, &["trailingPercent", "callbackRate"]),
         activation_price: parse_decimal_multi(data, &["activationPrice", "activatePrice"]),
         callback_rate: parse_decimal(data, "callbackRate"),
-        working_type: data["workingType"].as_str().map(|s| s.to_string()),
+        working_type: data["workingType"].as_str().map(ToString::to_string),
         fees: Some(Vec::new()),
         info: value_to_hashmap(data),
     })
@@ -527,7 +525,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
         .as_i64()
         .ok_or_else(|| Error::from(ParseError::missing_field("orderListId")))?;
 
-    let list_client_order_id = data["listClientOrderId"].as_str().map(|s| s.to_string());
+    let list_client_order_id = data["listClientOrderId"].as_str().map(ToString::to_string);
 
     let symbol = data["symbol"]
         .as_str()
@@ -548,7 +546,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
         .as_i64()
         .ok_or_else(|| Error::from(ParseError::missing_field("transactionTime")))?;
 
-    let datetime = chrono::DateTime::from_timestamp((transaction_time / 1000) as i64, 0)
+    let datetime = chrono::DateTime::from_timestamp(transaction_time / 1000, 0)
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_default();
 
@@ -560,7 +558,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
                 order_id: order["orderId"]
                     .as_i64()
                     .ok_or_else(|| Error::from(ParseError::missing_field("orderId")))?,
-                client_order_id: order["clientOrderId"].as_str().map(|s| s.to_string()),
+                client_order_id: order["clientOrderId"].as_str().map(ToString::to_string),
             };
             orders.push(order_info);
         }
@@ -575,7 +573,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
                     .as_i64()
                     .ok_or_else(|| Error::from(ParseError::missing_field("orderId")))?,
                 order_list_id: report["orderListId"].as_i64().unwrap_or(order_list_id),
-                client_order_id: report["clientOrderId"].as_str().map(|s| s.to_string()),
+                client_order_id: report["clientOrderId"].as_str().map(ToString::to_string),
                 transact_time: report["transactTime"].as_i64().unwrap_or(transaction_time),
                 price: report["price"].as_str().unwrap_or("0").to_string(),
                 orig_qty: report["origQty"].as_str().unwrap_or("0").to_string(),
@@ -588,7 +586,7 @@ pub fn parse_oco_order(data: &Value) -> Result<OcoOrder> {
                 time_in_force: report["timeInForce"].as_str().unwrap_or("GTC").to_string(),
                 type_: report["type"].as_str().unwrap_or("LIMIT").to_string(),
                 side: report["side"].as_str().unwrap_or("SELL").to_string(),
-                stop_price: report["stopPrice"].as_str().map(|s| s.to_string()),
+                stop_price: report["stopPrice"].as_str().map(ToString::to_string),
             };
             reports.push(order_report);
         }
@@ -982,13 +980,13 @@ pub fn parse_position(data: &Value, market: Option<&Market>) -> Result<Position>
         _ => None,
     };
 
-    let contracts = parse_f64(data, "positionAmt").map(|v| v.abs());
+    let contracts = parse_f64(data, "positionAmt").map(f64::abs);
 
     let contract_size = Some(1.0); // Binance futures contract size is 1
 
     let entry_price = parse_f64(data, "entryPrice");
     let mark_price = parse_f64(data, "markPrice");
-    let notional = parse_f64(data, "notional").map(|v| v.abs());
+    let notional = parse_f64(data, "notional").map(f64::abs);
 
     let leverage = parse_f64(data, "leverage");
 
@@ -1011,7 +1009,7 @@ pub fn parse_position(data: &Value, market: Option<&Market>) -> Result<Position>
     let margin_mode = data["marginType"]
         .as_str()
         .or_else(|| data["marginMode"].as_str())
-        .map(|s| s.to_lowercase());
+        .map(str::to_lowercase);
 
     let hedged = position_side != "BOTH";
 
@@ -1069,30 +1067,36 @@ pub fn parse_position(data: &Value, market: Option<&Market>) -> Result<Position>
 ///
 /// Returns a CCXT [`Leverage`] structure.
 pub fn parse_leverage(data: &Value, _market: Option<&Market>) -> Result<Leverage> {
-    let market_id = data.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+    let market_id = data
+        .get("symbol")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
 
-    let margin_mode = if let Some(isolated) = data.get("isolated").and_then(|v| v.as_bool()) {
-        Some(if isolated {
-            MarginType::Isolated
+    let margin_mode =
+        if let Some(isolated) = data.get("isolated").and_then(serde_json::Value::as_bool) {
+            Some(if isolated {
+                MarginType::Isolated
+            } else {
+                MarginType::Cross
+            })
         } else {
-            MarginType::Cross
-        })
-    } else if let Some(margin_type) = data.get("marginType").and_then(|v| v.as_str()) {
-        Some(if margin_type == "crossed" {
-            MarginType::Cross
-        } else {
-            MarginType::Isolated
-        })
-    } else {
-        None
-    };
+            data.get("marginType")
+                .and_then(serde_json::Value::as_str)
+                .map(|margin_type| {
+                    if margin_type == "crossed" {
+                        MarginType::Cross
+                    } else {
+                        MarginType::Isolated
+                    }
+                })
+        };
 
     let side = data
         .get("positionSide")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_lowercase());
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_lowercase);
 
-    let leverage_value = data.get("leverage").and_then(|v| v.as_i64());
+    let leverage_value = data.get("leverage").and_then(serde_json::Value::as_i64);
 
     // 4. 根据持仓方向分配杠杆
     let (long_leverage, short_leverage) = match side.as_deref() {
@@ -1136,10 +1140,10 @@ pub fn parse_funding_history(data: &Value, market: Option<&Market>) -> Result<Fu
     let id = data["tranId"]
         .as_u64()
         .or_else(|| data["id"].as_u64())
-        .map(|i| i.to_string());
+        .map(|v| v.to_string());
 
     let amount = parse_f64(data, "income");
-    let code = data["asset"].as_str().map(|s| s.to_string());
+    let code = data["asset"].as_str().map(ToString::to_string);
     let timestamp = data["time"].as_i64();
 
     Ok(FundingHistory {
@@ -1148,9 +1152,9 @@ pub fn parse_funding_history(data: &Value, market: Option<&Market>) -> Result<Fu
         symbol,
         code,
         amount,
-        timestamp: timestamp,
+        timestamp,
         datetime: timestamp.map(|t| {
-            chrono::DateTime::from_timestamp((t / 1000) as i64, 0)
+            chrono::DateTime::from_timestamp(t / 1000, 0)
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default()
         }),
@@ -1191,7 +1195,7 @@ pub fn parse_funding_fee(data: &Value, market: Option<&Market>) -> Result<Fundin
     let mark_price = parse_f64(data, "markPrice");
 
     let datetime = Some(
-        chrono::DateTime::from_timestamp((time / 1000) as i64, 0)
+        chrono::DateTime::from_timestamp(time / 1000, 0)
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default(),
     );
@@ -1237,7 +1241,7 @@ pub fn parse_next_funding_rate(data: &Value, market: &Market) -> Result<NextFund
         .ok_or_else(|| Error::from(ParseError::missing_field("nextFundingTime")))?;
 
     let next_funding_datetime = Some(
-        chrono::DateTime::from_timestamp((next_funding_time / 1000) as i64, 0)
+        chrono::DateTime::from_timestamp(next_funding_time / 1000, 0)
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default(),
     );
@@ -1736,7 +1740,7 @@ pub fn parse_margin_loan(data: &Value) -> Result<MarginLoan> {
         .ok_or_else(|| Error::from(ParseError::missing_field("asset")))?
         .to_string();
 
-    let symbol = data["symbol"].as_str().map(|s| s.to_string());
+    let symbol = data["symbol"].as_str().map(ToString::to_string);
 
     let amount = if let Some(amount_str) = data["amount"].as_str() {
         amount_str.parse::<f64>().unwrap_or(0.0)
@@ -1786,7 +1790,7 @@ pub fn parse_borrow_interest(data: &Value) -> Result<BorrowInterest> {
         .ok_or_else(|| Error::from(ParseError::missing_field("asset")))?
         .to_string();
 
-    let symbol = data["isolatedSymbol"].as_str().map(|s| s.to_string());
+    let symbol = data["isolatedSymbol"].as_str().map(ToString::to_string);
 
     let interest = if let Some(interest_str) = data["interest"].as_str() {
         interest_str.parse::<f64>().unwrap_or(0.0)
@@ -1839,7 +1843,7 @@ pub fn parse_margin_adjustment(data: &Value) -> Result<MarginAdjustment> {
         .map(|id| id.to_string())
         .unwrap_or_default();
 
-    let symbol = data["symbol"].as_str().map(|s| s.to_string());
+    let symbol = data["symbol"].as_str().map(ToString::to_string);
 
     let currency = data["asset"]
         .as_str()
@@ -1855,14 +1859,13 @@ pub fn parse_margin_adjustment(data: &Value) -> Result<MarginAdjustment> {
     let transfer_type = data["type"]
         .as_str()
         .or_else(|| data["transFrom"].as_str())
-        .map(|t| {
+        .map_or("IN", |t| {
             if t.contains("MAIN") || t.eq("1") || t.eq("ROLL_IN") {
                 "IN"
             } else {
                 "OUT"
             }
         })
-        .unwrap_or("IN")
         .to_string();
 
     let timestamp = data["timestamp"]
@@ -1979,9 +1982,9 @@ pub fn parse_transfer(data: &Value) -> Result<Transfer> {
         data["amount"].as_f64().unwrap_or(0.0)
     };
 
-    let mut from_account = data["fromAccountType"].as_str().map(|s| s.to_string());
+    let mut from_account = data["fromAccountType"].as_str().map(ToString::to_string);
 
-    let mut to_account = data["toAccountType"].as_str().map(|s| s.to_string());
+    let mut to_account = data["toAccountType"].as_str().map(ToString::to_string);
 
     // If fromAccountType/toAccountType not present, parse from type field (e.g., "MAIN_UMFUTURE")
     if from_account.is_none() || to_account.is_none() {
@@ -1998,7 +2001,7 @@ pub fn parse_transfer(data: &Value) -> Result<Transfer> {
 
     Ok(Transfer {
         id,
-        timestamp: timestamp,
+        timestamp,
         datetime,
         currency,
         amount,
@@ -2479,7 +2482,7 @@ pub fn parse_bid_ask(data: &Value) -> Result<ccxt_core::types::BidAsk> {
             }
         }
 
-        if !found { symbol.clone() } else { formatted }
+        if found { formatted } else { symbol.clone() }
     } else {
         symbol.clone()
     };
@@ -2551,7 +2554,7 @@ pub fn parse_last_price(data: &Value) -> Result<ccxt_core::types::LastPrice> {
             }
         }
 
-        if !found { symbol.clone() } else { formatted }
+        if found { formatted } else { symbol.clone() }
     } else {
         symbol.clone()
     };
@@ -2622,7 +2625,7 @@ pub fn parse_mark_price(data: &Value) -> Result<ccxt_core::types::MarkPrice> {
             }
         }
 
-        if !found { symbol.clone() } else { formatted }
+        if found { formatted } else { symbol.clone() }
     } else {
         symbol.clone()
     };
@@ -3144,7 +3147,7 @@ pub fn parse_ws_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
     let id = data["t"]
         .as_u64()
         .or_else(|| data["a"].as_u64())
-        .map(|i| i.to_string());
+        .map(|v| v.to_string());
 
     let timestamp = data["T"].as_i64().unwrap_or(0);
 
@@ -3176,7 +3179,7 @@ pub fn parse_ws_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         order: data["orderId"]
             .as_u64()
             .or_else(|| data["orderid"].as_u64())
-            .map(|i| i.to_string()),
+            .map(|v| v.to_string()),
         timestamp,
         datetime: Some(
             chrono::DateTime::from_timestamp_millis(timestamp)
@@ -3186,7 +3189,7 @@ pub fn parse_ws_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         symbol,
         trade_type: None,
         side,
-        taker_or_maker: taker_or_maker,
+        taker_or_maker,
         price: Price::from(price.unwrap_or(Decimal::ZERO)),
         amount: Amount::from(amount.unwrap_or(Decimal::ZERO)),
         cost: cost.map(Cost::from),
@@ -3297,36 +3300,36 @@ pub fn parse_ws_ohlcv(data: &Value) -> Result<OHLCV> {
 
     let timestamp = kline
         .get("t")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| Error::from(ParseError::missing_field("t")))?;
 
     let open = kline
         .get("o")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .and_then(|s| s.parse::<f64>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("o")))?;
 
     let high = kline
         .get("h")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .and_then(|s| s.parse::<f64>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("h")))?;
 
     let low = kline
         .get("l")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .and_then(|s| s.parse::<f64>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("l")))?;
 
     let close = kline
         .get("c")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .and_then(|s| s.parse::<f64>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("c")))?;
 
     let volume = kline
         .get("v")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .and_then(|s| s.parse::<f64>().ok())
         .ok_or_else(|| Error::from(ParseError::missing_field("v")))?;
 
@@ -4135,11 +4138,8 @@ pub fn is_fiat_currency(currency: &str) -> bool {
 /// Returns the processed transaction ID.
 pub fn extract_internal_transfer_id(txid: &str) -> String {
     const PREFIX: &str = "Internal transfer ";
-    if txid.starts_with(PREFIX) {
-        txid[PREFIX.len()..].to_string()
-    } else {
-        txid.to_string()
-    }
+    txid.strip_prefix(PREFIX)
+        .map_or_else(|| txid.to_string(), ToString::to_string)
 }
 
 /// Parse transaction status based on transaction type.
@@ -4163,31 +4163,22 @@ pub fn parse_transaction_status_by_type(
     if let Some(status_int) = status_value.as_i64() {
         if is_deposit {
             match status_int {
-                0 => TransactionStatus::Pending,
-                1 => TransactionStatus::Ok,
-                6 => TransactionStatus::Ok,
+                1 | 6 => TransactionStatus::Ok,
                 _ => TransactionStatus::Pending,
             }
         } else {
             match status_int {
-                0 => TransactionStatus::Pending,
                 1 => TransactionStatus::Canceled,
-                2 => TransactionStatus::Pending,
-                3 => TransactionStatus::Failed,
-                4 => TransactionStatus::Pending,
-                5 => TransactionStatus::Failed,
+                3 | 5 => TransactionStatus::Failed,
                 6 => TransactionStatus::Ok,
                 _ => TransactionStatus::Pending,
             }
         }
     } else if let Some(status_str) = status_value.as_str() {
         match status_str {
-            "Processing" => TransactionStatus::Pending,
-            "Failed" => TransactionStatus::Failed,
+            "Failed" | "Refund Failed" => TransactionStatus::Failed,
             "Successful" => TransactionStatus::Ok,
-            "Refunding" => TransactionStatus::Canceled,
-            "Refunded" => TransactionStatus::Canceled,
-            "Refund Failed" => TransactionStatus::Failed,
+            "Refunding" | "Refunded" => TransactionStatus::Canceled,
             _ => TransactionStatus::Pending,
         }
     } else {
@@ -4275,7 +4266,7 @@ pub fn parse_transaction(
     let amount = data["amount"]
         .as_str()
         .and_then(|s| Decimal::from_str(s).ok())
-        .unwrap_or_else(|| Decimal::ZERO);
+        .unwrap_or(Decimal::ZERO);
 
     let fee = if is_deposit {
         None
@@ -4304,23 +4295,23 @@ pub fn parse_transaction(
 
     let datetime = timestamp.and_then(|ts| ccxt_core::time::iso8601(ts).ok());
 
-    let network = data["network"].as_str().map(|s| s.to_string());
+    let network = data["network"].as_str().map(ToString::to_string);
 
     let address = data["address"]
         .as_str()
         .or_else(|| data["depositAddress"].as_str())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     let tag = data["addressTag"]
         .as_str()
         .or_else(|| data["tag"].as_str())
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     let mut txid = data["txId"]
         .as_str()
         .or_else(|| data["hash"].as_str())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     let transfer_type = data["transferType"].as_i64();
     let is_internal = transfer_type == Some(1);
@@ -4342,7 +4333,7 @@ pub fn parse_transaction(
     let comment = data["info"]
         .as_str()
         .or_else(|| data["comment"].as_str())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     Ok(Transaction {
         info: Some(data.clone()),
@@ -4353,10 +4344,10 @@ pub fn parse_transaction(
         network,
         address: address.clone(),
         address_to: if is_deposit { address.clone() } else { None },
-        address_from: if !is_deposit { address } else { None },
+        address_from: if is_deposit { None } else { address },
         tag: tag.clone(),
         tag_to: if is_deposit { tag.clone() } else { None },
-        tag_from: if !is_deposit { tag } else { None },
+        tag_from: if is_deposit { None } else { tag },
         transaction_type,
         amount,
         currency,
@@ -4401,25 +4392,28 @@ pub fn parse_deposit_address(data: &Value) -> Result<ccxt_core::types::DepositAd
         .ok_or_else(|| Error::from(ParseError::missing_field("address")))?
         .to_string();
 
-    let network = data["network"].as_str().map(|s| s.to_string()).or_else(|| {
-        data["url"].as_str().and_then(|url| {
-            if url.contains("btc.com") {
-                Some("BTC".to_string())
-            } else if url.contains("etherscan.io") {
-                Some("ETH".to_string())
-            } else if url.contains("tronscan.org") {
-                Some("TRX".to_string())
-            } else {
-                None
-            }
-        })
-    });
+    let network = data["network"]
+        .as_str()
+        .map(ToString::to_string)
+        .or_else(|| {
+            data["url"].as_str().and_then(|url| {
+                if url.contains("btc.com") {
+                    Some("BTC".to_string())
+                } else if url.contains("etherscan.io") {
+                    Some("ETH".to_string())
+                } else if url.contains("tronscan.org") {
+                    Some("TRX".to_string())
+                } else {
+                    None
+                }
+            })
+        });
 
     let tag = data["tag"]
         .as_str()
         .or_else(|| data["addressTag"].as_str())
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
+        .map(ToString::to_string);
 
     Ok(DepositAddress {
         info: Some(data.clone()),
@@ -4482,7 +4476,7 @@ pub fn parse_currency(data: &Value) -> Result<ccxt_core::types::Currency> {
         .to_string();
 
     let id = code.clone();
-    let name = data["name"].as_str().map(|s| s.to_string());
+    let name = data["name"].as_str().map(ToString::to_string);
 
     let active = data["trading"].as_bool().unwrap_or(true);
 
@@ -4545,7 +4539,7 @@ pub fn parse_currency(data: &Value) -> Result<ccxt_core::types::Currency> {
             let network = CurrencyNetwork {
                 network: network_id.clone(),
                 id: Some(network_id.clone()),
-                name: network_data["name"].as_str().map(|s| s.to_string()),
+                name: network_data["name"].as_str().map(ToString::to_string),
                 active: deposit_enable && withdraw_enable,
                 deposit: deposit_enable,
                 withdraw: withdraw_enable,
@@ -5051,7 +5045,7 @@ pub fn parse_borrow_rate_history(data: &Value, currency: &str) -> Result<BorrowR
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_default();
 
-    let symbol = data["symbol"].as_str().map(|s| s.to_string());
+    let symbol = data["symbol"].as_str().map(ToString::to_string);
     let vip_level = data["vipLevel"].as_i64().map(|v| v as i32);
 
     Ok(BorrowRateHistory {
@@ -5079,8 +5073,8 @@ pub fn parse_ledger_entry(data: &Value) -> Result<LedgerEntry> {
         .as_i64()
         .or_else(|| data["id"].as_i64())
         .map(|v| v.to_string())
-        .or_else(|| data["tranId"].as_str().map(|s| s.to_string()))
-        .or_else(|| data["id"].as_str().map(|s| s.to_string()))
+        .or_else(|| data["tranId"].as_str().map(ToString::to_string))
+        .or_else(|| data["id"].as_str().map(ToString::to_string))
         .unwrap_or_default();
 
     let currency = data["asset"]
@@ -5106,14 +5100,6 @@ pub fn parse_ledger_entry(data: &Value) -> Result<LedgerEntry> {
     let (direction, entry_type) = match type_str {
         "DEPOSIT" => (LedgerDirection::In, LedgerEntryType::Deposit),
         "WITHDRAW" => (LedgerDirection::Out, LedgerEntryType::Withdrawal),
-        "BUY" | "SELL" => (
-            if amount >= 0.0 {
-                LedgerDirection::In
-            } else {
-                LedgerDirection::Out
-            },
-            LedgerEntryType::Trade,
-        ),
         "FEE" => (LedgerDirection::Out, LedgerEntryType::Fee),
         "REBATE" => (LedgerDirection::In, LedgerEntryType::Rebate),
         "TRANSFER" => (

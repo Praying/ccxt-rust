@@ -10,7 +10,7 @@ static INIT: Once = Once::new();
 /// Ensure logging system is initialized only once across tests.
 fn setup_logging(config: LogConfig) {
     INIT.call_once(|| {
-        let _ = try_init_logging(config);
+        try_init_logging(&config);
     });
 }
 
@@ -66,7 +66,7 @@ fn test_init_logging_success() {
     setup_logging(LogConfig::test());
 
     // Logging system already initialized; subsequent calls should fail silently using try_init_logging
-    try_init_logging(LogConfig::test());
+    try_init_logging(&LogConfig::test());
 }
 
 #[test]

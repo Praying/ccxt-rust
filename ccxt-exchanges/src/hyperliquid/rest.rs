@@ -272,7 +272,6 @@ impl HyperLiquid {
             "5m" => "5m",
             "15m" => "15m",
             "30m" => "30m",
-            "1h" => "1h",
             "4h" => "4h",
             "1d" => "1d",
             "1w" => "1w",
@@ -280,9 +279,7 @@ impl HyperLiquid {
         };
 
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        let start_time = since
-            .map(|s| s as u64)
-            .unwrap_or(now - limit as u64 * 3600000); // Default to limit hours ago
+        let start_time = since.map_or(now - limit as u64 * 3600000, |s| s as u64); // Default to limit hours ago
         let end_time = now;
 
         let response = self
@@ -567,32 +564,20 @@ impl HyperLiquid {
         let asset_index: u32 = market.id.parse().unwrap_or(0);
 
         let is_buy = matches!(side, OrderSide::Buy);
-        let limit_px = price
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "0".to_string());
+        let limit_px = price.map_or_else(|| "0".to_string(), |p| p.to_string());
 
-        let order_wire = match order_type {
-            OrderType::Market => {
-                let mut limit_map = Map::new();
-                limit_map.insert("tif".to_string(), Value::String("Ioc".to_string()));
-                let mut map = Map::new();
-                map.insert("limit".to_string(), Value::Object(limit_map));
-                Value::Object(map)
-            }
-            OrderType::Limit => {
-                let mut limit_map = Map::new();
-                limit_map.insert("tif".to_string(), Value::String("Gtc".to_string()));
-                let mut map = Map::new();
-                map.insert("limit".to_string(), Value::Object(limit_map));
-                Value::Object(map)
-            }
-            _ => {
-                let mut limit_map = Map::new();
-                limit_map.insert("tif".to_string(), Value::String("Gtc".to_string()));
-                let mut map = Map::new();
-                map.insert("limit".to_string(), Value::Object(limit_map));
-                Value::Object(map)
-            }
+        let order_wire = if order_type == OrderType::Market {
+            let mut limit_map = Map::new();
+            limit_map.insert("tif".to_string(), Value::String("Ioc".to_string()));
+            let mut map = Map::new();
+            map.insert("limit".to_string(), Value::Object(limit_map));
+            Value::Object(map)
+        } else {
+            let mut limit_map = Map::new();
+            limit_map.insert("tif".to_string(), Value::String("Gtc".to_string()));
+            let mut map = Map::new();
+            map.insert("limit".to_string(), Value::Object(limit_map));
+            Value::Object(map)
         };
 
         let action = {

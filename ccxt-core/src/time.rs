@@ -177,7 +177,7 @@ pub fn parse_date(datetime: &str) -> Result<i64> {
         return Ok(dt.timestamp_millis());
     }
 
-    Err(ParseError::timestamp_owned(format!("Unable to parse datetime: {}", datetime)).into())
+    Err(ParseError::timestamp_owned(format!("Unable to parse datetime: {datetime}")).into())
 }
 
 /// Parses an ISO 8601 date string and returns the timestamp in milliseconds
@@ -237,7 +237,7 @@ pub fn parse_iso8601(datetime: &str) -> Result<i64> {
     }
 
     Err(
-        ParseError::timestamp_owned(format!("Unable to parse ISO 8601 datetime: {}", datetime))
+        ParseError::timestamp_owned(format!("Unable to parse ISO 8601 datetime: {datetime}"))
             .into(),
     )
 }
@@ -276,7 +276,7 @@ pub fn ymdhms(timestamp: i64, separator: Option<&str>) -> Result<String> {
     let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
     let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
-        .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {}", validated)))?;
+        .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {validated}")))?;
 
     Ok(format!(
         "{}{}{}",
@@ -316,7 +316,7 @@ pub fn yyyymmdd(timestamp: i64, separator: Option<&str>) -> Result<String> {
     let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
     let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
-        .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {}", validated)))?;
+        .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {validated}")))?;
 
     Ok(format!(
         "{}{}{}{}{}",
@@ -358,7 +358,7 @@ pub fn yymmdd(timestamp: i64, separator: Option<&str>) -> Result<String> {
     let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
     let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
-        .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {}", validated)))?;
+        .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {validated}")))?;
 
     Ok(format!(
         "{}{}{}{}{}",
@@ -589,17 +589,16 @@ impl TimestampUtils {
         }
 
         // Try parsing as f64 (seconds with fractional part)
-        if let Ok(ts_f64) = s.parse::<f64>() {
-            if ts_f64.is_finite() {
-                #[allow(clippy::cast_possible_truncation)]
-                let ts = (ts_f64 * 1000.0) as i64;
-                return Self::validate_timestamp(ts);
-            }
+        if let Ok(ts_f64) = s.parse::<f64>()
+            && ts_f64.is_finite()
+        {
+            #[allow(clippy::cast_possible_truncation)]
+            let ts = (ts_f64 * 1000.0) as i64;
+            return Self::validate_timestamp(ts);
         }
 
         Err(Error::invalid_request(format!(
-            "Invalid timestamp format: {}",
-            s
+            "Invalid timestamp format: {s}"
         )))
     }
 
@@ -633,7 +632,7 @@ impl TimestampUtils {
         let nsecs = ((validated % 1000) * 1_000_000) as u32;
 
         let datetime = DateTime::<Utc>::from_timestamp(secs, nsecs)
-            .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {}", validated)))?;
+            .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {validated}")))?;
 
         Ok(datetime.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
     }
@@ -694,8 +693,7 @@ impl TimestampUtils {
     pub fn u64_to_i64(timestamp: u64) -> Result<i64> {
         if timestamp > i64::MAX as u64 {
             return Err(Error::invalid_request(format!(
-                "Timestamp overflow: {} exceeds maximum i64 value",
-                timestamp
+                "Timestamp overflow: {timestamp} exceeds maximum i64 value"
             )));
         }
         let converted = timestamp as i64;
@@ -764,7 +762,7 @@ impl TimestampUtils {
 
         let secs = validated / 1000;
         let datetime = DateTime::<Utc>::from_timestamp(secs, 0)
-            .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {}", validated)))?;
+            .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {validated}")))?;
 
         let start_of_day = datetime
             .date_naive()
@@ -801,7 +799,7 @@ impl TimestampUtils {
 
         let secs = validated / 1000;
         let datetime = DateTime::<Utc>::from_timestamp(secs, 0)
-            .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {}", validated)))?;
+            .ok_or_else(|| Error::invalid_request(format!("Invalid timestamp: {validated}")))?;
 
         let end_of_day = datetime
             .date_naive()

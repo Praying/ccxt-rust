@@ -272,8 +272,10 @@ impl Binance {
     /// ```
     pub fn new_swap(config: ExchangeConfig) -> Result<Self> {
         let base = BaseExchange::new(config)?;
-        let mut options = BinanceOptions::default();
-        options.default_type = DefaultType::Swap; // Perpetual futures
+        let options = BinanceOptions {
+            default_type: DefaultType::Swap, // Perpetual futures
+            ..Default::default()
+        };
 
         // Create TimeSyncManager with configuration from options
         let time_sync_config = TimeSyncConfig {
@@ -368,17 +370,17 @@ impl Binance {
     }
 
     /// Returns the exchange ID.
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &'static str {
         "binance"
     }
 
     /// Returns the exchange name.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         "Binance"
     }
 
     /// Returns the API version.
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> &'static str {
         "v3"
     }
 
@@ -456,35 +458,35 @@ impl Binance {
 
         // Apply URL overrides if present
         if let Some(public_url) = self.base().config.url_overrides.get("public") {
-            urls.public = public_url.clone();
+            urls.public.clone_from(public_url);
         }
         if let Some(private_url) = self.base().config.url_overrides.get("private") {
-            urls.private = private_url.clone();
+            urls.private.clone_from(private_url);
         }
         if let Some(fapi_public_url) = self.base().config.url_overrides.get("fapiPublic") {
-            urls.fapi_public = fapi_public_url.clone();
+            urls.fapi_public.clone_from(fapi_public_url);
         }
         if let Some(fapi_private_url) = self.base().config.url_overrides.get("fapiPrivate") {
-            urls.fapi_private = fapi_private_url.clone();
+            urls.fapi_private.clone_from(fapi_private_url);
         }
         if let Some(dapi_public_url) = self.base().config.url_overrides.get("dapiPublic") {
-            urls.dapi_public = dapi_public_url.clone();
+            urls.dapi_public.clone_from(dapi_public_url);
         }
         if let Some(dapi_private_url) = self.base().config.url_overrides.get("dapiPrivate") {
-            urls.dapi_private = dapi_private_url.clone();
+            urls.dapi_private.clone_from(dapi_private_url);
         }
         // WebSocket URL overrides
         if let Some(ws_url) = self.base().config.url_overrides.get("ws") {
-            urls.ws = ws_url.clone();
+            urls.ws.clone_from(ws_url);
         }
         if let Some(ws_fapi_url) = self.base().config.url_overrides.get("wsFapi") {
-            urls.ws_fapi = ws_fapi_url.clone();
+            urls.ws_fapi.clone_from(ws_fapi_url);
         }
         if let Some(ws_dapi_url) = self.base().config.url_overrides.get("wsDapi") {
-            urls.ws_dapi = ws_dapi_url.clone();
+            urls.ws_dapi.clone_from(ws_dapi_url);
         }
         if let Some(ws_eapi_url) = self.base().config.url_overrides.get("wsEapi") {
-            urls.ws_eapi = ws_eapi_url.clone();
+            urls.ws_eapi.clone_from(ws_eapi_url);
         }
 
         urls

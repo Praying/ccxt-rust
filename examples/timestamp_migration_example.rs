@@ -9,6 +9,8 @@
 //! cargo run --example timestamp_migration_example
 //! ```
 
+#![allow(deprecated)]
+
 use ccxt_core::{
     prelude::*,
     time::{TimestampConversion, TimestampUtils},

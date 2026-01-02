@@ -32,9 +32,11 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_watch_my_trades_all_symbols() -> Result<()> {
-        let mut config = ExchangeConfig::default();
-        config.api_key = std::env::var("BINANCE_API_KEY").ok();
-        config.secret = std::env::var("BINANCE_API_SECRET").ok();
+        let config = ExchangeConfig {
+            api_key: std::env::var("BINANCE_API_KEY").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            ..Default::default()
+        };
 
         let exchange = Arc::new(Binance::new(config)?);
 
@@ -67,9 +69,11 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_watch_my_trades_specific_symbol() -> Result<()> {
-        let mut config = ExchangeConfig::default();
-        config.api_key = std::env::var("BINANCE_API_KEY").ok();
-        config.secret = std::env::var("BINANCE_API_SECRET").ok();
+        let config = ExchangeConfig {
+            api_key: std::env::var("BINANCE_API_KEY").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            ..Default::default()
+        };
 
         let exchange = Arc::new(Binance::new(config)?);
 
@@ -96,9 +100,11 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_watch_my_trades_structure() -> Result<()> {
-        let mut config = ExchangeConfig::default();
-        config.api_key = std::env::var("BINANCE_API_KEY").ok();
-        config.secret = std::env::var("BINANCE_API_SECRET").ok();
+        let config = ExchangeConfig {
+            api_key: std::env::var("BINANCE_API_KEY").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            ..Default::default()
+        };
 
         let exchange = Arc::new(Binance::new(config)?);
 
@@ -135,9 +141,11 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_watch_my_trades_with_since() -> Result<()> {
-        let mut config = ExchangeConfig::default();
-        config.api_key = std::env::var("BINANCE_API_KEY").ok();
-        config.secret = std::env::var("BINANCE_API_SECRET").ok();
+        let config = ExchangeConfig {
+            api_key: std::env::var("BINANCE_API_KEY").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            ..Default::default()
+        };
 
         let exchange = Arc::new(Binance::new(config)?);
 
@@ -209,9 +217,11 @@ mod integration_tests {
             return Ok(());
         }
 
-        let mut config = ExchangeConfig::default();
-        config.api_key = std::env::var("BINANCE_API_KEY").ok();
-        config.secret = std::env::var("BINANCE_API_SECRET").ok();
+        let config = ExchangeConfig {
+            api_key: std::env::var("BINANCE_API_KEY").ok(),
+            secret: std::env::var("BINANCE_API_SECRET").ok(),
+            ..Default::default()
+        };
 
         let exchange = Arc::new(Binance::new(config)?);
 

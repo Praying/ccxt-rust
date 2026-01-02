@@ -157,17 +157,17 @@ impl Bybit {
     }
 
     /// Returns the exchange ID.
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &'static str {
         "bybit"
     }
 
     /// Returns the exchange name.
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         "Bybit"
     }
 
     /// Returns the API version.
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> &'static str {
         "v5"
     }
 

@@ -31,7 +31,7 @@ impl Bitget {
         note = "Use `signed_request()` builder instead which handles timestamps internally"
     )]
     #[allow(dead_code)]
-    fn get_timestamp(&self) -> String {
+    fn get_timestamp() -> String {
         chrono::Utc::now().timestamp_millis().to_string()
     }
 
@@ -78,9 +78,9 @@ impl Bitget {
     fn build_api_path(&self, endpoint: &str) -> String {
         let product_type = self.options().effective_product_type();
         match product_type {
-            "spot" => format!("/api/v2/spot{}", endpoint),
-            "umcbl" | "usdt-futures" => format!("/api/v2/mix{}", endpoint),
-            "dmcbl" | "coin-futures" => format!("/api/v2/mix{}", endpoint),
+            "umcbl" | "usdt-futures" | "dmcbl" | "coin-futures" => {
+                format!("/api/v2/mix{}", endpoint)
+            }
             _ => format!("/api/v2/spot{}", endpoint),
         }
     }
@@ -150,18 +150,18 @@ impl Bitget {
 
         let auth = self.get_auth()?;
         let urls = self.urls();
-        let timestamp = self.get_timestamp();
+        let timestamp = Self::get_timestamp();
 
         // Build query string for GET requests
         let query_string = if let Some(p) = params {
-            if !p.is_empty() {
+            if p.is_empty() {
+                String::new()
+            } else {
                 let query: Vec<String> = p
                     .iter()
                     .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                     .collect();
                 format!("?{}", query.join("&"))
-            } else {
-                String::new()
             }
         } else {
             String::new()
@@ -516,7 +516,7 @@ impl Bitget {
 
         // Bitget valid limits: 1, 5, 15, 50, 100
         // Cap to maximum allowed value
-        let actual_limit = limit.map(|l| l.min(100)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(100));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         let response = self.public_request("GET", &path, Some(&params)).await?;
@@ -565,7 +565,7 @@ impl Bitget {
         params.insert("symbol".to_string(), market.id.clone());
 
         // Bitget maximum limit is 500
-        let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(500));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         let response = self.public_request("GET", &path, Some(&params)).await?;
@@ -645,7 +645,7 @@ impl Bitget {
         params.insert("granularity".to_string(), bitget_timeframe.clone());
 
         // Bitget maximum limit is 1000
-        let actual_limit = request.limit.map(|l| l.min(1000)).unwrap_or(100);
+        let actual_limit = request.limit.map_or(100, |l| l.min(1000));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         if let Some(start_time) = request.since {
@@ -742,7 +742,7 @@ impl Bitget {
         params.insert("granularity".to_string(), bitget_timeframe.clone());
 
         // Bitget maximum limit is 1000
-        let actual_limit = limit.map(|l| l.min(1000)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(1000));
         params.insert("limit".to_string(), actual_limit.to_string());
 
         if let Some(start_time) = since {
@@ -862,7 +862,7 @@ impl Bitget {
         let path = self.build_api_path("/trade/fills");
 
         // Bitget maximum limit is 500
-        let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(500));
 
         let mut builder = self
             .signed_request(&path)
@@ -970,14 +970,13 @@ impl Bitget {
         map.insert(
             "orderType".to_string(),
             serde_json::Value::String(match request.order_type {
-                OrderType::Market => "market".to_string(),
-                OrderType::Limit => "limit".to_string(),
                 OrderType::LimitMaker => "limit_maker".to_string(),
-                OrderType::StopLoss | OrderType::StopMarket => "market".to_string(),
-                OrderType::StopLossLimit | OrderType::StopLimit => "limit".to_string(),
-                OrderType::TakeProfit => "market".to_string(),
-                OrderType::TakeProfitLimit => "limit".to_string(),
-                OrderType::TrailingStop => "market".to_string(),
+                OrderType::Market
+                | OrderType::StopLoss
+                | OrderType::StopMarket
+                | OrderType::TakeProfit
+                | OrderType::TrailingStop => "market".to_string(),
+                _ => "limit".to_string(),
             }),
         );
         map.insert(
@@ -1152,7 +1151,6 @@ impl Bitget {
             "orderType".to_string(),
             serde_json::Value::String(match order_type {
                 OrderType::Market => "market".to_string(),
-                OrderType::Limit => "limit".to_string(),
                 OrderType::LimitMaker => "limit_maker".to_string(),
                 _ => "limit".to_string(),
             }),
@@ -1361,7 +1359,7 @@ impl Bitget {
         };
 
         // Bitget maximum limit is 500
-        let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(500));
 
         let mut builder = self.signed_request(&path).param("limit", actual_limit);
 
@@ -1388,7 +1386,7 @@ impl Bitget {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse open order");
@@ -1447,7 +1445,7 @@ impl Bitget {
         };
 
         // Bitget maximum limit is 500
-        let actual_limit = limit.map(|l| l.min(500)).unwrap_or(100);
+        let actual_limit = limit.map_or(100, |l| l.min(500));
 
         let mut builder = self.signed_request(&path).param("limit", actual_limit);
 
@@ -1474,7 +1472,7 @@ impl Bitget {
 
         let mut orders = Vec::new();
         for order_data in orders_array {
-            match parser::parse_order(order_data, market.as_ref().map(|v| &**v)) {
+            match parser::parse_order(order_data, market.as_deref()) {
                 Ok(order) => orders.push(order),
                 Err(e) => {
                     warn!(error = %e, "Failed to parse closed order");

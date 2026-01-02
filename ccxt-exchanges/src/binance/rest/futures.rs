@@ -125,9 +125,8 @@ impl Binance {
         let use_coin_m = params
             .as_ref()
             .and_then(|p| p.get("type"))
-            .and_then(|v| v.as_str())
-            .map(|t| t == "delivery" || t == "coin_m")
-            .unwrap_or(false);
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|t| t == "delivery" || t == "coin_m");
 
         let url = if use_coin_m {
             format!("{}/positionRisk", self.urls().dapi_private)
@@ -451,7 +450,7 @@ impl Binance {
         leverage: i64,
         params: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, Value>> {
-        if leverage < 1 || leverage > 125 {
+        if !(1..=125).contains(&leverage) {
             return Err(Error::invalid_request(
                 "Leverage must be between 1 and 125".to_string(),
             ));
@@ -578,8 +577,7 @@ impl Binance {
         let is_portfolio_margin = params
             .as_ref()
             .and_then(|p| p.get("portfolioMargin"))
-            .map(|v| v == "true")
-            .unwrap_or(false);
+            .is_some_and(|v| v == "true");
 
         let (market, market_id) = if let Some(syms) = &symbols {
             if let Some(first_symbol) = syms.first() {
@@ -815,9 +813,8 @@ impl Binance {
         let use_dapi = params
             .as_ref()
             .and_then(|p| p.get("type"))
-            .and_then(|v| v.as_str())
-            .map(|t| t == "delivery" || t == "coin_m")
-            .unwrap_or(false);
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|t| t == "delivery" || t == "coin_m");
 
         let mut request_params = BTreeMap::new();
         request_params.insert("dualSidePosition".to_string(), dual_side.to_string());
@@ -924,9 +921,8 @@ impl Binance {
         let use_dapi = params
             .as_ref()
             .and_then(|p| p.get("type"))
-            .and_then(|v| v.as_str())
-            .map(|t| t == "delivery" || t == "coin_m")
-            .unwrap_or(false);
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|t| t == "delivery" || t == "coin_m");
 
         let mut request_params = BTreeMap::new();
 
@@ -1130,13 +1126,16 @@ impl Binance {
 
         let mut request_url = format!("{}?", url);
         for (key, value) in &request_params {
-            request_url.push_str(&format!("{}={}&", key, value));
+            use std::fmt::Write;
+            let _ = write!(request_url, "{}={}&", key, value);
         }
 
         let response = self.base().http_client.get(&request_url, None).await?;
 
         // COIN-M futures API returns array format - extract first element
-        let data = if !market.linear.unwrap_or(true) {
+        let data = if market.linear.unwrap_or(true) {
+            &response
+        } else {
             response
                 .as_array()
                 .and_then(|arr| arr.first())
@@ -1146,8 +1145,6 @@ impl Binance {
                         "COIN-M funding rate response should be an array with at least one element",
                     ))
                 })?
-        } else {
-            &response
         };
 
         parser::parse_funding_rate(data, Some(&market))
@@ -1201,7 +1198,8 @@ impl Binance {
         if !request_params.is_empty() {
             request_url.push('?');
             for (key, value) in &request_params {
-                request_url.push_str(&format!("{}={}&", key, value));
+                use std::fmt::Write;
+                let _ = write!(request_url, "{}={}&", key, value);
             }
         }
 
@@ -1228,15 +1226,13 @@ impl Binance {
                     }
                 }
             }
-        } else {
-            if let Ok(symbol_id) = response["symbol"]
-                .as_str()
-                .ok_or_else(|| Error::from(ParseError::missing_field("symbol")))
-            {
-                if let Ok(market) = self.base().market_by_id(symbol_id).await {
-                    if let Ok(rate) = parser::parse_funding_rate(&response, Some(&market)) {
-                        rates.insert(market.symbol.clone(), rate);
-                    }
+        } else if let Ok(symbol_id) = response["symbol"]
+            .as_str()
+            .ok_or_else(|| Error::from(ParseError::missing_field("symbol")))
+        {
+            if let Ok(market) = self.base().market_by_id(symbol_id).await {
+                if let Ok(rate) = parser::parse_funding_rate(&response, Some(&market)) {
+                    rates.insert(market.symbol.clone(), rate);
                 }
             }
         }
@@ -1316,7 +1312,8 @@ impl Binance {
 
         let mut request_url = format!("{}?", url);
         for (key, value) in &request_params {
-            request_url.push_str(&format!("{}={}&", key, value));
+            use std::fmt::Write;
+            let _ = write!(request_url, "{}={}&", key, value);
         }
 
         let response = self.base().http_client.get(&request_url, None).await?;

@@ -5,6 +5,7 @@
 
 // Allow clippy warnings for example code - examples prioritize readability over strict linting
 #![allow(clippy::field_reassign_with_default)]
+#![allow(deprecated)]
 
 use anyhow::{Context, Result};
 use ccxt_core::ExchangeConfig;
@@ -15,7 +16,7 @@ use ccxt_exchanges::binance::Binance;
 async fn main() -> Result<()> {
     // Initialize logging system
     // Use development config for examples (Debug level, Pretty format)
-    init_logging(LogConfig::development());
+    init_logging(&LogConfig::development());
 
     println!("=== Binance Exchange Example ===\n");
 

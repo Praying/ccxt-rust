@@ -233,9 +233,11 @@ fn bench_exchange_creation(c: &mut Criterion) {
 fn bench_exchange_with_credentials(c: &mut Criterion) {
     c.bench_function("create_exchange_with_credentials", |b| {
         b.iter(|| {
-            let mut config = ExchangeConfig::default();
-            config.api_key = Some("test_key".to_string());
-            config.secret = Some("test_secret".to_string());
+            let config = ExchangeConfig {
+                api_key: Some("test_key".to_string()),
+                secret: Some("test_secret".to_string()),
+                ..Default::default()
+            };
             let _ = Binance::new(black_box(config));
         });
     });

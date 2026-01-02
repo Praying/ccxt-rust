@@ -190,12 +190,12 @@ impl TestConfig {
             config.test_timeout_ms = val.parse().unwrap_or(default_timeout());
         }
 
-        config.binance = Self::load_exchange_config("BINANCE")?;
-        config.okx = Self::load_exchange_config("OKX")?;
-        config.bybit = Self::load_exchange_config("BYBIT")?;
-        config.kraken = Self::load_exchange_config("KRAKEN")?;
-        config.kucoin = Self::load_exchange_config("KUCOIN")?;
-        config.hyperliquid = Self::load_exchange_config("HYPERLIQUID")?;
+        config.binance = Self::load_exchange_config("BINANCE");
+        config.okx = Self::load_exchange_config("OKX");
+        config.bybit = Self::load_exchange_config("BYBIT");
+        config.kraken = Self::load_exchange_config("KRAKEN");
+        config.kucoin = Self::load_exchange_config("KUCOIN");
+        config.hyperliquid = Self::load_exchange_config("HYPERLIQUID");
 
         if let Ok(val) = env::var("CCXT_FIXTURES_DIR") {
             config.test_data.fixtures_dir = val;
@@ -226,7 +226,7 @@ impl TestConfig {
     #[cfg(feature = "test-utils")]
     pub fn from_dotenv(path: &str) -> Result<Self, ConfigError> {
         dotenvy::from_filename(path)
-            .map_err(|e| ConfigError::FileNotFound(format!("{}: {}", path, e)))?;
+            .map_err(|e| ConfigError::FileNotFound(format!("{path}: {e}")))?;
         Self::from_env()
     }
 
@@ -242,14 +242,14 @@ impl TestConfig {
     }
 
     /// Loads configuration for a single exchange from environment variables.
-    fn load_exchange_config(exchange: &str) -> Result<ExchangeConfig, ConfigError> {
+    fn load_exchange_config(exchange: &str) -> ExchangeConfig {
         let mut config = ExchangeConfig::default();
 
-        let api_key_var = format!("{}_API_KEY", exchange);
-        let api_secret_var = format!("{}_API_SECRET", exchange);
-        let testnet_key_var = format!("{}_TESTNET_API_KEY", exchange);
-        let testnet_secret_var = format!("{}_TESTNET_API_SECRET", exchange);
-        let use_testnet_var = format!("{}_USE_TESTNET", exchange);
+        let api_key_var = format!("{exchange}_API_KEY");
+        let api_secret_var = format!("{exchange}_API_SECRET");
+        let testnet_key_var = format!("{exchange}_TESTNET_API_KEY");
+        let testnet_secret_var = format!("{exchange}_TESTNET_API_SECRET");
+        let use_testnet_var = format!("{exchange}_USE_TESTNET");
 
         config.api_key = env::var(&api_key_var).ok();
         config.api_secret = env::var(&api_secret_var).ok();
@@ -260,7 +260,7 @@ impl TestConfig {
             config.use_testnet = val.parse().unwrap_or(false);
         }
 
-        Ok(config)
+        config
     }
 
     /// Checks whether private tests should be skipped.

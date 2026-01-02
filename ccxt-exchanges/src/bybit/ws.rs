@@ -546,8 +546,7 @@ fn format_unified_symbol(symbol: &str) -> String {
     let quote_currencies = ["USDT", "USDC", "BTC", "ETH", "EUR", "USD"];
 
     for quote in &quote_currencies {
-        if symbol.ends_with(quote) {
-            let base = &symbol[..symbol.len() - quote.len()];
+        if let Some(base) = symbol.strip_suffix(quote) {
             if !base.is_empty() {
                 return format!("{}/{}", base, quote);
             }

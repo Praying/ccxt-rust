@@ -302,10 +302,7 @@ impl WsClient {
                     "WebSocket connection failed"
                 );
                 self.set_state(WsConnectionState::Error);
-                Err(Error::network(format!(
-                    "WebSocket connection failed: {}",
-                    e
-                )))
+                Err(Error::network(format!("WebSocket connection failed: {e}")))
             }
             Err(_) => {
                 error!(
@@ -453,7 +450,7 @@ impl WsClient {
         symbol: Option<String>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<()> {
-        let sub_key = Self::subscription_key(&channel, &symbol);
+        let sub_key = Self::subscription_key(&channel, symbol.as_ref());
         let subscription = Subscription {
             channel: channel.clone(),
             symbol: symbol.clone(),
@@ -499,7 +496,7 @@ impl WsClient {
         fields(channel = %channel, symbol = ?symbol)
     )]
     pub async fn unsubscribe(&self, channel: String, symbol: Option<String>) -> Result<()> {
-        let sub_key = Self::subscription_key(&channel, &symbol);
+        let sub_key = Self::subscription_key(&channel, symbol.as_ref());
 
         // DashMap remove is lock-free for reads
         self.subscriptions.remove(&sub_key);
@@ -554,7 +551,7 @@ impl WsClient {
     /// # Returns
     ///
     /// `true` if subscribed to the channel, `false` otherwise.
-    pub fn is_subscribed(&self, channel: &str, symbol: &Option<String>) -> bool {
+    pub fn is_subscribed(&self, channel: &str, symbol: Option<&String>) -> bool {
         let sub_key = Self::subscription_key(channel, symbol);
         self.subscriptions.contains_key(&sub_key)
     }
@@ -583,7 +580,7 @@ impl WsClient {
                     error = %e,
                     "Failed to send WebSocket message"
                 );
-                Error::network(format!("Failed to send message: {}", e))
+                Error::network(format!("Failed to send message: {e}"))
             })?;
             debug!("WebSocket message sent successfully");
             Ok(())
@@ -626,9 +623,9 @@ impl WsClient {
     }
 
     /// Generates a unique subscription key from channel and symbol.
-    fn subscription_key(channel: &str, symbol: &Option<String>) -> String {
+    fn subscription_key(channel: &str, symbol: Option<&String>) -> String {
         match symbol {
-            Some(s) => format!("{}:{}", channel, s),
+            Some(s) => format!("{channel}:{s}"),
             None => channel.to_string(),
         }
     }
@@ -736,7 +733,7 @@ impl WsClient {
                                 let hex_preview: String = data
                                     .iter()
                                     .take(50)
-                                    .map(|b| format!("{:02x}", b))
+                                    .map(|b| format!("{b:02x}"))
                                     .collect::<Vec<_>>()
                                     .join(" ");
                                 warn!(
@@ -1068,7 +1065,7 @@ impl AutoReconnectCoordinator {
                 }
 
                 match client.reconnect().await {
-                    Ok(_) => {
+                    Ok(()) => {
                         info!("Reconnection successful");
 
                         if let Some(ref cb) = callback {
@@ -1076,7 +1073,7 @@ impl AutoReconnectCoordinator {
                         }
 
                         match client.resubscribe_all().await {
-                            Ok(_) => {
+                            Ok(()) => {
                                 info!("Subscriptions restored");
                                 if let Some(ref cb) = callback {
                                     cb(WsEvent::SubscriptionRestored);
@@ -1124,10 +1121,10 @@ mod tests {
 
     #[test]
     fn test_subscription_key() {
-        let key1 = WsClient::subscription_key("ticker", &Some("BTC/USDT".to_string()));
+        let key1 = WsClient::subscription_key("ticker", Some(&"BTC/USDT".to_string()));
         assert_eq!(key1, "ticker:BTC/USDT");
 
-        let key2 = WsClient::subscription_key("trades", &None);
+        let key2 = WsClient::subscription_key("trades", None);
         assert_eq!(key2, "trades");
     }
 
@@ -1161,7 +1158,7 @@ mod tests {
 
         // Use DashMap API (lock-free)
         assert_eq!(client.subscription_count(), 1);
-        assert!(client.is_subscribed("ticker", &Some("BTC/USDT".to_string())));
+        assert!(client.is_subscribed("ticker", Some(&"BTC/USDT".to_string())));
     }
 
     #[tokio::test]
@@ -1185,7 +1182,7 @@ mod tests {
 
         // Use DashMap API (lock-free)
         assert_eq!(client.subscription_count(), 0);
-        assert!(!client.is_subscribed("ticker", &Some("BTC/USDT".to_string())));
+        assert!(!client.is_subscribed("ticker", Some(&"BTC/USDT".to_string())));
     }
 
     #[test]
@@ -1280,7 +1277,7 @@ mod tests {
         // Verify each subscription exists
         for i in 0..10 {
             assert!(
-                client.is_subscribed(&format!("channel{}", i), &Some(format!("SYMBOL{}/USDT", i)))
+                client.is_subscribed(&format!("channel{}", i), Some(&format!("SYMBOL{}/USDT", i)))
             );
         }
     }

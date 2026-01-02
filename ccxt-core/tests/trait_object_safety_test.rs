@@ -336,7 +336,7 @@ proptest! {
         let exchange_obj: Box<dyn PublicExchange> = Box::new(exchange);
 
         // Verify the trait object can be used
-        prop_assert!(exchange_obj.id().len() > 0);
+        prop_assert!(!exchange_obj.id().is_empty());
     }
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
@@ -351,7 +351,7 @@ proptest! {
         let exchange_obj: BoxedMarketData = Box::new(exchange);
 
         // Verify the trait object can be used
-        prop_assert!(exchange_obj.id().len() > 0);
+        prop_assert!(!exchange_obj.id().is_empty());
     }
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
@@ -366,7 +366,7 @@ proptest! {
         let exchange_obj: BoxedTrading = Box::new(exchange);
 
         // Verify the trait object can be used
-        prop_assert!(exchange_obj.id().len() > 0);
+        prop_assert!(!exchange_obj.id().is_empty());
     }
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
@@ -381,7 +381,7 @@ proptest! {
         let exchange_obj: BoxedAccount = Box::new(exchange);
 
         // Verify the trait object can be used
-        prop_assert!(exchange_obj.id().len() > 0);
+        prop_assert!(!exchange_obj.id().is_empty());
     }
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
@@ -396,7 +396,7 @@ proptest! {
         let exchange_obj: ccxt_core::traits::BoxedMargin = Box::new(exchange);
 
         // Verify the trait object can be used
-        prop_assert!(exchange_obj.id().len() > 0);
+        prop_assert!(!exchange_obj.id().is_empty());
     }
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
@@ -411,7 +411,7 @@ proptest! {
         let exchange_obj: BoxedFunding = Box::new(exchange);
 
         // Verify the trait object can be used
-        prop_assert!(exchange_obj.id().len() > 0);
+        prop_assert!(!exchange_obj.id().is_empty());
     }
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**

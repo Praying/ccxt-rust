@@ -153,9 +153,9 @@ fn test_ws_connection_state_enum() {
     assert_eq!(state1, WsConnectionState::Disconnected);
     assert_ne!(state1, state2);
 
-    // Test Clone trait
-    let state1_clone = state1.clone();
-    assert_eq!(state1, state1_clone);
+    // Test Copy trait (no need to clone since it's Copy)
+    let state1_copy = state1;
+    assert_eq!(state1, state1_copy);
 
     // Test Debug trait
     let debug_str = format!("{:?}", state3);

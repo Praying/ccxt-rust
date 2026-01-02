@@ -192,11 +192,11 @@ impl BinanceWsError {
     /// ```
     pub fn stream_name(&self) -> Option<&str> {
         match self {
-            Self::MissingStream { .. } => None,
-            Self::UnsupportedEvent { .. } => None,
+            Self::MissingStream { .. }
+            | Self::UnsupportedEvent { .. }
+            | Self::Connection(_)
+            | Self::Core(_) => None,
             Self::SubscriptionFailed { stream, .. } => Some(stream),
-            Self::Connection(_) => None,
-            Self::Core(_) => None,
         }
     }
 

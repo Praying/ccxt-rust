@@ -6,19 +6,14 @@
 use serde::{Deserialize, Serialize};
 
 /// Margin type for futures positions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum MarginType {
     /// Isolated margin: position uses only allocated margin.
     Isolated,
     /// Cross margin: position uses all available account balance.
+    #[default]
     Cross,
-}
-
-impl Default for MarginType {
-    fn default() -> Self {
-        MarginType::Cross
-    }
 }
 
 impl std::fmt::Display for MarginType {
@@ -37,13 +32,13 @@ impl std::str::FromStr for MarginType {
         match s.to_lowercase().as_str() {
             "isolated" => Ok(MarginType::Isolated),
             "cross" | "crossed" => Ok(MarginType::Cross),
-            _ => Err(format!("Invalid margin type: {}", s)),
+            _ => Err(format!("Invalid margin type: {s}")),
         }
     }
 }
 
 /// Position side for dual-side position mode.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum PositionSide {
     /// Long position.
@@ -51,13 +46,8 @@ pub enum PositionSide {
     /// Short position.
     Short,
     /// Both sides (one-way position mode).
+    #[default]
     Both,
-}
-
-impl Default for PositionSide {
-    fn default() -> Self {
-        PositionSide::Both
-    }
 }
 
 impl std::fmt::Display for PositionSide {
@@ -78,7 +68,7 @@ impl std::str::FromStr for PositionSide {
             "LONG" => Ok(PositionSide::Long),
             "SHORT" => Ok(PositionSide::Short),
             "BOTH" => Ok(PositionSide::Both),
-            _ => Err(format!("Invalid position side: {}", s)),
+            _ => Err(format!("Invalid position side: {s}")),
         }
     }
 }

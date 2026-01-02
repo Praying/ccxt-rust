@@ -184,11 +184,11 @@ impl Ohlcv {
     pub fn to_array(&self) -> [Decimal; 6] {
         [
             Decimal::from(self.timestamp),
-            self.open.as_decimal().clone(),
-            self.high.as_decimal().clone(),
-            self.low.as_decimal().clone(),
-            self.close.as_decimal().clone(),
-            self.volume.as_decimal().clone(),
+            self.open.as_decimal(),
+            self.high.as_decimal(),
+            self.low.as_decimal(),
+            self.close.as_decimal(),
+            self.volume.as_decimal(),
         ]
     }
 
@@ -303,7 +303,7 @@ impl std::fmt::Display for Timeframe {
             Self::W1 => "1w",
             Self::Mon1 => "1M",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -360,8 +360,8 @@ impl TradingLimits {
 
     /// Check if amount is within limits
     pub fn is_valid(&self, amount: Amount) -> bool {
-        let min_ok = self.min.map_or(true, |min| amount >= min);
-        let max_ok = self.max.map_or(true, |max| amount <= max);
+        let min_ok = self.min.is_none_or(|min| amount >= min);
+        let max_ok = self.max.is_none_or(|max| amount <= max);
         min_ok && max_ok
     }
 }

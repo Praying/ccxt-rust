@@ -97,12 +97,12 @@ impl BitgetErrorCode {
 pub fn parse_error(response: &Value) -> Error {
     let code = response
         .get("code")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
 
     let msg = response
         .get("msg")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("Unknown error");
 
     let error_code = BitgetErrorCode::from_code(code);
@@ -118,8 +118,7 @@ pub fn parse_error(response: &Value) -> Error {
         BitgetErrorCode::InvalidRequest => Error::invalid_request(msg.to_string()),
         BitgetErrorCode::InsufficientFunds => Error::insufficient_balance(msg.to_string()),
         BitgetErrorCode::BadSymbol => Error::bad_symbol(msg.to_string()),
-        BitgetErrorCode::OrderNotFound => Error::exchange(code, msg),
-        BitgetErrorCode::Unknown(_) => Error::exchange(code, msg),
+        BitgetErrorCode::OrderNotFound | BitgetErrorCode::Unknown(_) => Error::exchange(code, msg),
     }
 }
 
@@ -135,11 +134,7 @@ pub fn parse_error(response: &Value) -> Error {
 ///
 /// `true` if the response indicates an error, `false` otherwise.
 pub fn is_error_response(response: &Value) -> bool {
-    response
-        .get("code")
-        .and_then(|v| v.as_str())
-        .map(|code| code != "00000")
-        .unwrap_or(true)
+    response.get("code").and_then(serde_json::Value::as_str) != Some("00000")
 }
 
 /// Extracts the error code from a Bitget API response.
@@ -154,7 +149,7 @@ pub fn is_error_response(response: &Value) -> bool {
 pub fn extract_error_code(response: &Value) -> &str {
     response
         .get("code")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown")
 }
 
@@ -170,7 +165,7 @@ pub fn extract_error_code(response: &Value) -> &str {
 pub fn extract_error_message(response: &Value) -> &str {
     response
         .get("msg")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("Unknown error")
 }
 

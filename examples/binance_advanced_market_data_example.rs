@@ -9,6 +9,7 @@
 //! cargo run --example binance_advanced_market_data_example
 //! ```
 
+#![allow(deprecated)]
 // Allow clippy warnings for example code - examples prioritize readability over strict linting
 #![allow(clippy::disallowed_methods)]
 #![allow(clippy::collapsible_if)]

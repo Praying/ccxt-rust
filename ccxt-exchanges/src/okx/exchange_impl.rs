@@ -21,11 +21,11 @@ use super::Okx;
 impl Exchange for Okx {
     // ==================== Metadata ====================
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "okx"
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "OKX"
     }
 
@@ -104,7 +104,7 @@ impl Exchange for Okx {
     }
 
     async fn fetch_tickers(&self, symbols: Option<&[String]>) -> Result<Vec<Ticker>> {
-        let symbols_vec = symbols.map(|s| s.to_vec());
+        let symbols_vec = symbols.map(<[String]>::to_vec);
         Okx::fetch_tickers(self, symbols_vec).await
     }
 
@@ -124,6 +124,7 @@ impl Exchange for Okx {
         limit: Option<u32>,
     ) -> Result<Vec<Ohlcv>> {
         let timeframe_str = timeframe.to_string();
+        #[allow(deprecated)]
         let ohlcv_data = Okx::fetch_ohlcv(self, symbol, &timeframe_str, since, limit).await?;
 
         // Convert OHLCV to Ohlcv with proper type conversions
@@ -151,6 +152,7 @@ impl Exchange for Okx {
         price: Option<Price>,
     ) -> Result<Order> {
         // Direct delegation - no type conversion needed
+        #[allow(deprecated)]
         Okx::create_order(self, symbol, order_type, side, amount, price).await
     }
 

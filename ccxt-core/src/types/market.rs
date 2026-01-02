@@ -37,7 +37,7 @@ impl std::fmt::Display for MarketType {
 }
 
 /// Market precision settings
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MarketPrecision {
     /// Price precision (decimal places or tick size)
     pub price: Option<Decimal>,
@@ -49,19 +49,8 @@ pub struct MarketPrecision {
     pub quote: Option<u32>,
 }
 
-impl Default for MarketPrecision {
-    fn default() -> Self {
-        Self {
-            price: None,
-            amount: None,
-            base: None,
-            quote: None,
-        }
-    }
-}
-
 /// Market limits for order parameters
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MarketLimits {
     /// Amount limits
     pub amount: Option<MinMax>,
@@ -71,17 +60,6 @@ pub struct MarketLimits {
     pub cost: Option<MinMax>,
     /// Leverage limits (for margin/futures)
     pub leverage: Option<MinMax>,
-}
-
-impl Default for MarketLimits {
-    fn default() -> Self {
-        Self {
-            amount: None,
-            price: None,
-            cost: None,
-            leverage: None,
-        }
-    }
 }
 
 /// Market structure representing a trading pair
@@ -435,8 +413,6 @@ impl Market {
     pub fn settlement_currency(&self) -> &str {
         if let Some(ref settle) = self.settle {
             settle
-        } else if self.is_contract() {
-            &self.quote
         } else {
             &self.quote
         }
@@ -714,10 +690,10 @@ impl Stats24hr {
             return Some(pct);
         }
 
-        if let (Some(last), Some(open)) = (self.last_price, self.open_price) {
-            if open > Decimal::ZERO {
-                return Some((last - open) / open * Decimal::from(100));
-            }
+        if let (Some(last), Some(open)) = (self.last_price, self.open_price)
+            && open > Decimal::ZERO
+        {
+            return Some((last - open) / open * Decimal::from(100));
         }
 
         None
@@ -738,12 +714,12 @@ impl Stats24hr {
 
     /// Checks if the price change is positive.
     pub fn is_positive(&self) -> bool {
-        self.price_change.map_or(false, |c| c > Decimal::ZERO)
+        self.price_change.is_some_and(|c| c > Decimal::ZERO)
     }
 
     /// Checks if the price change is negative.
     pub fn is_negative(&self) -> bool {
-        self.price_change.map_or(false, |c| c < Decimal::ZERO)
+        self.price_change.is_some_and(|c| c < Decimal::ZERO)
     }
 }
 

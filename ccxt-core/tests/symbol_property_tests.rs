@@ -18,35 +18,41 @@ fn arb_currency() -> impl Strategy<Value = String> {
 
 /// Generator for valid expiry dates
 /// Uses conservative day range (1-28) to avoid month-specific day validation issues
+#[allow(dead_code)]
 fn arb_expiry_date() -> impl Strategy<Value = ExpiryDate> {
     (20u8..=99, 1u8..=12, 1u8..=28)
         .prop_map(|(y, m, d)| ExpiryDate::new(y, m, d).expect("Generated date should be valid"))
 }
 
 /// Generator for valid spot ParsedSymbol
+#[allow(dead_code)]
 fn arb_spot_symbol() -> impl Strategy<Value = ParsedSymbol> {
     (arb_currency(), arb_currency()).prop_map(|(base, quote)| ParsedSymbol::spot(base, quote))
 }
 
 /// Generator for valid linear swap ParsedSymbol
+#[allow(dead_code)]
 fn arb_linear_swap_symbol() -> impl Strategy<Value = ParsedSymbol> {
     (arb_currency(), arb_currency())
         .prop_map(|(base, quote)| ParsedSymbol::linear_swap(base, quote))
 }
 
 /// Generator for valid inverse swap ParsedSymbol
+#[allow(dead_code)]
 fn arb_inverse_swap_symbol() -> impl Strategy<Value = ParsedSymbol> {
     (arb_currency(), arb_currency())
         .prop_map(|(base, quote)| ParsedSymbol::inverse_swap(base, quote))
 }
 
 /// Generator for valid futures ParsedSymbol
+#[allow(dead_code)]
 fn arb_futures_symbol() -> impl Strategy<Value = ParsedSymbol> {
     (arb_currency(), arb_currency(), arb_expiry_date())
         .prop_map(|(base, quote, expiry)| ParsedSymbol::futures(base, quote.clone(), quote, expiry))
 }
 
 /// Generator for any valid ParsedSymbol
+#[allow(dead_code)]
 fn arb_parsed_symbol() -> impl Strategy<Value = ParsedSymbol> {
     prop_oneof![
         arb_spot_symbol(),
@@ -197,7 +203,7 @@ mod spot_symbol_tests {
 
     #[test]
     fn test_spot_symbol_basic() {
-        let symbol = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::spot("BTC", "USDT");
         assert_eq!(symbol.base, "BTC");
         assert_eq!(symbol.quote, "USDT");
         assert!(symbol.settle.is_none());
@@ -208,7 +214,7 @@ mod spot_symbol_tests {
 
     #[test]
     fn test_spot_symbol_lowercase_normalization() {
-        let symbol = ParsedSymbol::spot("btc".to_string(), "usdt".to_string());
+        let symbol = ParsedSymbol::spot("btc", "usdt");
         assert_eq!(symbol.base, "BTC");
         assert_eq!(symbol.quote, "USDT");
     }
@@ -1226,7 +1232,7 @@ mod round_trip_tests {
 
     #[test]
     fn test_round_trip_spot() {
-        let original = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
+        let original = ParsedSymbol::spot("BTC", "USDT");
         let formatted = original.to_string();
         let parsed = SymbolParser::parse(&formatted).unwrap();
         assert_eq!(parsed, original);
@@ -1234,7 +1240,7 @@ mod round_trip_tests {
 
     #[test]
     fn test_round_trip_linear_swap() {
-        let original = ParsedSymbol::linear_swap("ETH".to_string(), "USDT".to_string());
+        let original = ParsedSymbol::linear_swap("ETH", "USDT");
         let formatted = original.to_string();
         let parsed = SymbolParser::parse(&formatted).unwrap();
         assert_eq!(parsed, original);
@@ -1242,7 +1248,7 @@ mod round_trip_tests {
 
     #[test]
     fn test_round_trip_inverse_swap() {
-        let original = ParsedSymbol::inverse_swap("BTC".to_string(), "USD".to_string());
+        let original = ParsedSymbol::inverse_swap("BTC", "USD");
         let formatted = original.to_string();
         let parsed = SymbolParser::parse(&formatted).unwrap();
         assert_eq!(parsed, original);
@@ -1265,23 +1271,18 @@ mod round_trip_tests {
     #[test]
     fn test_round_trip_preserves_market_type() {
         // Spot
-        let spot = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
+        let spot = ParsedSymbol::spot("BTC", "USDT");
         let parsed_spot = SymbolParser::parse(&spot.to_string()).unwrap();
         assert_eq!(parsed_spot.market_type(), SymbolMarketType::Spot);
 
         // Swap
-        let swap = ParsedSymbol::linear_swap("BTC".to_string(), "USDT".to_string());
+        let swap = ParsedSymbol::linear_swap("BTC", "USDT");
         let parsed_swap = SymbolParser::parse(&swap.to_string()).unwrap();
         assert_eq!(parsed_swap.market_type(), SymbolMarketType::Swap);
 
         // Futures
         let expiry = ExpiryDate::new(24, 12, 31).unwrap();
-        let futures = ParsedSymbol::futures(
-            "BTC".to_string(),
-            "USDT".to_string(),
-            "USDT".to_string(),
-            expiry,
-        );
+        let futures = ParsedSymbol::futures("BTC", "USDT", "USDT", expiry);
         let parsed_futures = SymbolParser::parse(&futures.to_string()).unwrap();
         assert_eq!(parsed_futures.market_type(), SymbolMarketType::Futures);
     }
@@ -1289,12 +1290,12 @@ mod round_trip_tests {
     #[test]
     fn test_round_trip_preserves_contract_type() {
         // Linear
-        let linear = ParsedSymbol::linear_swap("BTC".to_string(), "USDT".to_string());
+        let linear = ParsedSymbol::linear_swap("BTC", "USDT");
         let parsed_linear = SymbolParser::parse(&linear.to_string()).unwrap();
         assert!(parsed_linear.is_linear());
 
         // Inverse
-        let inverse = ParsedSymbol::inverse_swap("BTC".to_string(), "USD".to_string());
+        let inverse = ParsedSymbol::inverse_swap("BTC", "USD");
         let parsed_inverse = SymbolParser::parse(&inverse.to_string()).unwrap();
         assert!(parsed_inverse.is_inverse());
     }
@@ -1547,7 +1548,7 @@ mod market_type_detection_tests {
 
     #[test]
     fn test_market_type_spot() {
-        let symbol = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::spot("BTC", "USDT");
         assert_eq!(symbol.market_type(), SymbolMarketType::Spot);
         assert!(symbol.is_spot());
         assert!(!symbol.is_swap());
@@ -1557,7 +1558,7 @@ mod market_type_detection_tests {
 
     #[test]
     fn test_market_type_swap() {
-        let symbol = ParsedSymbol::linear_swap("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::linear_swap("BTC", "USDT");
         assert_eq!(symbol.market_type(), SymbolMarketType::Swap);
         assert!(!symbol.is_spot());
         assert!(symbol.is_swap());
@@ -1568,12 +1569,7 @@ mod market_type_detection_tests {
     #[test]
     fn test_market_type_futures() {
         let expiry = ExpiryDate::new(24, 12, 31).unwrap();
-        let symbol = ParsedSymbol::futures(
-            "BTC".to_string(),
-            "USDT".to_string(),
-            "USDT".to_string(),
-            expiry,
-        );
+        let symbol = ParsedSymbol::futures("BTC", "USDT", "USDT", expiry);
         assert_eq!(symbol.market_type(), SymbolMarketType::Futures);
         assert!(!symbol.is_spot());
         assert!(!symbol.is_swap());
@@ -1842,12 +1838,10 @@ proptest! {
             } else {
                 ParsedSymbol::futures(base.clone(), quote.clone(), base.clone(), expiry)
             }
+        } else if is_linear {
+            ParsedSymbol::linear_swap(base.clone(), quote.clone())
         } else {
-            if is_linear {
-                ParsedSymbol::linear_swap(base.clone(), quote.clone())
-            } else {
-                ParsedSymbol::inverse_swap(base.clone(), quote.clone())
-            }
+            ParsedSymbol::inverse_swap(base.clone(), quote.clone())
         };
 
         let original_contract_type = original.contract_type();
@@ -1884,7 +1878,7 @@ mod contract_type_detection_tests {
 
     #[test]
     fn test_contract_type_spot_none() {
-        let symbol = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::spot("BTC", "USDT");
         assert!(symbol.contract_type().is_none());
         assert!(!symbol.is_linear());
         assert!(!symbol.is_inverse());
@@ -1892,7 +1886,7 @@ mod contract_type_detection_tests {
 
     #[test]
     fn test_contract_type_linear_swap() {
-        let symbol = ParsedSymbol::linear_swap("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::linear_swap("BTC", "USDT");
         assert_eq!(symbol.contract_type(), Some(ContractType::Linear));
         assert!(symbol.is_linear());
         assert!(!symbol.is_inverse());
@@ -1900,7 +1894,7 @@ mod contract_type_detection_tests {
 
     #[test]
     fn test_contract_type_inverse_swap() {
-        let symbol = ParsedSymbol::inverse_swap("BTC".to_string(), "USD".to_string());
+        let symbol = ParsedSymbol::inverse_swap("BTC", "USD");
         assert_eq!(symbol.contract_type(), Some(ContractType::Inverse));
         assert!(!symbol.is_linear());
         assert!(symbol.is_inverse());
@@ -1909,12 +1903,7 @@ mod contract_type_detection_tests {
     #[test]
     fn test_contract_type_linear_futures() {
         let expiry = ExpiryDate::new(24, 12, 31).unwrap();
-        let symbol = ParsedSymbol::futures(
-            "BTC".to_string(),
-            "USDT".to_string(),
-            "USDT".to_string(),
-            expiry,
-        );
+        let symbol = ParsedSymbol::futures("BTC", "USDT", "USDT".to_string(), expiry);
         assert_eq!(symbol.contract_type(), Some(ContractType::Linear));
         assert!(symbol.is_linear());
     }

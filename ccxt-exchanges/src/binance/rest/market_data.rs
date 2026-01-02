@@ -74,7 +74,7 @@ impl Binance {
         // Status codes: 0 = normal, 1 = system maintenance
         let status_raw = response
             .get("status")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| {
                 Error::from(ParseError::invalid_format(
                     "status",
@@ -484,19 +484,23 @@ impl Binance {
         );
 
         if let Some(s) = since {
-            url.push_str(&format!("&startTime={}", s));
+            use std::fmt::Write;
+            let _ = write!(url, "&startTime={}", s);
         }
 
         if let Some(l) = limit {
-            url.push_str(&format!("&limit={}", l));
+            use std::fmt::Write;
+            let _ = write!(url, "&limit={}", l);
         }
 
         if let Some(p) = params {
             if let Some(from_id) = p.get("fromId") {
-                url.push_str(&format!("&fromId={}", from_id));
+                use std::fmt::Write;
+                let _ = write!(url, "&fromId={}", from_id);
             }
             if let Some(end_time) = p.get("endTime") {
-                url.push_str(&format!("&endTime={}", end_time));
+                use std::fmt::Write;
+                let _ = write!(url, "&endTime={}", end_time);
             }
         }
 
@@ -562,12 +566,14 @@ impl Binance {
         // Binance historicalTrades endpoint uses fromId instead of timestamp
         if let Some(p) = &params {
             if let Some(from_id) = p.get("fromId") {
-                url.push_str(&format!("&fromId={}", from_id));
+                use std::fmt::Write;
+                let _ = write!(url, "&fromId={}", from_id);
             }
         }
 
         if let Some(l) = limit {
-            url.push_str(&format!("&limit={}", l));
+            use std::fmt::Write;
+            let _ = write!(url, "&limit={}", l);
         }
 
         let mut headers = HeaderMap::new();
@@ -613,9 +619,8 @@ impl Binance {
         let url = if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
             format!(
-                "{}{}{}?symbol={}",
+                "{}{}?symbol={}",
                 self.urls().public,
-                if false { "" } else { "" },
                 endpoints::TICKER_24HR,
                 market.id
             )
@@ -668,9 +673,8 @@ impl Binance {
         let market = self.base().market(symbol).await?;
 
         let url = format!(
-            "{}{}{}?symbol={}",
+            "{}{}?symbol={}",
             self.urls().public,
-            if false { "" } else { "" },
             endpoints::EXCHANGE_INFO,
             market.id
         );
@@ -707,7 +711,7 @@ impl Binance {
     /// # Errors
     ///
     /// Returns an error if the timeframe is empty or has an invalid format.
-    fn parse_timeframe(&self, timeframe: &str) -> Result<i64> {
+    fn parse_timeframe(timeframe: &str) -> Result<i64> {
         let unit_map = [
             ("s", 1),
             ("m", 60),
@@ -911,21 +915,23 @@ impl Binance {
         );
 
         if let Some(start_time) = request.since {
-            url.push_str(&format!("&startTime={}", start_time));
+            use std::fmt::Write;
+            let _ = write!(url, "&startTime={}", start_time);
 
             // Calculate endTime for inverse markets
             if market.inverse.unwrap_or(false) && start_time > 0 && request.until.is_none() {
-                let duration = self.parse_timeframe(&request.timeframe)?;
+                let duration = Self::parse_timeframe(&request.timeframe)?;
                 let calculated_end_time =
                     start_time + (adjusted_limit as i64 * duration * 1000) - 1;
                 let now = TimestampUtils::now_ms();
                 let end_time = calculated_end_time.min(now);
-                url.push_str(&format!("&endTime={}", end_time));
+                let _ = write!(url, "&endTime={}", end_time);
             }
         }
 
         if let Some(end_time) = request.until {
-            url.push_str(&format!("&endTime={}", end_time));
+            use std::fmt::Write;
+            let _ = write!(url, "&endTime={}", end_time);
         }
 
         let data = self.base().http_client.get(&url, None).await?;
@@ -970,13 +976,13 @@ impl Binance {
         let price = params
             .as_ref()
             .and_then(|p| p.get("price"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
 
         let until = params
             .as_ref()
             .and_then(|p| p.get("until"))
-            .and_then(|v| v.as_i64());
+            .and_then(serde_json::Value::as_i64);
 
         let market = self.base().market(symbol).await?;
 
@@ -1005,21 +1011,23 @@ impl Binance {
         );
 
         if let Some(start_time) = since {
-            url.push_str(&format!("&startTime={}", start_time));
+            use std::fmt::Write;
+            let _ = write!(url, "&startTime={}", start_time);
 
             // Calculate endTime for inverse markets
             if market.inverse.unwrap_or(false) && start_time > 0 && until.is_none() {
-                let duration = self.parse_timeframe(timeframe)?;
+                let duration = Self::parse_timeframe(timeframe)?;
                 let calculated_end_time =
                     start_time + (adjusted_limit as i64 * duration * 1000) - 1;
                 let now = TimestampUtils::now_ms();
                 let end_time = calculated_end_time.min(now);
-                url.push_str(&format!("&endTime={}", end_time));
+                let _ = write!(url, "&endTime={}", end_time);
             }
         }
 
         if let Some(end_time) = until {
-            url.push_str(&format!("&endTime={}", end_time));
+            use std::fmt::Write;
+            let _ = write!(url, "&endTime={}", end_time);
         }
 
         let data = self.base().http_client.get(&url, None).await?;

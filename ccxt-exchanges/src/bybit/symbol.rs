@@ -151,13 +151,13 @@ impl BybitSymbolConverter {
             SymbolMarketType::Spot => Ok(ParsedSymbol::spot(base, quote)),
             SymbolMarketType::Swap => {
                 let settle = settle
-                    .map(|s| s.to_uppercase())
+                    .map(str::to_uppercase)
                     .ok_or_else(|| "Settlement currency required for swap".to_string())?;
                 Ok(ParsedSymbol::swap(base, quote, settle))
             }
             SymbolMarketType::Futures => {
                 let settle = settle
-                    .map(|s| s.to_uppercase())
+                    .map(str::to_uppercase)
                     .ok_or_else(|| "Settlement currency required for futures".to_string())?;
 
                 // Extract expiry date from exchange_id (format: BTCUSDT-31DEC24)

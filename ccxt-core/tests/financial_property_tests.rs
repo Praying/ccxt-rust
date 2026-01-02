@@ -10,6 +10,7 @@ use ccxt_core::types::financial::{Amount, Cost, Price};
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use std::str::FromStr;
 
 // ============================================================================
 // Test Generators
@@ -234,7 +235,7 @@ proptest! {
             display_str
         );
         prop_assert_eq!(
-            price, parsed.unwrap(),
+            price, parsed.expect("parsed price should be Ok"),
             "Parsed price should equal original"
         );
     }
@@ -250,7 +251,7 @@ proptest! {
             display_str
         );
         prop_assert_eq!(
-            amount, parsed.unwrap(),
+            amount, parsed.expect("parsed amount should be Ok"),
             "Parsed amount should equal original"
         );
     }
@@ -266,7 +267,7 @@ proptest! {
             display_str
         );
         prop_assert_eq!(
-            cost, parsed.unwrap(),
+            cost, parsed.expect("parsed cost should be Ok"),
             "Parsed cost should equal original"
         );
     }
@@ -309,8 +310,9 @@ mod unit_tests {
     #[test]
     fn test_serialization_roundtrip_basic() {
         let price = Price::new(dec!(12345.67890123));
-        let json = serde_json::to_string(&price).unwrap();
-        let deserialized: Price = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&price).expect("serialization should succeed");
+        let deserialized: Price =
+            serde_json::from_str(&json).expect("deserialization should succeed");
         assert_eq!(price, deserialized);
     }
 }

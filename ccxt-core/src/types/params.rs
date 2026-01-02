@@ -31,10 +31,11 @@ use super::position::MarginType;
 /// Account type for balance queries and transfers.
 ///
 /// Represents different account types available on exchanges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AccountType {
     /// Spot trading account.
+    #[default]
     Spot,
     /// Cross margin account.
     Margin,
@@ -50,12 +51,6 @@ pub enum AccountType {
     Option,
 }
 
-impl Default for AccountType {
-    fn default() -> Self {
-        AccountType::Spot
-    }
-}
-
 impl std::fmt::Display for AccountType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -67,7 +62,7 @@ impl std::fmt::Display for AccountType {
             AccountType::Funding => "funding",
             AccountType::Option => "option",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -83,7 +78,7 @@ impl std::str::FromStr for AccountType {
             "delivery" | "inverse" | "cmfuture" => Ok(AccountType::Delivery),
             "funding" | "wallet" => Ok(AccountType::Funding),
             "option" | "options" => Ok(AccountType::Option),
-            _ => Err(format!("Invalid account type: {}", s)),
+            _ => Err(format!("Invalid account type: {s}")),
         }
     }
 }
@@ -117,7 +112,7 @@ impl std::fmt::Display for PriceType {
             PriceType::Index => "index",
             PriceType::PremiumIndex => "premiumIndex",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -398,7 +393,7 @@ impl BalanceParams {
 
     /// Filter by specific currencies.
     pub fn currencies(mut self, codes: &[&str]) -> Self {
-        self.currencies = Some(codes.iter().map(|s| s.to_string()).collect());
+        self.currencies = Some(codes.iter().map(std::string::ToString::to_string).collect());
         self
     }
 }

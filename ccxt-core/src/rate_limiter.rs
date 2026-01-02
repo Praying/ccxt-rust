@@ -120,7 +120,7 @@ impl RateLimiterState {
             // Calculate how many refill periods have passed
             let periods = elapsed.as_secs_f64() / self.config.refill_period.as_secs_f64();
             #[allow(clippy::cast_possible_truncation)]
-            let tokens_to_add = (periods * self.config.refill_amount as f64) as u32;
+            let tokens_to_add = (periods * f64::from(self.config.refill_amount)) as u32;
 
             // Add tokens up to capacity
             self.tokens = (self.tokens + tokens_to_add).min(self.config.capacity);
@@ -148,8 +148,8 @@ impl RateLimiterState {
 
         let tokens_needed = cost - self.tokens;
         let refill_rate =
-            self.config.refill_amount as f64 / self.config.refill_period.as_secs_f64();
-        let wait_seconds = tokens_needed as f64 / refill_rate;
+            f64::from(self.config.refill_amount) / self.config.refill_period.as_secs_f64();
+        let wait_seconds = f64::from(tokens_needed) / refill_rate;
 
         Duration::from_secs_f64(wait_seconds)
     }
@@ -161,6 +161,12 @@ impl RateLimiterState {
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     state: Arc<Mutex<RateLimiterState>>,
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new(RateLimiterConfig::default())
+    }
 }
 
 impl RateLimiter {
@@ -179,11 +185,6 @@ impl RateLimiter {
         Self {
             state: Arc::new(Mutex::new(RateLimiterState::new(config))),
         }
-    }
-
-    /// Create a rate limiter with default configuration (10 req/sec)
-    pub fn default() -> Self {
-        Self::new(RateLimiterConfig::default())
     }
 
     /// Wait until a request can be made (async)

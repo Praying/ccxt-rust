@@ -234,15 +234,15 @@ pub fn parse_orderbook(data: &Value, symbol: String) -> Result<OrderBook> {
 
 /// Parse trade data from HyperLiquid fill response.
 pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
-    let symbol = market
-        .map(|m| m.symbol.clone())
-        .unwrap_or_else(|| data["coin"].as_str().unwrap_or("").to_string());
+    let symbol = market.map_or_else(
+        || data["coin"].as_str().unwrap_or("").to_string(),
+        |m| m.symbol.clone(),
+    );
 
     let timestamp = parse_timestamp(data, "time").unwrap_or(0);
 
     let side = match data["side"].as_str() {
-        Some("B") | Some("buy") | Some("Buy") => OrderSide::Buy,
-        Some("A") | Some("sell") | Some("Sell") => OrderSide::Sell,
+        Some("A" | "sell" | "Sell") => OrderSide::Sell,
         _ => OrderSide::Buy,
     };
 
@@ -254,8 +254,8 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         id: data["tid"]
             .as_str()
             .or(data["hash"].as_str())
-            .map(|s| s.to_string()),
-        order: data["oid"].as_str().map(|s| s.to_string()),
+            .map(ToString::to_string),
+        order: data["oid"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp_to_datetime(timestamp),
         symbol,
@@ -277,7 +277,6 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
 /// Parse order status from HyperLiquid status string.
 pub fn parse_order_status(status: &str) -> OrderStatus {
     match status.to_lowercase().as_str() {
-        "open" | "resting" => OrderStatus::Open,
         "filled" => OrderStatus::Closed,
         "canceled" | "cancelled" => OrderStatus::Cancelled,
         "rejected" => OrderStatus::Rejected,
@@ -287,17 +286,19 @@ pub fn parse_order_status(status: &str) -> OrderStatus {
 
 /// Parse order data from HyperLiquid order response.
 pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
-    let symbol = market.map(|m| m.symbol.clone()).unwrap_or_else(|| {
-        data["coin"]
-            .as_str()
-            .map(|c| format!("{}/USDC:USDC", c))
-            .unwrap_or_default()
-    });
+    let symbol = market.map_or_else(
+        || {
+            data["coin"]
+                .as_str()
+                .map_or_else(String::new, |c| format!("{}/USDC:USDC", c))
+        },
+        |m| m.symbol.clone(),
+    );
 
     let id = data["oid"]
         .as_u64()
         .map(|n| n.to_string())
-        .or_else(|| data["oid"].as_str().map(|s| s.to_string()))
+        .or_else(|| data["oid"].as_str().map(ToString::to_string))
         .unwrap_or_default();
 
     let timestamp = parse_timestamp(data, "timestamp");
@@ -306,8 +307,8 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
     let status = parse_order_status(status_str);
 
     let side = match data["side"].as_str() {
-        Some("B") | Some("buy") => OrderSide::Buy,
-        Some("A") | Some("sell") => OrderSide::Sell,
+        Some("B" | "buy") => OrderSide::Buy,
+        Some("A" | "sell") => OrderSide::Sell,
         _ => {
             // Check isBuy field
             if data["isBuy"].as_bool().unwrap_or(true) {
@@ -319,8 +320,7 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
     };
 
     let order_type = match data["orderType"].as_str() {
-        Some("Limit") | Some("limit") => OrderType::Limit,
-        Some("Market") | Some("market") => OrderType::Market,
+        Some("Market" | "market") => OrderType::Market,
         _ => OrderType::Limit,
     };
 
@@ -333,14 +333,14 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
 
     Ok(Order {
         id,
-        client_order_id: data["cloid"].as_str().map(|s| s.to_string()),
+        client_order_id: data["cloid"].as_str().map(ToString::to_string),
         timestamp,
         datetime: timestamp.and_then(timestamp_to_datetime),
         last_trade_timestamp: None,
         status,
         symbol,
         order_type,
-        time_in_force: data["tif"].as_str().map(|s| s.to_uppercase()),
+        time_in_force: data["tif"].as_str().map(str::to_uppercase),
         side,
         price,
         average: parse_decimal(data, "avgPx"),
