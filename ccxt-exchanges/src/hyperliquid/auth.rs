@@ -83,7 +83,7 @@ impl HyperLiquidAuth {
         let private_key = SecretBytes::from_array(private_key_array);
 
         // Zero the temporary array
-        private_key_array.iter_mut().for_each(|b| *b = 0);
+        private_key_array.fill(0);
 
         Ok(Self {
             private_key,
@@ -135,7 +135,7 @@ impl HyperLiquidAuth {
         let result = sign_hash(&key_array, &typed_data_hash);
 
         // Zero the temporary array
-        key_array.iter_mut().for_each(|b| *b = 0);
+        key_array.fill(0);
 
         result
     }
@@ -161,7 +161,7 @@ impl HyperLiquidAuth {
         let result = sign_personal_message(&key_array, &message);
 
         // Zero the temporary array
-        key_array.iter_mut().for_each(|b| *b = 0);
+        key_array.fill(0);
 
         result
     }
