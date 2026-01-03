@@ -1,6 +1,6 @@
 [package]
 name = "ccxt-rust"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Praying"]
@@ -97,8 +97,8 @@ envy = "0.4"
 
 [dependencies]
 # Workspace members
-ccxt-core = { path = "ccxt-core" , version = "0.1.1"}
-ccxt-exchanges = { path = "ccxt-exchanges" , version = "0.1.1"}
+ccxt-core = { path = "ccxt-core" , version = "0.1.2"}
+ccxt-exchanges = { path = "ccxt-exchanges" , version = "0.1.2"}
 
 # Async runtime
 tokio = { workspace = true }
