@@ -33,6 +33,7 @@ fn test_ws_config_custom_pong_timeout() {
         auto_reconnect: true,
         enable_compression: false,
         pong_timeout: 120000, // Custom timeout: 120 seconds
+        ..Default::default()
     };
 
     assert_eq!(config.pong_timeout, 120000);
@@ -50,6 +51,7 @@ async fn test_auto_reconnect_coordinator_creation() {
         auto_reconnect: true,
         enable_compression: false,
         pong_timeout: 90000,
+        ..Default::default()
     };
 
     let client = Arc::new(WsClient::new(config));
@@ -71,6 +73,7 @@ async fn test_auto_reconnect_coordinator_start_stop() {
         auto_reconnect: true,
         enable_compression: false,
         pong_timeout: 90000,
+        ..Default::default()
     };
 
     let client = Arc::new(WsClient::new(config));
@@ -99,6 +102,7 @@ async fn test_event_callback() {
         auto_reconnect: true,
         enable_compression: false,
         pong_timeout: 90000,
+        ..Default::default()
     };
 
     let client = Arc::new(WsClient::new(config));
@@ -165,14 +169,31 @@ fn test_ws_connection_state_enum() {
 /// Test `WsEvent` enum behavior.
 #[test]
 fn test_ws_event_enum() {
+    use std::time::Duration;
+
     let event1 = WsEvent::Connected;
     let _event2 = WsEvent::Disconnected;
-    let event3 = WsEvent::Reconnecting { attempt: 1 };
+    let event3 = WsEvent::Reconnecting {
+        attempt: 1,
+        delay: Duration::from_secs(5),
+        error: Some("connection lost".to_string()),
+    };
     let _event4 = WsEvent::ReconnectSuccess;
     let _event5 = WsEvent::ReconnectFailed {
+        attempt: 1,
         error: "timeout".to_string(),
+        is_permanent: false,
     };
     let _event6 = WsEvent::SubscriptionRestored;
+    let _event7 = WsEvent::Connecting;
+    let _event8 = WsEvent::ReconnectExhausted {
+        total_attempts: 5,
+        last_error: "max attempts reached".to_string(),
+    };
+    let _event9 = WsEvent::PermanentError {
+        error: "authentication failed".to_string(),
+    };
+    let _event10 = WsEvent::Shutdown;
 
     // Test Clone trait
     let event1_clone = event1.clone();
@@ -185,6 +206,92 @@ fn test_ws_event_enum() {
     let debug_str = format!("{:?}", event3);
     assert!(debug_str.contains("Reconnecting"));
     assert!(debug_str.contains("attempt"));
+
+    // Test helper methods
+    assert!(WsEvent::Connecting.is_connecting());
+    assert!(WsEvent::Connected.is_connected());
+    assert!(WsEvent::Disconnected.is_disconnected());
+    assert!(
+        WsEvent::Reconnecting {
+            attempt: 1,
+            delay: Duration::from_secs(1),
+            error: None
+        }
+        .is_reconnecting()
+    );
+    assert!(WsEvent::ReconnectSuccess.is_reconnect_success());
+    assert!(
+        WsEvent::ReconnectFailed {
+            attempt: 1,
+            error: "test".to_string(),
+            is_permanent: false
+        }
+        .is_reconnect_failed()
+    );
+    assert!(
+        WsEvent::ReconnectExhausted {
+            total_attempts: 5,
+            last_error: "test".to_string()
+        }
+        .is_reconnect_exhausted()
+    );
+    assert!(WsEvent::SubscriptionRestored.is_subscription_restored());
+    assert!(
+        WsEvent::PermanentError {
+            error: "test".to_string()
+        }
+        .is_permanent_error()
+    );
+    assert!(WsEvent::Shutdown.is_shutdown());
+
+    // Test is_error
+    assert!(!WsEvent::Connected.is_error());
+    assert!(
+        WsEvent::ReconnectFailed {
+            attempt: 1,
+            error: "test".to_string(),
+            is_permanent: false
+        }
+        .is_error()
+    );
+    assert!(
+        WsEvent::PermanentError {
+            error: "test".to_string()
+        }
+        .is_error()
+    );
+
+    // Test is_terminal
+    assert!(!WsEvent::Connected.is_terminal());
+    assert!(WsEvent::Shutdown.is_terminal());
+    assert!(
+        WsEvent::PermanentError {
+            error: "test".to_string()
+        }
+        .is_terminal()
+    );
+    assert!(
+        WsEvent::ReconnectExhausted {
+            total_attempts: 5,
+            last_error: "test".to_string()
+        }
+        .is_terminal()
+    );
+
+    // Test Display trait
+    let display_str = format!("{}", WsEvent::Connected);
+    assert_eq!(display_str, "Connected");
+
+    let display_str = format!(
+        "{}",
+        WsEvent::Reconnecting {
+            attempt: 2,
+            delay: Duration::from_secs(5),
+            error: Some("network error".to_string()),
+        }
+    );
+    assert!(display_str.contains("Reconnecting"));
+    assert!(display_str.contains("attempt 2"));
 }
 
 #[cfg(test)]
@@ -205,6 +312,7 @@ mod integration_tests {
             auto_reconnect: true,
             enable_compression: false,
             pong_timeout: 10000, // Short timeout for testing
+            ..Default::default()
         };
 
         let client = Arc::new(WsClient::new(config));

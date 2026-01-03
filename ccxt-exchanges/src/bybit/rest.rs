@@ -1281,8 +1281,8 @@ mod tests {
 
     #[test]
     fn test_get_timestamp() {
-        let bybit = Bybit::builder().build().unwrap();
-        let ts = bybit.get_timestamp();
+        let _bybit = Bybit::builder().build().unwrap();
+        let ts = Bybit::get_timestamp();
 
         // Should be a valid timestamp string
         assert!(!ts.is_empty());

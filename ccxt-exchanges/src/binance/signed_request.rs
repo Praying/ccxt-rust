@@ -641,8 +641,8 @@ mod property_tests {
         ) {
             // Create a Binance instance with credentials
             let mut config = ExchangeConfig::default();
-            config.api_key = Some("test_api_key".to_string());
-            config.secret = Some("test_secret_key".to_string());
+            config.api_key = Some("test_api_key".to_string().into());
+            config.secret = Some("test_secret_key".to_string().into());
 
             let mut options = super::super::BinanceOptions::default();
             options.recv_window = recv_window;
@@ -687,9 +687,12 @@ mod property_tests {
         fn prop_optional_param_conditional_addition(
             key in param_key_strategy(),
             value in proptest::option::of(param_value_strategy()),
-            other_key in param_key_strategy(),
+            other_key in param_key_strategy().prop_filter("other_key must differ from key", |k| k != "z"),
             other_value in param_value_strategy()
         ) {
+            // Skip if keys are the same to avoid overwrite conflicts
+            prop_assume!(key != other_key);
+
             let config = ExchangeConfig::default();
             let binance = super::super::Binance::new(config).unwrap();
 

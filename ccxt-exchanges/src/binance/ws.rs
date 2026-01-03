@@ -1077,6 +1077,7 @@ impl BinanceWs {
             auto_reconnect: true,
             enable_compression: false,
             pong_timeout: 90000, // Set pong timeout to 90 seconds
+            ..Default::default()
         };
 
         Self {
@@ -1115,6 +1116,7 @@ impl BinanceWs {
             auto_reconnect: true,
             enable_compression: false,
             pong_timeout: 90000, // Set pong timeout to 90 seconds
+            ..Default::default()
         };
 
         Self {
@@ -1215,6 +1217,7 @@ impl BinanceWs {
             auto_reconnect: true,
             enable_compression: false,
             pong_timeout: 90000, // Default 90-second timeout
+            ..Default::default()
         };
 
         // Initialize a new client instance (retained for future replacement logic)

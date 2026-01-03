@@ -1,263 +1,506 @@
-//! Binance WebSocket automatic reconnection example
+//! Binance WebSocket Resilience Example
 //!
-//! Demonstrates the enhanced WebSocket reconnection mechanism:
-//! 1. Heartbeat timeout detection configuration
-//! 2. Automatic reconnection coordinator
-//! 3. Reconnection event monitoring
-//! 4. Automatic subscription recovery
+//! This example demonstrates the enhanced WebSocket resilience features:
 //!
-//! Note: This example requires full implementation of WebSocket reconnection features
+//! 1. **Exponential Backoff Configuration**: Configure retry delays with jitter
+//!    to prevent thundering herd effects during reconnection.
+//!
+//! 2. **CancellationToken Support**: Gracefully cancel long-running operations
+//!    like connect, reconnect, and subscribe.
+//!
+//! 3. **Event Callback Registration**: Monitor connection lifecycle events
+//!    including reconnection attempts, successes, and failures.
+//!
+//! 4. **Subscription Limits**: Configure maximum subscription count to prevent
+//!    resource exhaustion.
+//!
+//! 5. **Graceful Shutdown**: Clean shutdown with pending operation completion.
+//!
+//! # Running the Example
+//!
+//! ```bash
+//! cargo run --example binance_websocket_reconnect_example
+//! ```
+//!
+//! # Features Demonstrated
+//!
+//! - Custom `BackoffConfig` for exponential backoff with jitter
+//! - `CancellationToken` for operation cancellation
+//! - Event callbacks for connection state monitoring
+//! - Subscription capacity management
+//! - Graceful shutdown with timeout
 
-use ccxt_core::ExchangeConfig;
-use ccxt_exchanges::binance::Binance;
+use ccxt_core::ws_client::{BackoffConfig, WsClient, WsConfig, WsEvent};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Binance WebSocket Automatic Reconnection Example ===\n");
-    println!("Note: This example requires full implementation of WebSocket reconnection");
-    println!("Currently showing feature design and usage instructions\n");
+    // Initialize tracing for observability
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .init();
 
-    let _exchange = Binance::new(ExchangeConfig::default())?;
+    println!("=== Binance WebSocket Resilience Example ===\n");
 
-    println!("✓ Exchange instance created successfully");
-    println!("WebSocket automatic reconnection feature in development...\n");
-
-    example_basic_reconnection();
-    example_event_callbacks();
-    example_network_interruption();
-    example_subscription_recovery();
+    // Run all examples
+    example_backoff_configuration();
+    example_cancellation_token().await;
+    example_event_callbacks().await;
+    example_subscription_limits();
+    example_graceful_shutdown().await;
+    example_auto_reconnect_coordinator().await;
 
     println!("\n=== All Examples Complete ===");
-    println!("\nPending features:");
-    println!("  ✓ WebSocket automatic reconnection mechanism");
-    println!("  ✓ Heartbeat timeout detection");
-    println!("  ✓ Reconnection event notifications");
-    println!("  ✓ Automatic subscription recovery");
-    println!("  ✓ Connection state management");
-
     Ok(())
 }
 
-/// Demonstrates basic WebSocket connection and reconnection
-fn example_basic_reconnection() {
-    println!("--- Example 1: Basic WebSocket Connection and Reconnection ---");
-    println!("Features to implement:");
-    println!("  • Create BinanceWs instance with reconnection configuration");
-    println!("  • Connect to WebSocket server");
-    println!("  • Subscribe to real-time trade data");
-    println!("  • Automatic disconnection detection");
-    println!("  • Automatic reconnection attempts (maximum 5 retries)");
+/// Example 1: Exponential Backoff Configuration
+///
+/// Demonstrates how to configure the exponential backoff strategy for
+/// reconnection attempts.
+fn example_backoff_configuration() {
+    println!("--- Example 1: Exponential Backoff Configuration ---\n");
+
+    // Create a custom backoff configuration
+    let backoff_config = BackoffConfig {
+        // Start with 500ms delay for first retry
+        base_delay: Duration::from_millis(500),
+        // Cap maximum delay at 30 seconds
+        max_delay: Duration::from_secs(30),
+        // Add 20% random jitter to prevent thundering herd
+        jitter_factor: 0.2,
+        // Double the delay for each subsequent attempt
+        multiplier: 2.0,
+    };
+
+    println!("Custom BackoffConfig:");
+    println!("  base_delay: {:?}", backoff_config.base_delay);
+    println!("  max_delay: {:?}", backoff_config.max_delay);
+    println!("  jitter_factor: {}", backoff_config.jitter_factor);
+    println!("  multiplier: {}", backoff_config.multiplier);
     println!();
 
-    println!("Example code:");
+    // Create WsConfig with custom backoff
+    let config = WsConfig {
+        url: "wss://stream.binance.com:9443/ws".to_string(),
+        backoff_config,
+        max_reconnect_attempts: 10,
+        ..Default::default()
+    };
+
+    println!("WsConfig created with custom backoff:");
+    println!("  url: {}", config.url);
+    println!(
+        "  max_reconnect_attempts: {}",
+        config.max_reconnect_attempts
+    );
+    println!();
+
+    // Show retry delay progression (without jitter for clarity)
+    println!("Retry delay progression (without jitter):");
+    let strategy = ccxt_core::ws_client::BackoffStrategy::new(BackoffConfig {
+        base_delay: Duration::from_millis(500),
+        max_delay: Duration::from_secs(30),
+        jitter_factor: 0.0, // No jitter for predictable output
+        multiplier: 2.0,
+    });
+
+    for attempt in 0..8 {
+        let delay = strategy.calculate_delay(attempt);
+        println!("  Attempt {}: {:?}", attempt, delay);
+    }
+    println!();
+}
+
+/// Example 2: CancellationToken Support
+///
+/// Demonstrates how to use CancellationToken to cancel long-running
+/// WebSocket operations.
+async fn example_cancellation_token() {
+    println!("--- Example 2: CancellationToken Support ---\n");
+
+    // Create a WebSocket client
+    let client = WsClient::new(WsConfig {
+        url: "wss://stream.binance.com:9443/ws".to_string(),
+        connect_timeout: 5000,
+        ..Default::default()
+    });
+
+    // Create a cancellation token
+    let token = CancellationToken::new();
+    println!("Created CancellationToken");
+
+    // Clone the token for different uses
+    let connect_token = token.clone();
+    let reconnect_token = token.clone();
+    println!("Cloned token for connect and reconnect operations");
+
+    // Set the token on the client
+    client.set_cancel_token(token.clone()).await;
+    println!("Set cancellation token on client");
+
+    // Demonstrate token sharing
+    println!("\nToken sharing demonstration:");
+    println!("  Original token cancelled: {}", token.is_cancelled());
+    println!(
+        "  Connect token cancelled: {}",
+        connect_token.is_cancelled()
+    );
+    println!(
+        "  Reconnect token cancelled: {}",
+        reconnect_token.is_cancelled()
+    );
+
+    // Cancel the token
+    token.cancel();
+    println!("\nAfter cancelling original token:");
+    println!("  Original token cancelled: {}", token.is_cancelled());
+    println!(
+        "  Connect token cancelled: {}",
+        connect_token.is_cancelled()
+    );
+    println!(
+        "  Reconnect token cancelled: {}",
+        reconnect_token.is_cancelled()
+    );
+
+    println!("\nUsage pattern:");
     println!("```rust");
-    println!("// 1. Create BinanceWs instance (with built-in auto-reconnection)");
-    println!("let ws = Arc::new(BinanceWs::new(config));");
+    println!("// Create token and set timeout");
+    println!("let token = CancellationToken::new();");
+    println!("let token_clone = token.clone();");
     println!();
-    println!("// Configuration:");
-    println!("//   - Heartbeat interval: 30 seconds");
-    println!("//   - Pong timeout: 90 seconds");
-    println!("//   - Auto-reconnect: Enabled");
-    println!("//   - Max reconnection attempts: 5");
+    println!("// Spawn timeout task");
+    println!("tokio::spawn(async move {{");
+    println!("    tokio::time::sleep(Duration::from_secs(10)).await;");
+    println!("    token_clone.cancel();");
+    println!("}});");
     println!();
-    println!("// 2. Connect to WebSocket");
-    println!("ws.connect().await?;");
-    println!();
-    println!("// 3. Subscribe to real-time trades");
-    println!("ws.subscribe_trades(\"BTCUSDT\").await?;");
-    println!();
-    println!("// 4. Receive trade data");
-    println!("loop {{");
-    println!("    match ws.next_trade().await {{");
-    println!("        Ok(trade) => {{");
-    println!("            println!(\"Received trade: {{}} @ {{}}\", trade.symbol, trade.price);");
-    println!("        }}");
-    println!("        Err(e) => {{");
-    println!("            // Reconnection mechanism handles connection issues automatically");
-    println!("            eprintln!(\"Receive error: {{}}\", e);");
-    println!("        }}");
-    println!("    }}");
+    println!("// Connect with cancellation support");
+    println!("match client.connect_with_cancel(Some(token)).await {{");
+    println!("    Ok(()) => println!(\"Connected!\"),");
+    println!("    Err(e) if e.as_cancelled().is_some() => println!(\"Cancelled\"),");
+    println!("    Err(e) => println!(\"Error: {{}}\", e),");
     println!("}}");
     println!("```");
     println!();
 }
 
-/// Demonstrates event callback monitoring
-fn example_event_callbacks() {
-    println!("--- Example 2: Event Callback Monitoring ---");
-    println!("Features to implement:");
-    println!("  • Register event callback functions");
-    println!("  • Monitor connection state changes");
-    println!("  • Receive reconnection notifications");
-    println!("  • Track subscription recovery");
+/// Example 3: Event Callback Registration
+///
+/// Demonstrates how to register event callbacks to monitor connection
+/// lifecycle events.
+async fn example_event_callbacks() {
+    println!("--- Example 3: Event Callback Registration ---\n");
+
+    println!("Available WsEvent types:");
+    println!("  • WsEvent::Connecting - Connection attempt started");
+    println!("  • WsEvent::Connected - Connection established");
+    println!("  • WsEvent::Disconnected - Connection closed");
+    println!("  • WsEvent::Reconnecting {{ attempt, delay, error }} - Reconnecting");
+    println!("  • WsEvent::ReconnectSuccess - Reconnection succeeded");
+    println!("  • WsEvent::ReconnectFailed {{ attempt, error, is_permanent }} - Failed");
+    println!("  • WsEvent::ReconnectExhausted {{ total_attempts, last_error }} - Exhausted");
+    println!("  • WsEvent::SubscriptionRestored - Subscriptions restored");
+    println!("  • WsEvent::PermanentError {{ error }} - Permanent error");
+    println!("  • WsEvent::Shutdown - Shutdown completed");
     println!();
 
-    println!("Supported event types:");
-    println!("  • WsEvent::Connected - Connection successful");
-    println!("  • WsEvent::Disconnected - Connection lost");
-    println!("  • WsEvent::Reconnecting {{ attempt }} - Reconnecting");
-    println!("  • WsEvent::ReconnectSuccess - Reconnection successful");
-    println!("  • WsEvent::ReconnectFailed {{ error }} - Reconnection failed");
-    println!("  • WsEvent::SubscriptionRestored - Subscription restored");
+    // Create a WebSocket client
+    let client = WsClient::new(WsConfig::default());
+
+    // Create an event callback
+    let callback: Arc<dyn Fn(WsEvent) + Send + Sync> = Arc::new(|event| {
+        match &event {
+            WsEvent::Connecting => {
+                println!("🔵 Event: Connecting...");
+            }
+            WsEvent::Connected => {
+                println!("🟢 Event: Connected!");
+            }
+            WsEvent::Disconnected => {
+                println!("🔴 Event: Disconnected");
+            }
+            WsEvent::Reconnecting {
+                attempt,
+                delay,
+                error,
+            } => {
+                println!(
+                    "🔄 Event: Reconnecting (attempt {}, delay: {:?}, error: {:?})",
+                    attempt, delay, error
+                );
+            }
+            WsEvent::ReconnectSuccess => {
+                println!("✅ Event: Reconnection successful!");
+            }
+            WsEvent::ReconnectFailed {
+                attempt,
+                error,
+                is_permanent,
+            } => {
+                println!(
+                    "❌ Event: Reconnection failed (attempt {}) - {}, permanent: {}",
+                    attempt, error, is_permanent
+                );
+            }
+            WsEvent::ReconnectExhausted {
+                total_attempts,
+                last_error,
+            } => {
+                println!(
+                    "💀 Event: All {} reconnect attempts exhausted - {}",
+                    total_attempts, last_error
+                );
+            }
+            WsEvent::SubscriptionRestored => {
+                println!("📡 Event: Subscriptions restored");
+            }
+            WsEvent::PermanentError { error } => {
+                println!("🚫 Event: Permanent error (no retry) - {}", error);
+            }
+            WsEvent::Shutdown => {
+                println!("🛑 Event: Shutdown completed");
+            }
+        }
+
+        // Event helper methods
+        if event.is_error() {
+            println!("   ⚠️  This is an error event");
+        }
+        if event.is_terminal() {
+            println!("   ⛔ This is a terminal event (no recovery)");
+        }
+    });
+
+    // Set the callback on the client
+    client.set_event_callback(callback).await;
+    println!("Event callback registered on client");
+
+    // Demonstrate event creation
+    println!("\nSimulating events:");
+    let events = vec![
+        WsEvent::Connecting,
+        WsEvent::Connected,
+        WsEvent::Reconnecting {
+            attempt: 1,
+            delay: Duration::from_secs(2),
+            error: Some("Connection reset".to_string()),
+        },
+        WsEvent::ReconnectSuccess,
+        WsEvent::Shutdown,
+    ];
+
+    for event in events {
+        println!("\n  Event: {}", event);
+        println!("    is_connecting: {}", event.is_connecting());
+        println!("    is_connected: {}", event.is_connected());
+        println!("    is_error: {}", event.is_error());
+        println!("    is_terminal: {}", event.is_terminal());
+    }
+    println!();
+}
+
+/// Example 4: Subscription Limits
+///
+/// Demonstrates how to configure and monitor subscription capacity.
+fn example_subscription_limits() {
+    println!("--- Example 4: Subscription Limits ---\n");
+
+    // Create client with custom subscription limit
+    let client = WsClient::new(WsConfig {
+        url: "wss://stream.binance.com:9443/ws".to_string(),
+        max_subscriptions: 50, // Limit to 50 subscriptions
+        ..Default::default()
+    });
+
+    println!("Created client with max_subscriptions: 50");
     println!();
 
-    println!("Example code:");
+    // Check capacity
+    println!("Initial capacity:");
+    println!("  subscription_count(): {}", client.subscription_count());
+    println!("  remaining_capacity(): {}", client.remaining_capacity());
+    println!();
+
+    // Default configuration
+    let default_client = WsClient::new(WsConfig::default());
+    println!("Default configuration:");
+    println!(
+        "  max_subscriptions: {} (DEFAULT_MAX_SUBSCRIPTIONS)",
+        default_client.remaining_capacity()
+    );
+    println!();
+
+    println!("Usage pattern:");
     println!("```rust");
-    println!("use ccxt_core::ws_client::WsEvent;");
+    println!("// Check capacity before subscribing");
+    println!("if client.remaining_capacity() > 0 {{");
+    println!(
+        "    client.subscribe(\"ticker\".to_string(), Some(\"BTC/USDT\".to_string()), None).await?;"
+    );
+    println!("}} else {{");
+    println!("    println!(\"No subscription capacity available\");");
+    println!("}}");
     println!();
-    println!("// Create WsClient");
-    println!("let client = Arc::new(WsClient::new(Default::default()));");
-    println!();
-    println!("// Create auto-reconnect coordinator with callback");
-    println!("let coordinator = client.clone().create_auto_reconnect_coordinator();");
-    println!();
-    println!("// Set event callback");
-    println!("let coordinator = coordinator.with_callback(Arc::new(move |event| {{");
-    println!("    match event {{");
-    println!("        WsEvent::Connected => {{");
-    println!("            println!(\"🟢 Event: Connected\");");
-    println!("        }}");
-    println!("        WsEvent::Disconnected => {{");
-    println!("            println!(\"🔴 Event: Disconnected\");");
-    println!("        }}");
-    println!("        WsEvent::Reconnecting {{ attempt }} => {{");
-    println!("            println!(\"🔄 Event: Reconnecting (attempt {{}})\", attempt);");
-    println!("        }}");
-    println!("        WsEvent::ReconnectSuccess => {{");
-    println!("            println!(\"✅ Event: Reconnection successful\");");
-    println!("        }}");
-    println!("        WsEvent::ReconnectFailed {{ error }} => {{");
-    println!("            println!(\"❌ Event: Reconnection failed - {{}}\", error);");
-    println!("        }}");
-    println!("        WsEvent::SubscriptionRestored => {{");
-    println!("            println!(\"📡 Event: Subscription restored\");");
-    println!("        }}");
+    println!("// Handle ResourceExhausted error");
+    println!("match client.subscribe(channel, symbol, params).await {{");
+    println!("    Ok(()) => println!(\"Subscribed!\"),");
+    println!("    Err(e) if e.as_resource_exhausted().is_some() => {{");
+    println!("        println!(\"Max subscriptions reached: {{}}\", e);");
     println!("    }}");
-    println!("}}));");
-    println!();
-    println!("// Start coordinator");
-    println!("coordinator.start().await;");
+    println!("    Err(e) => println!(\"Error: {{}}\", e),");
+    println!("}}");
     println!("```");
     println!();
 }
 
-/// Demonstrates network interruption handling
-fn example_network_interruption() {
-    println!("--- Example 3: Network Interruption Handling ---");
-    println!("Scenarios to handle:");
+/// Example 5: Graceful Shutdown
+///
+/// Demonstrates how to perform a graceful shutdown of the WebSocket client.
+async fn example_graceful_shutdown() {
+    println!("--- Example 5: Graceful Shutdown ---\n");
+
+    // Create client with custom shutdown timeout
+    let client = WsClient::new(WsConfig {
+        url: "wss://stream.binance.com:9443/ws".to_string(),
+        shutdown_timeout: 5000, // 5 second timeout
+        ..Default::default()
+    });
+
+    println!("Created client with shutdown_timeout: 5000ms");
     println!();
 
-    println!("Network interruption detection:");
-    println!("  • Heartbeat timeout (90 seconds without pong response)");
-    println!("  • WebSocket connection errors");
-    println!("  • Server-initiated connection closure");
+    println!("Shutdown process:");
+    println!("  1. Cancel all pending reconnection attempts");
+    println!("  2. Send WebSocket close frame to server");
+    println!("  3. Wait for pending operations (with timeout)");
+    println!("  4. Clear all resources (subscriptions, channels)");
+    println!("  5. Emit WsEvent::Shutdown event");
     println!();
 
-    println!("Automatic recovery flow:");
-    println!("  1. Detect connection anomaly");
-    println!("  2. Trigger reconnection mechanism");
-    println!("  3. Retry with exponential backoff strategy");
-    println!("  4. Restore subscriptions after successful reconnection");
-    println!("  5. Resume normal data reception");
+    // Set up event callback to monitor shutdown
+    let shutdown_received = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let shutdown_flag = shutdown_received.clone();
+
+    client
+        .set_event_callback(Arc::new(move |event| {
+            if let WsEvent::Shutdown = event {
+                shutdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                println!("  ✓ Received Shutdown event");
+            }
+        }))
+        .await;
+
+    // Perform shutdown (without connecting first, just to demonstrate)
+    println!("Calling client.shutdown()...");
+    client.shutdown().await;
+    println!("Shutdown completed");
     println!();
 
-    println!("Reconnection strategy:");
-    println!("  • Attempt 1: Immediate reconnection");
-    println!("  • Attempt 2: Wait 2 seconds");
-    println!("  • Attempt 3: Wait 4 seconds");
-    println!("  • Attempt 4: Wait 8 seconds");
-    println!("  • Attempt 5: Wait 16 seconds");
-    println!("  • After 5 attempts: Stop reconnecting, notify application layer");
-    println!();
-
-    println!("Example code:");
+    println!("Usage pattern:");
     println!("```rust");
-    println!("let ws = Arc::new(BinanceWs::new(config));");
+    println!("// Set up shutdown event handler");
+    println!("client.set_event_callback(Arc::new(|event| {{");
+    println!("    if let WsEvent::Shutdown = event {{");
+    println!("        println!(\"Shutdown completed!\");");
+    println!("    }}");
+    println!("}})).await;");
+    println!();
+    println!("// Connect and do work...");
+    println!("client.connect().await?;");
+    println!(
+        "client.subscribe(\"ticker\".to_string(), Some(\"BTC/USDT\".to_string()), None).await?;"
+    );
+    println!();
+    println!("// Gracefully shutdown when done");
+    println!("client.shutdown().await;");
+    println!("```");
+    println!();
+}
+
+/// Example 6: AutoReconnectCoordinator
+///
+/// Demonstrates how to use the AutoReconnectCoordinator for automatic
+/// reconnection with exponential backoff.
+async fn example_auto_reconnect_coordinator() {
+    println!("--- Example 6: AutoReconnectCoordinator ---\n");
+
+    // Create a WebSocket client with custom configuration
+    let client = Arc::new(WsClient::new(WsConfig {
+        url: "wss://stream.binance.com:9443/ws".to_string(),
+        backoff_config: BackoffConfig {
+            base_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(60),
+            jitter_factor: 0.25,
+            multiplier: 2.0,
+        },
+        max_reconnect_attempts: 5,
+        ..Default::default()
+    }));
+
+    println!("Created WsClient with custom backoff configuration");
+    println!();
+
+    // Create AutoReconnectCoordinator
+    let coordinator = client.clone().create_auto_reconnect_coordinator();
+    println!("Created AutoReconnectCoordinator");
+
+    // Add event callback
+    let coordinator = coordinator.with_callback(Arc::new(|event| {
+        println!("  Coordinator event: {}", event);
+    }));
+    println!("Added event callback to coordinator");
+
+    // Add cancellation token
+    let cancel_token = CancellationToken::new();
+    let coordinator = coordinator.with_cancel_token(cancel_token.clone());
+    println!("Added cancellation token to coordinator");
+    println!();
+
+    println!("Coordinator features:");
+    println!("  • Monitors connection state automatically");
+    println!("  • Triggers reconnection on disconnect/error");
+    println!("  • Uses exponential backoff for retry delays");
+    println!("  • Classifies errors (transient vs permanent)");
+    println!("  • Supports graceful cancellation");
+    println!("  • Emits events for all state changes");
+    println!();
+
+    println!("Usage pattern:");
+    println!("```rust");
+    println!("// Create client and coordinator");
+    println!("let client = Arc::new(WsClient::new(config));");
+    println!("let coordinator = client.clone().create_auto_reconnect_coordinator()");
+    println!("    .with_callback(Arc::new(|event| {{");
+    println!("        println!(\"Event: {{}}\", event);");
+    println!("    }}))");
+    println!("    .with_cancel_token(cancel_token.clone());");
+    println!();
+    println!("// Start automatic reconnection monitoring");
+    println!("coordinator.start().await;");
     println!();
     println!("// Connect and subscribe");
-    println!("ws.connect().await?;");
-    println!("ws.subscribe_trades(\"ETHUSDT\").await?;");
+    println!("client.connect().await?;");
+    println!(
+        "client.subscribe(\"ticker\".to_string(), Some(\"BTC/USDT\".to_string()), None).await?;"
+    );
     println!();
-    println!("// Normal data reception");
-    println!("loop {{");
-    println!("    match tokio::time::timeout(Duration::from_secs(1), ws.next_trade()).await {{");
-    println!("        Ok(Ok(trade)) => {{");
-    println!("            println!(\"Received trade: {{}} @ {{}}\", trade.symbol, trade.price);");
-    println!("        }}");
-    println!("        Ok(Err(e)) => {{");
-    println!("            // Connection error, reconnection mechanism handles it automatically");
-    println!("            println!(\"Error: {{}}\", e);");
-    println!("        }}");
-    println!("        Err(_) => {{");
-    println!("            // Timeout (no data)");
-    println!("            println!(\"Timeout (no data)\");");
-    println!("        }}");
-    println!("    }}");
+    println!("// Process messages - coordinator handles reconnection automatically");
+    println!("while let Some(msg) = client.receive().await {{");
+    println!("    // Process message...");
     println!("}}");
+    println!();
+    println!("// Stop coordinator when done");
+    println!("coordinator.stop().await;");
     println!("```");
     println!();
 
-    println!("💡 Key points:");
-    println!("  • Application layer does not need to handle reconnection explicitly");
-    println!("  • Reconnection process is transparent to application");
-    println!("  • Subscription state is automatically saved and restored");
-    println!("  • Reconnection process can be monitored via event callbacks");
-    println!();
-}
-
-/// Demonstrates subscription recovery mechanism
-fn example_subscription_recovery() {
-    println!("--- Example 4: Subscription Recovery Mechanism ---");
-    println!("Features to implement:");
-    println!("  • Automatic tracking of active subscriptions");
-    println!("  • Restore all subscriptions after reconnection");
-    println!("  • Support multiple subscription types");
-    println!();
-
-    println!("Supported subscription types:");
-    println!("  • Real-time trades (Trades)");
-    println!("  • Order book updates (OrderBook)");
-    println!("  • Kline/Candlestick data (Kline/OHLCV)");
-    println!("  • Ticker data");
-    println!("  • User data stream (Account updates, Order updates)");
-    println!();
-
-    println!("Recovery flow:");
-    println!("  1. Before disconnection:");
-    println!("     - Record all active subscriptions");
-    println!("     - Save subscription parameters");
-    println!();
-    println!("  2. After successful reconnection:");
-    println!("     - Restore subscriptions one by one");
-    println!("     - Re-subscribe using original parameters");
-    println!("     - Verify subscription success");
-    println!();
-    println!("  3. Recovery complete:");
-    println!("     - Trigger SubscriptionRestored event");
-    println!("     - Resume data reception");
-    println!();
-
-    println!("Example code:");
-    println!("```rust");
-    println!("let ws = Arc::new(BinanceWs::new(config));");
-    println!("ws.connect().await?;");
-    println!();
-    println!("// Subscribe to multiple data streams");
-    println!("ws.subscribe_trades(\"BTCUSDT\").await?;");
-    println!("ws.subscribe_orderbook(\"ETHUSDT\", Some(20)).await?;");
-    println!("ws.subscribe_kline(\"BNBUSDT\", \"1m\").await?;");
-    println!();
-    println!("// If disconnected, all subscriptions will be automatically restored:");
-    println!("// - BTCUSDT real-time trades");
-    println!("// - ETHUSDT order book (20 levels)");
-    println!("// - BNBUSDT 1-minute klines");
-    println!();
-    println!("// Application layer does not need to manually re-subscribe");
-    println!("loop {{");
-    println!("    // Continue receiving data");
-    println!("    let data = ws.next_message().await?;");
-    println!("    // Process data...");
-    println!("}}");
-    println!("```");
+    // Check coordinator state
+    println!("Coordinator state:");
+    println!("  is_enabled: {}", coordinator.is_enabled());
     println!();
 }

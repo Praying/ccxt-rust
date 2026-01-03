@@ -51,6 +51,7 @@ impl BitgetWs {
             auto_reconnect: true,
             enable_compression: false,
             pong_timeout: 90000,
+            ..Default::default()
         };
 
         Self {

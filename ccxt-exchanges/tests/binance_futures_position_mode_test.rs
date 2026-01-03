@@ -12,8 +12,12 @@ use ccxt_exchanges::binance::Binance;
 #[ignore = "Position mode methods not yet migrated to new modular structure"]
 async fn test_set_position_mode_dual() {
     let config = ExchangeConfig {
-        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
+        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default().into()),
+        secret: Some(
+            std::env::var("BINANCE_API_SECRET")
+                .unwrap_or_default()
+                .into(),
+        ),
         sandbox: true,
         ..Default::default()
     };
@@ -26,8 +30,12 @@ async fn test_set_position_mode_dual() {
 #[ignore = "Position mode methods not yet migrated to new modular structure"]
 async fn test_set_position_mode_single() {
     let config = ExchangeConfig {
-        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
+        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default().into()),
+        secret: Some(
+            std::env::var("BINANCE_API_SECRET")
+                .unwrap_or_default()
+                .into(),
+        ),
         sandbox: true,
         ..Default::default()
     };
@@ -40,8 +48,12 @@ async fn test_set_position_mode_single() {
 #[ignore = "Position mode methods not yet migrated to new modular structure"]
 async fn test_fetch_position_mode() {
     let config = ExchangeConfig {
-        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
+        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default().into()),
+        secret: Some(
+            std::env::var("BINANCE_API_SECRET")
+                .unwrap_or_default()
+                .into(),
+        ),
         sandbox: true,
         ..Default::default()
     };
@@ -54,8 +66,12 @@ async fn test_fetch_position_mode() {
 #[ignore = "Position mode methods not yet migrated to new modular structure"]
 async fn test_position_mode_toggle() {
     let config = ExchangeConfig {
-        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
+        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default().into()),
+        secret: Some(
+            std::env::var("BINANCE_API_SECRET")
+                .unwrap_or_default()
+                .into(),
+        ),
         sandbox: true,
         ..Default::default()
     };
@@ -68,8 +84,12 @@ async fn test_position_mode_toggle() {
 #[ignore = "Position mode methods not yet migrated to new modular structure"]
 async fn test_set_position_mode_with_params() {
     let config = ExchangeConfig {
-        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-        secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
+        api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default().into()),
+        secret: Some(
+            std::env::var("BINANCE_API_SECRET")
+                .unwrap_or_default()
+                .into(),
+        ),
         sandbox: true,
         ..Default::default()
     };
@@ -112,8 +132,12 @@ mod position_mode_integration_tests {
     #[ignore = "Position mode methods not yet migrated to new modular structure"]
     async fn test_complete_position_mode_workflow() {
         let config = ExchangeConfig {
-            api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default()),
-            secret: Some(std::env::var("BINANCE_API_SECRET").unwrap_or_default()),
+            api_key: Some(std::env::var("BINANCE_API_KEY").unwrap_or_default().into()),
+            secret: Some(
+                std::env::var("BINANCE_API_SECRET")
+                    .unwrap_or_default()
+                    .into(),
+            ),
             sandbox: true,
             ..Default::default()
         };

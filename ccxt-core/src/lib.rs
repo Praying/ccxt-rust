@@ -136,7 +136,13 @@ pub use types::{
 // Re-export symbol types for unified symbol format
 pub use symbol::{SymbolError, SymbolFormatter, SymbolParser};
 pub use types::symbol::{ContractType, ExpiryDate, ParsedSymbol, SymbolMarketType};
-pub use ws_client::{Subscription, WsClient, WsConfig, WsConnectionState, WsMessage};
+pub use ws_client::{
+    BackoffConfig, BackoffStrategy, DEFAULT_MAX_SUBSCRIPTIONS, DEFAULT_SHUTDOWN_TIMEOUT,
+    Subscription, SubscriptionManager, WsClient, WsConfig, WsConnectionState, WsError, WsErrorKind,
+    WsEvent, WsMessage, WsStats, WsStatsSnapshot,
+};
+// Re-export CancellationToken for convenient access
+pub use tokio_util::sync::CancellationToken;
 
 /// Prelude module for convenient imports
 ///
@@ -184,9 +190,15 @@ pub mod prelude {
     // Symbol types for unified symbol format
     pub use crate::symbol::{SymbolError, SymbolFormatter, SymbolParser};
     pub use crate::types::symbol::{ContractType, ExpiryDate, ParsedSymbol, SymbolMarketType};
-    pub use crate::ws_client::{Subscription, WsClient, WsConfig, WsConnectionState, WsMessage};
+    pub use crate::ws_client::{
+        BackoffConfig, BackoffStrategy, DEFAULT_MAX_SUBSCRIPTIONS, DEFAULT_SHUTDOWN_TIMEOUT,
+        Subscription, SubscriptionManager, WsClient, WsConfig, WsConnectionState, WsError,
+        WsErrorKind, WsEvent, WsMessage, WsStats, WsStatsSnapshot,
+    };
+    // Re-export CancellationToken for convenient access
     pub use rust_decimal::Decimal;
     pub use serde::{Deserialize, Serialize};
+    pub use tokio_util::sync::CancellationToken;
 }
 
 /// Library version

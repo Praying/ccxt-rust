@@ -12,8 +12,8 @@ async fn test_watch_orders_all() {
     let api_secret = std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET not set");
 
     let config = ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(api_secret),
+        api_key: Some(api_key.into()),
+        secret: Some(api_secret.into()),
         ..Default::default()
     };
 
@@ -50,8 +50,8 @@ async fn test_watch_orders_by_symbol() {
     let api_secret = std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET not set");
 
     let config = ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(api_secret),
+        api_key: Some(api_key.into()),
+        secret: Some(api_secret.into()),
         ..Default::default()
     };
 
@@ -86,8 +86,8 @@ async fn test_watch_orders_with_limit() {
     let api_secret = std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET not set");
 
     let config = ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(api_secret),
+        api_key: Some(api_key.into()),
+        secret: Some(api_secret.into()),
         ..Default::default()
     };
 
@@ -123,8 +123,8 @@ async fn test_watch_orders_with_since() {
     let api_secret = std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET not set");
 
     let config = ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(api_secret),
+        api_key: Some(api_key.into()),
+        secret: Some(api_secret.into()),
         ..Default::default()
     };
 
@@ -164,8 +164,8 @@ async fn test_watch_orders_futures() {
     let api_secret = std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET not set");
 
     let config = ExchangeConfig {
-        api_key: Some(api_key),
-        secret: Some(api_secret),
+        api_key: Some(api_key.into()),
+        secret: Some(api_secret.into()),
         ..Default::default()
     };
 
