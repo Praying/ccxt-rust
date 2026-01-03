@@ -385,13 +385,13 @@ mod bybit_builder_configuration_preservation {
             // Verify credentials are preserved in base config
             let base = bybit.base();
             prop_assert_eq!(
-                base.config.api_key.as_ref(),
-                Some(&api_key),
+                base.config.api_key.as_ref().map(|s| s.expose_secret()),
+                Some(api_key.as_str()),
                 "Bybit builder should preserve api_key after build"
             );
             prop_assert_eq!(
-                base.config.secret.as_ref(),
-                Some(&secret),
+                base.config.secret.as_ref().map(|s| s.expose_secret()),
+                Some(secret.as_str()),
                 "Bybit builder should preserve secret after build"
             );
         }

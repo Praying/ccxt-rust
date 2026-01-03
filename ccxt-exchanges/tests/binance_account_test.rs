@@ -59,8 +59,8 @@ fn create_binance_client() -> Binance {
     };
 
     let mut config = ExchangeConfig::default();
-    config.api_key = Some(api_key);
-    config.secret = Some(secret);
+    config.api_key = Some(api_key.into());
+    config.secret = Some(secret.into());
     config.sandbox = sandbox;
 
     Binance::new(config).unwrap()

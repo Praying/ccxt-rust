@@ -530,6 +530,40 @@ pub enum Error {
     #[error("Not implemented: {0}")]
     NotImplemented(Cow<'static, str>),
 
+    /// Operation was cancelled.
+    ///
+    /// This error is returned when an operation is cancelled via a `CancellationToken`
+    /// or other cancellation mechanism. It indicates that the operation was intentionally
+    /// aborted and did not complete.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::Error;
+    ///
+    /// let err = Error::cancelled("WebSocket connection cancelled");
+    /// assert!(err.to_string().contains("cancelled"));
+    /// ```
+    #[error("Cancelled: {0}")]
+    Cancelled(Cow<'static, str>),
+
+    /// Resource exhausted error.
+    ///
+    /// This error is returned when a resource limit has been reached, such as
+    /// maximum number of WebSocket subscriptions, connection pool exhaustion,
+    /// or other capacity limits.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::Error;
+    ///
+    /// let err = Error::resource_exhausted("Maximum subscriptions (100) reached");
+    /// assert!(err.to_string().contains("Resource exhausted"));
+    /// ```
+    #[error("Resource exhausted: {0}")]
+    ResourceExhausted(Cow<'static, str>),
+
     /// Error with additional context, preserving the error chain.
     #[error("{context}")]
     Context {
@@ -619,6 +653,51 @@ impl Error {
     /// Accepts both `&'static str` (zero allocation) and `String`.
     pub fn not_implemented(feature: impl Into<Cow<'static, str>>) -> Self {
         Self::NotImplemented(feature.into())
+    }
+
+    /// Creates a cancelled error.
+    ///
+    /// Use this when an operation is cancelled via a `CancellationToken` or
+    /// other cancellation mechanism.
+    ///
+    /// Accepts both `&'static str` (zero allocation) and `String`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::Error;
+    ///
+    /// // Zero allocation (static string):
+    /// let err = Error::cancelled("Operation cancelled by user");
+    ///
+    /// // Allocation (dynamic string):
+    /// let err = Error::cancelled(format!("Connection {} cancelled", "ws-1"));
+    /// ```
+    pub fn cancelled(msg: impl Into<Cow<'static, str>>) -> Self {
+        Self::Cancelled(msg.into())
+    }
+
+    /// Creates a resource exhausted error.
+    ///
+    /// Use this when a resource limit has been reached, such as maximum
+    /// WebSocket subscriptions, connection pool exhaustion, or other
+    /// capacity limits.
+    ///
+    /// Accepts both `&'static str` (zero allocation) and `String`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::Error;
+    ///
+    /// // Zero allocation (static string):
+    /// let err = Error::resource_exhausted("Maximum subscriptions reached");
+    ///
+    /// // Allocation (dynamic string):
+    /// let err = Error::resource_exhausted(format!("Maximum subscriptions ({}) reached", 100));
+    /// ```
+    pub fn resource_exhausted(msg: impl Into<Cow<'static, str>>) -> Self {
+        Self::ResourceExhausted(msg.into())
     }
 
     /// Creates an invalid request error.
@@ -784,6 +863,54 @@ impl Error {
         match self {
             Error::Authentication(msg) => Some(msg.as_ref()),
             Error::Context { source, .. } => source.as_authentication(),
+            _ => None,
+        }
+    }
+
+    /// Checks if this is a cancelled error (penetrates Context layers).
+    /// Returns the error message.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::Error;
+    ///
+    /// let err = Error::cancelled("Operation cancelled");
+    /// assert_eq!(err.as_cancelled(), Some("Operation cancelled"));
+    ///
+    /// // Works through context layers
+    /// let wrapped = err.context("Wrapped error");
+    /// assert_eq!(wrapped.as_cancelled(), Some("Operation cancelled"));
+    /// ```
+    #[must_use]
+    pub fn as_cancelled(&self) -> Option<&str> {
+        match self {
+            Error::Cancelled(msg) => Some(msg.as_ref()),
+            Error::Context { source, .. } => source.as_cancelled(),
+            _ => None,
+        }
+    }
+
+    /// Checks if this is a resource exhausted error (penetrates Context layers).
+    /// Returns the error message.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::Error;
+    ///
+    /// let err = Error::resource_exhausted("Maximum subscriptions reached");
+    /// assert_eq!(err.as_resource_exhausted(), Some("Maximum subscriptions reached"));
+    ///
+    /// // Works through context layers
+    /// let wrapped = err.context("Wrapped error");
+    /// assert_eq!(wrapped.as_resource_exhausted(), Some("Maximum subscriptions reached"));
+    /// ```
+    #[must_use]
+    pub fn as_resource_exhausted(&self) -> Option<&str> {
+        match self {
+            Error::ResourceExhausted(msg) => Some(msg.as_ref()),
+            Error::Context { source, .. } => source.as_resource_exhausted(),
             _ => None,
         }
     }

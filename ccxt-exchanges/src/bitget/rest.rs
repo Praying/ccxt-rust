@@ -1567,8 +1567,8 @@ mod tests {
 
     #[test]
     fn test_get_timestamp() {
-        let bitget = Bitget::builder().build().unwrap();
-        let ts = bitget.get_timestamp();
+        let _bitget = Bitget::builder().build().unwrap();
+        let ts = Bitget::get_timestamp();
 
         // Should be a valid timestamp string
         let parsed: i64 = ts.parse().unwrap();

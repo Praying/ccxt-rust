@@ -16,7 +16,7 @@ static INIT: Once = Once::new();
 fn setup() {
     INIT.call_once(|| {
         // Use test config to reduce log noise
-        let _ = init_logging(LogConfig::test());
+        let _ = init_logging(&LogConfig::test());
     });
 }
 

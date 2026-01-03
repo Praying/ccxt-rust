@@ -1273,8 +1273,8 @@ mod tests {
 
     #[test]
     fn test_build_api_path() {
-        let okx = Okx::builder().build().unwrap();
-        let path = okx.build_api_path("/public/instruments");
+        let _okx = Okx::builder().build().unwrap();
+        let path = Okx::build_api_path("/public/instruments");
         assert_eq!(path, "/api/v5/public/instruments");
     }
 
@@ -1331,8 +1331,8 @@ mod tests {
 
     #[test]
     fn test_get_timestamp() {
-        let okx = Okx::builder().build().unwrap();
-        let ts = okx.get_timestamp();
+        let _okx = Okx::builder().build().unwrap();
+        let ts = Okx::get_timestamp();
 
         // Should be in ISO 8601 format
         assert!(ts.contains("T"));

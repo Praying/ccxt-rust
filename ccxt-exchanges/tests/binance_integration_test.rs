@@ -17,8 +17,8 @@ use std::env;
 /// Load API credentials from environment variables.
 fn get_api_credentials() -> ExchangeConfig {
     dotenvy::dotenv().ok();
-    let api_key = env::var("BINANCE_API_KEY").ok();
-    let secret = env::var("BINANCE_API_SECRET").ok();
+    let api_key = env::var("BINANCE_API_KEY").ok().map(|s| s.into());
+    let secret = env::var("BINANCE_API_SECRET").ok().map(|s| s.into());
 
     let mut config = ExchangeConfig::default();
     config.api_key = api_key;
@@ -402,8 +402,8 @@ async fn test_fetch_my_trades() {
 #[ignore]
 async fn test_invalid_api_key() {
     let mut config = ExchangeConfig::default();
-    config.api_key = Some("invalid_key".to_string());
-    config.secret = Some("invalid_secret".to_string());
+    config.api_key = Some("invalid_key".to_string().into());
+    config.secret = Some("invalid_secret".to_string().into());
     let exchange = Binance::new(config).unwrap();
     let result = exchange.fetch_balance(None).await;
 
@@ -439,8 +439,8 @@ async fn test_network_error_retry() {
 #[ignore]
 async fn test_signature_error() {
     let mut config = ExchangeConfig::default();
-    config.api_key = Some("test_key".to_string());
-    config.secret = Some("wrong_secret".to_string());
+    config.api_key = Some("test_key".to_string().into());
+    config.secret = Some("wrong_secret".to_string().into());
     let exchange = Binance::new(config).unwrap();
     let result = exchange.fetch_balance(None).await;
 
