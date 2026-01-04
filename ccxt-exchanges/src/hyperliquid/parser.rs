@@ -5,6 +5,7 @@
 use ccxt_core::{
     Result,
     error::{Error, ParseError},
+    parser_utils::{parse_decimal, parse_timestamp, value_to_hashmap},
     types::{
         Balance, BalanceEntry, Market, MarketLimits, MarketPrecision, MarketType, MinMax, Order,
         OrderBook, OrderBookEntry, OrderSide, OrderStatus, OrderType, Ticker, Trade,
@@ -16,43 +17,8 @@ use rust_decimal::prelude::{FromPrimitive, FromStr};
 use serde_json::Value;
 use std::collections::HashMap;
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/// Parse a `Decimal` value from JSON.
-pub fn parse_decimal(data: &Value, key: &str) -> Option<Decimal> {
-    data.get(key).and_then(|v| {
-        if let Some(num) = v.as_f64() {
-            Decimal::from_f64(num)
-        } else if let Some(s) = v.as_str() {
-            Decimal::from_str(s).ok()
-        } else {
-            None
-        }
-    })
-}
-
-/// Parse a timestamp from JSON.
-pub fn parse_timestamp(data: &Value, key: &str) -> Option<i64> {
-    data.get(key).and_then(|v| {
-        v.as_i64()
-            .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
-    })
-}
-
-/// Convert millisecond timestamp to ISO8601 datetime string.
-pub fn timestamp_to_datetime(timestamp: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp_millis(timestamp)
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-}
-
-/// Convert a JSON `Value` into a `HashMap<String, Value>`.
-fn value_to_hashmap(data: &Value) -> HashMap<String, Value> {
-    data.as_object()
-        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-        .unwrap_or_default()
-}
+// Re-export for backward compatibility
+pub use ccxt_core::parser_utils::timestamp_to_datetime;
 
 // ============================================================================
 // Market Parser
