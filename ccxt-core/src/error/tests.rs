@@ -1,1393 +1,263 @@
-//! # Error Handling for CCXT Rust
-//!
-//! This module provides a comprehensive, production-grade error handling system for the
-//! `ccxt-rust` library. It is designed following Rust community best practices and the
-//! principles outlined in the [Error Handling Project Group](https://blog.rust-lang.org/inside-rust/2021/07/01/What-the-error-handling-project-group-is-working-towards.html).
-//!
-//! ## Design Philosophy
-//!
-//! The error handling system is built around these core principles:
-//!
-//! 1. **Type Safety**: Strongly-typed errors using `thiserror` for compile-time guarantees
-//! 2. **API Stability**: All public enums use `#[non_exhaustive]` for forward compatibility
-//! 3. **Zero Panic**: No `unwrap()` or `expect()` on recoverable error paths
-//! 4. **Context Rich**: Full error chain support with context attachment
-//! 5. **Performance**: Optimized memory layout using `Cow<'static, str>` and `Box`
-//! 6. **Thread Safety**: All error types implement `Send + Sync + 'static`
-//! 7. **Observability**: Integration with `tracing` for structured logging
-//!
-//! ## Error Hierarchy
-//!
-//! ```text
-//! Error (main error type)
-//! ├── Exchange      - Exchange-specific API errors
-//! ├── Network       - Network/transport layer errors (via NetworkError)
-//! ├── Parse         - Response parsing errors (via ParseError)
-//! ├── Order         - Order management errors (via OrderError)
-//! ├── Authentication - API key/signature errors
-//! ├── RateLimit     - Rate limiting with retry information
-//! ├── Timeout       - Operation timeout
-//! ├── InvalidRequest - Invalid parameters
-//! ├── MarketNotFound - Unknown trading pair
-//! ├── WebSocket     - WebSocket communication errors
-//! └── Context       - Error with additional context
-//! ```
-//!
-//! ## Quick Start
-//!
-//! ### Basic Error Handling
-//!
-//! ```rust
-//! use ccxt_core::error::{Error, Result};
-//!
-//! fn fetch_price(symbol: &str) -> Result<f64> {
-//!     if symbol.is_empty() {
-//!         return Err(Error::invalid_request("Symbol cannot be empty"));
-//!     }
-//!     // ... fetch price logic
-//!     Ok(42000.0)
-//! }
-//! ```
-//!
-//! ### Adding Context to Errors
-//!
-//! ```rust
-//! use ccxt_core::error::{Error, Result, ContextExt};
-//!
-//! fn process_order(order_id: &str) -> Result<()> {
-//!     validate_order(order_id)
-//!         .context("Failed to validate order")?;
-//!     
-//!     submit_order(order_id)
-//!         .with_context(|| format!("Failed to submit order {}", order_id))?;
-//!     
-//!     Ok(())
-//! }
-//! # fn validate_order(_: &str) -> Result<()> { Ok(()) }
-//! # fn submit_order(_: &str) -> Result<()> { Ok(()) }
-//! ```
-//!
-//! ### Handling Specific Error Types
-//!
-//! ```rust
-//! use ccxt_core::error::{Error, NetworkError};
-//!
-//! fn handle_error(err: Error) {
-//!     // Check if error is retryable
-//!     if err.is_retryable() {
-//!         if let Some(duration) = err.retry_after() {
-//!             println!("Retry after {:?}", duration);
-//!         }
-//!     }
-//!     
-//!     // Check for specific error types through context layers
-//!     if let Some(msg) = err.as_authentication() {
-//!         println!("Auth error: {}", msg);
-//!     }
-//!     
-//!     // Get full error report
-//!     println!("Error report:\n{}", err.report());
-//! }
-//! ```
-//!
-//! ### Creating Exchange Errors
-//!
-//! ```rust
-//! use ccxt_core::error::Error;
-//!
-//! // Simple exchange error
-//! let err = Error::exchange("-1121", "Invalid symbol");
-//!
-//! // Exchange error with raw response data
-//! let err = Error::exchange_with_data(
-//!     "400",
-//!     "Bad Request",
-//!     serde_json::json!({"code": -1121, "msg": "Invalid symbol"})
-//! );
-//! ```
-//!
-//! ## Memory Optimization
-//!
-//! The `Error` enum is optimized to be ≤56 bytes on 64-bit systems:
-//!
-//! - Large variants (`Exchange`, `Network`, `Parse`, `Order`, `WebSocket`, `Context`)
-//!   are boxed to keep the enum size small
-//! - String fields use `Cow<'static, str>` to avoid allocation for static strings
-//! - Use `Error::authentication("static message")` for zero-allocation errors
-//! - Use `Error::authentication(format!("dynamic {}", value))` when needed
-//!
-//! ## Feature Flags
-//!
-//! - `backtrace`: Enable backtrace capture in `ExchangeErrorDetails` for debugging
-//!
-//! ## Integration with anyhow
-//!
-//! For application-level code, errors can be converted to `anyhow::Error`:
-//!
-//! ```rust
-//! use ccxt_core::error::Error;
-//!
-//! fn app_main() -> anyhow::Result<()> {
-//!     let result: Result<(), Error> = Err(Error::timeout("Operation timed out"));
-//!     result?; // Automatically converts to anyhow::Error
-//!     Ok(())
-//! }
-//! ```
+#![cfg(test)]
 
-use std::borrow::Cow;
-use std::error::Error as StdError;
-use std::fmt;
+use super::convert::{MAX_ERROR_MESSAGE_LEN, truncate_message};
+use super::*;
 use std::time::Duration;
 
-use thiserror::Error;
-
-#[cfg(feature = "backtrace")]
-use std::backtrace::Backtrace;
-
-/// Result type alias for all CCXT operations.
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Maximum length for error messages to prevent memory bloat from large HTTP responses.
-const MAX_ERROR_MESSAGE_LEN: usize = 1024;
-
-/// Truncates a string to a maximum length, adding "... (truncated)" if needed.
-fn truncate_message(mut msg: String) -> String {
-    if msg.len() > MAX_ERROR_MESSAGE_LEN {
-        msg.truncate(MAX_ERROR_MESSAGE_LEN);
-        msg.push_str("... (truncated)");
-    }
-    msg
+#[test]
+fn test_exchange_error_details_display() {
+    let details = ExchangeErrorDetails::new("400", "Bad Request");
+    let display = format!("{}", details);
+    assert!(display.contains("400"));
+    assert!(display.contains("Bad Request"));
 }
 
-/// Details for exchange-specific errors.
-///
-/// Extracted to a separate struct and boxed to keep Error enum size small.
-///
-/// Note: `#[non_exhaustive]` allows adding fields in future versions without breaking changes.
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_core::error::ExchangeErrorDetails;
-///
-/// let details = ExchangeErrorDetails::new("400", "Bad Request");
-/// assert_eq!(details.code, "400");
-/// ```
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct ExchangeErrorDetails {
-    /// Error code as String to support all exchange formats (numeric, alphanumeric).
-    pub code: String,
-    /// Descriptive message from the exchange.
-    pub message: String,
-    /// Optional raw response data for debugging.
-    pub data: Option<serde_json::Value>,
-    /// Backtrace captured at error creation (feature-gated).
-    #[cfg(feature = "backtrace")]
-    pub backtrace: Backtrace,
+#[test]
+fn test_exchange_error_details_with_data() {
+    let data = serde_json::json!({"error": "test"});
+    let details = ExchangeErrorDetails::with_data("500", "Internal Error", data.clone());
+    assert_eq!(details.code, "500");
+    assert_eq!(details.message, "Internal Error");
+    assert_eq!(details.data, Some(data));
 }
 
-impl ExchangeErrorDetails {
-    /// Creates a new `ExchangeErrorDetails` with the given code and message.
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            data: None,
-            #[cfg(feature = "backtrace")]
-            backtrace: Backtrace::capture(),
-        }
-    }
-
-    /// Creates a new `ExchangeErrorDetails` with raw response data.
-    pub fn with_data(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        data: serde_json::Value,
-    ) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            data: Some(data),
-            #[cfg(feature = "backtrace")]
-            backtrace: Backtrace::capture(),
-        }
+#[test]
+fn test_error_exchange_creation() {
+    let err = Error::exchange("400", "Bad Request");
+    if let Error::Exchange(details) = &err {
+        assert_eq!(details.code, "400");
+        assert_eq!(details.message, "Bad Request");
+    } else {
+        panic!("Expected Exchange variant");
     }
 }
 
-impl fmt::Display for ExchangeErrorDetails {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} (code: {})", self.message, self.code)
+#[test]
+fn test_error_exchange_string_code() {
+    // Test that string codes (not just numeric) work
+    let err = Error::exchange("INVALID_SYMBOL", "Symbol not found");
+    if let Error::Exchange(details) = &err {
+        assert_eq!(details.code, "INVALID_SYMBOL");
+    } else {
+        panic!("Expected Exchange variant");
     }
 }
 
-/// Encapsulated network errors hiding implementation details.
-///
-/// This type wraps all network-related errors without exposing third-party
-/// library types (like `reqwest::Error`) in the public API. This ensures
-/// API stability even when underlying HTTP libraries change.
-///
-/// # Retryable Errors
-///
-/// The following variants are considered retryable:
-/// - [`NetworkError::Timeout`] - Request timed out, may succeed on retry
-/// - [`NetworkError::ConnectionFailed`] - Connection failed, may be transient
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_core::error::{Error, NetworkError};
-///
-/// fn handle_network_error(err: NetworkError) {
-///     match &err {
-///         NetworkError::RequestFailed { status, message } => {
-///             println!("HTTP {}: {}", status, message);
-///         }
-///         NetworkError::Timeout => {
-///             println!("Request timed out, consider retrying");
-///         }
-///         NetworkError::ConnectionFailed(msg) => {
-///             println!("Connection failed: {}", msg);
-///         }
-///         _ => println!("Network error: {}", err),
-///     }
-/// }
-/// ```
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum NetworkError {
-    /// Request failed with HTTP status code.
-    #[error("Request failed with status {status}: {message}")]
-    RequestFailed {
-        /// HTTP status code
-        status: u16,
-        /// Error message
-        message: String,
-    },
-
-    /// Request timed out.
-    #[error("Request timeout")]
-    Timeout,
-
-    /// Connection failed.
-    #[error("Connection failed: {0}")]
-    ConnectionFailed(String),
-
-    /// DNS resolution failed.
-    #[error("DNS resolution failed: {0}")]
-    DnsResolution(String),
-
-    /// SSL/TLS error.
-    #[error("SSL/TLS error: {0}")]
-    Ssl(String),
-
-    /// Opaque transport error for underlying issues.
-    /// Uses `Box<dyn StdError>` to hide implementation details while preserving the source.
-    #[error("Transport error")]
-    Transport(#[source] Box<dyn StdError + Send + Sync + 'static>),
+#[test]
+fn test_error_authentication() {
+    let err = Error::authentication("Invalid API key");
+    assert!(matches!(err, Error::Authentication(_)));
+    assert!(err.to_string().contains("Invalid API key"));
 }
 
-/// Errors related to parsing exchange responses.
-///
-/// This type handles all parsing failures including JSON deserialization,
-/// decimal number parsing, timestamp parsing, and missing/invalid fields.
-///
-/// # Memory Optimization
-///
-/// Uses `Cow<'static, str>` for field names and messages to avoid allocation
-/// when using static strings. Use the helper constructors for ergonomic creation:
-///
-/// ```rust
-/// use ccxt_core::error::ParseError;
-///
-/// // Zero allocation (static string)
-/// let err = ParseError::missing_field("price");
-///
-/// // Allocation only when needed (dynamic string)
-/// let field_name = format!("field_{}", 42);
-/// let err = ParseError::missing_field_owned(field_name);
-///
-/// // Invalid value with context
-/// let err = ParseError::invalid_value("amount", "must be positive");
-/// ```
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_core::error::{Error, ParseError, Result};
-///
-/// fn parse_price(json: &serde_json::Value) -> Result<f64> {
-///     json.get("price")
-///         .and_then(|v| v.as_f64())
-///         .ok_or_else(|| Error::from(ParseError::missing_field("price")))
-/// }
-/// ```
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum ParseError {
-    /// Failed to parse decimal number.
-    #[error("Failed to parse decimal: {0}")]
-    Decimal(#[from] rust_decimal::Error),
-
-    /// Failed to deserialize JSON.
-    #[error("Failed to deserialize JSON: {0}")]
-    Json(#[from] serde_json::Error),
-
-    /// Failed to parse timestamp.
-    #[error("Failed to parse timestamp: {0}")]
-    Timestamp(Cow<'static, str>),
-
-    /// Missing required field in response.
-    #[error("Missing required field: {0}")]
-    MissingField(Cow<'static, str>),
-
-    /// Invalid value for a field.
-    #[error("Invalid value for '{field}': {message}")]
-    InvalidValue {
-        /// Field name
-        field: Cow<'static, str>,
-        /// Error message
-        message: Cow<'static, str>,
-    },
-
-    /// Invalid format for a field.
-    #[error("Invalid format for '{field}': {message}")]
-    InvalidFormat {
-        /// Field name
-        field: Cow<'static, str>,
-        /// Error message
-        message: Cow<'static, str>,
-    },
-}
-
-impl ParseError {
-    /// Creates a `MissingField` error with a static string (no allocation).
-    #[must_use]
-    pub fn missing_field(field: &'static str) -> Self {
-        Self::MissingField(Cow::Borrowed(field))
-    }
-
-    /// Creates a `MissingField` error with a dynamic string.
-    #[must_use]
-    pub fn missing_field_owned(field: String) -> Self {
-        Self::MissingField(Cow::Owned(field))
-    }
-
-    /// Creates an `InvalidValue` error.
-    pub fn invalid_value(
-        field: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
-        Self::InvalidValue {
-            field: field.into(),
-            message: message.into(),
-        }
-    }
-
-    /// Creates a `Timestamp` error with a static string (no allocation).
-    #[must_use]
-    pub fn timestamp(message: &'static str) -> Self {
-        Self::Timestamp(Cow::Borrowed(message))
-    }
-
-    /// Creates a `Timestamp` error with a dynamic string.
-    #[must_use]
-    pub fn timestamp_owned(message: String) -> Self {
-        Self::Timestamp(Cow::Owned(message))
-    }
-
-    /// Creates an `InvalidFormat` error.
-    pub fn invalid_format(
-        field: impl Into<Cow<'static, str>>,
-        message: impl Into<Cow<'static, str>>,
-    ) -> Self {
-        Self::InvalidFormat {
-            field: field.into(),
-            message: message.into(),
-        }
-    }
-}
-
-/// Errors related to order management operations.
-///
-/// This type covers all order lifecycle errors including creation,
-/// cancellation, and modification failures.
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_core::error::{Error, OrderError};
-///
-/// fn cancel_order(order_id: &str) -> Result<(), Error> {
-///     // Simulate order not found
-///     if order_id == "unknown" {
-///         return Err(OrderError::CancellationFailed(
-///             format!("Order {} not found", order_id)
-///         ).into());
-///     }
-///     Ok(())
-/// }
-/// ```
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum OrderError {
-    /// Order creation failed.
-    #[error("Order creation failed: {0}")]
-    CreationFailed(String),
-
-    /// Order cancellation failed.
-    #[error("Order cancellation failed: {0}")]
-    CancellationFailed(String),
-
-    /// Order modification failed.
-    #[error("Order modification failed: {0}")]
-    ModificationFailed(String),
-
-    /// Invalid order parameters.
-    #[error("Invalid order parameters: {0}")]
-    InvalidParameters(String),
-}
-
-/// The primary error type for the `ccxt-rust` library.
-///
-/// Design constraints:
-/// - All large variants are boxed to keep enum size ≤ 56 bytes
-/// - Uses `Cow<'static, str>` for zero-allocation static strings
-/// - Verify with: `assert!(std::mem::size_of::<Error>() <= 56);`
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_core::error::Error;
-///
-/// let err = Error::authentication("Invalid API key");
-/// assert!(err.to_string().contains("Invalid API key"));
-/// ```
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum Error {
-    /// Exchange-specific errors returned by the exchange API.
-    /// Boxed to reduce enum size (`ExchangeErrorDetails` is large).
-    #[error("Exchange error: {0}")]
-    Exchange(Box<ExchangeErrorDetails>),
-
-    /// Network-related errors encapsulating transport layer issues.
-    /// Boxed to reduce enum size.
-    #[error("Network error: {0}")]
-    Network(Box<NetworkError>),
-
-    /// Authentication errors (invalid API key, signature, etc.).
-    #[error("Authentication error: {0}")]
-    Authentication(Cow<'static, str>),
-
-    /// Rate limit exceeded with optional retry information.
-    #[error("Rate limit exceeded: {message}")]
-    RateLimit {
-        /// Error message
-        message: Cow<'static, str>,
-        /// Optional duration to wait before retrying
-        retry_after: Option<Duration>,
-    },
-
-    /// Invalid request parameters.
-    #[error("Invalid request: {0}")]
-    InvalidRequest(Cow<'static, str>),
-
-    /// Order-related errors. Boxed to reduce enum size.
-    #[error("Order error: {0}")]
-    Order(Box<OrderError>),
-
-    /// Insufficient balance for an operation.
-    #[error("Insufficient balance: {0}")]
-    InsufficientBalance(Cow<'static, str>),
-
-    /// Invalid order format or parameters.
-    #[error("Invalid order: {0}")]
-    InvalidOrder(Cow<'static, str>),
-
-    /// Order not found on the exchange.
-    #[error("Order not found: {0}")]
-    OrderNotFound(Cow<'static, str>),
-
-    /// Market symbol not found or not supported.
-    #[error("Market not found: {0}")]
-    MarketNotFound(Cow<'static, str>),
-
-    /// Errors during response parsing. Boxed to reduce enum size.
-    #[error("Parse error: {0}")]
-    Parse(Box<ParseError>),
-
-    /// WebSocket communication errors.
-    /// Uses `Box<dyn StdError>` to preserve original error for downcast.
-    #[error("WebSocket error: {0}")]
-    WebSocket(#[source] Box<dyn StdError + Send + Sync + 'static>),
-
-    /// Operation timeout.
-    #[error("Timeout: {0}")]
-    Timeout(Cow<'static, str>),
-
-    /// Feature not implemented for this exchange.
-    #[error("Not implemented: {0}")]
-    NotImplemented(Cow<'static, str>),
-
-    /// Operation was cancelled.
-    ///
-    /// This error is returned when an operation is cancelled via a `CancellationToken`
-    /// or other cancellation mechanism. It indicates that the operation was intentionally
-    /// aborted and did not complete.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::cancelled("WebSocket connection cancelled");
-    /// assert!(err.to_string().contains("cancelled"));
-    /// ```
-    #[error("Cancelled: {0}")]
-    Cancelled(Cow<'static, str>),
-
-    /// Resource exhausted error.
-    ///
-    /// This error is returned when a resource limit has been reached, such as
-    /// maximum number of WebSocket subscriptions, connection pool exhaustion,
-    /// or other capacity limits.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::resource_exhausted("Maximum subscriptions (100) reached");
-    /// assert!(err.to_string().contains("Resource exhausted"));
-    /// ```
-    #[error("Resource exhausted: {0}")]
-    ResourceExhausted(Cow<'static, str>),
-
-    /// Error with additional context, preserving the error chain.
-    #[error("{context}")]
-    Context {
-        /// Context message describing what operation failed
-        context: String,
-        /// The underlying error
-        #[source]
-        source: Box<Error>,
-    },
-}
-
-impl Error {
-    // ==================== Constructor Methods ====================
-
-    /// Creates a new exchange error.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::exchange("400", "Bad Request");
-    /// ```
-    pub fn exchange(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::Exchange(Box::new(ExchangeErrorDetails::new(code, message)))
-    }
-
-    /// Creates a new exchange error with raw response data.
-    pub fn exchange_with_data(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        data: serde_json::Value,
-    ) -> Self {
-        Self::Exchange(Box::new(ExchangeErrorDetails::with_data(
-            code, message, data,
-        )))
-    }
-
-    /// Creates a new rate limit error with optional retry duration.
-    /// Accepts both `&'static str` (zero allocation) and `String`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    /// use std::time::Duration;
-    ///
-    /// // Zero allocation (static string):
-    /// let err = Error::rate_limit("Too many requests", Some(Duration::from_secs(60)));
-    ///
-    /// // Allocation (dynamic string):
-    /// let err = Error::rate_limit(format!("Rate limit: {}", 429), None);
-    /// ```
-    pub fn rate_limit(
-        message: impl Into<Cow<'static, str>>,
-        retry_after: Option<Duration>,
-    ) -> Self {
-        Self::RateLimit {
-            message: message.into(),
-            retry_after,
-        }
-    }
-
-    /// Creates an authentication error.
-    /// Accepts both `&'static str` (zero allocation) and `String`.
-    pub fn authentication(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::Authentication(msg.into())
-    }
-
-    /// Creates a generic error (for backwards compatibility).
-    pub fn generic(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::InvalidRequest(msg.into())
-    }
-
-    /// Creates a network error from a message.
-    pub fn network(msg: impl Into<String>) -> Self {
-        Self::Network(Box::new(NetworkError::ConnectionFailed(msg.into())))
-    }
-
-    /// Creates a market not found error.
-    /// Accepts both `&'static str` (zero allocation) and `String`.
-    pub fn market_not_found(symbol: impl Into<Cow<'static, str>>) -> Self {
-        Self::MarketNotFound(symbol.into())
-    }
-
-    /// Creates a not implemented error.
-    /// Accepts both `&'static str` (zero allocation) and `String`.
-    pub fn not_implemented(feature: impl Into<Cow<'static, str>>) -> Self {
-        Self::NotImplemented(feature.into())
-    }
-
-    /// Creates a cancelled error.
-    ///
-    /// Use this when an operation is cancelled via a `CancellationToken` or
-    /// other cancellation mechanism.
-    ///
-    /// Accepts both `&'static str` (zero allocation) and `String`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// // Zero allocation (static string):
-    /// let err = Error::cancelled("Operation cancelled by user");
-    ///
-    /// // Allocation (dynamic string):
-    /// let err = Error::cancelled(format!("Connection {} cancelled", "ws-1"));
-    /// ```
-    pub fn cancelled(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::Cancelled(msg.into())
-    }
-
-    /// Creates a resource exhausted error.
-    ///
-    /// Use this when a resource limit has been reached, such as maximum
-    /// WebSocket subscriptions, connection pool exhaustion, or other
-    /// capacity limits.
-    ///
-    /// Accepts both `&'static str` (zero allocation) and `String`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// // Zero allocation (static string):
-    /// let err = Error::resource_exhausted("Maximum subscriptions reached");
-    ///
-    /// // Allocation (dynamic string):
-    /// let err = Error::resource_exhausted(format!("Maximum subscriptions ({}) reached", 100));
-    /// ```
-    pub fn resource_exhausted(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::ResourceExhausted(msg.into())
-    }
-
-    /// Creates an invalid request error.
-    pub fn invalid_request(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::InvalidRequest(msg.into())
-    }
-
-    /// Creates an invalid argument error (alias for `invalid_request`).
-    pub fn invalid_argument(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::InvalidRequest(msg.into())
-    }
-
-    /// Creates a bad symbol error (alias for `invalid_request`).
-    pub fn bad_symbol(symbol: impl Into<String>) -> Self {
-        let s = symbol.into();
-        Self::InvalidRequest(Cow::Owned(format!("Bad symbol: {s}")))
-    }
-
-    /// Creates an insufficient balance error.
-    pub fn insufficient_balance(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::InsufficientBalance(msg.into())
-    }
-
-    /// Creates a timeout error.
-    pub fn timeout(msg: impl Into<Cow<'static, str>>) -> Self {
-        Self::Timeout(msg.into())
-    }
-
-    /// Creates a WebSocket error from a message string.
-    pub fn websocket(msg: impl Into<String>) -> Self {
-        Self::WebSocket(Box::new(SimpleError(msg.into())))
-    }
-
-    /// Creates a WebSocket error from any error type.
-    pub fn websocket_error<E: StdError + Send + Sync + 'static>(err: E) -> Self {
-        Self::WebSocket(Box::new(err))
-    }
-
-    // ==================== Context Methods ====================
-
-    /// Attaches context to an existing error.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::network("Connection refused")
-    ///     .context("Failed to fetch ticker for BTC/USDT");
-    /// ```
-    #[must_use]
-    pub fn context(self, context: impl Into<String>) -> Self {
-        Self::Context {
-            context: context.into(),
-            source: Box::new(self),
-        }
-    }
-
-    // ==================== Chain Traversal Methods ====================
-
-    /// Internal helper: creates an iterator that traverses the error chain.
-    /// Automatically penetrates Context layers.
-    fn iter_chain(&self) -> impl Iterator<Item = &Error> {
-        std::iter::successors(Some(self), |err| match err {
-            Error::Context { source, .. } => Some(source.as_ref()),
-            _ => None,
-        })
-    }
-
-    /// Returns the root cause of the error, skipping Context layers.
-    #[must_use]
-    pub fn root_cause(&self) -> &Error {
-        self.iter_chain().last().unwrap_or(self)
-    }
-
-    /// Finds a specific error variant in the chain (penetrates Context layers).
-    /// Useful for handling wrapped errors without manual unwrapping.
-    pub fn find_variant<F>(&self, matcher: F) -> Option<&Error>
-    where
-        F: Fn(&Error) -> bool,
+#[test]
+fn test_error_rate_limit() {
+    let err = Error::rate_limit("Too many requests", Some(Duration::from_secs(60)));
+    if let Error::RateLimit {
+        message,
+        retry_after,
+    } = &err
     {
-        self.iter_chain().find(|e| matcher(e))
-    }
-
-    /// Generates a detailed error report with the full chain.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::network("Connection refused")
-    ///     .context("Failed to fetch ticker");
-    /// println!("{}", err.report());
-    /// // Output:
-    /// // Failed to fetch ticker
-    /// // Caused by: Network error: Connection failed: Connection refused
-    /// ```
-    #[must_use]
-    pub fn report(&self) -> String {
-        use std::fmt::Write;
-        let mut report = String::new();
-        report.push_str(&self.to_string());
-
-        let mut current: Option<&(dyn StdError + 'static)> = self.source();
-        while let Some(err) = current {
-            let _ = write!(report, "\nCaused by: {err}");
-            current = err.source();
-        }
-        report
-    }
-
-    // ==================== Helper Methods (Context Penetrating) ====================
-
-    /// Checks if this error is retryable (penetrates Context layers).
-    ///
-    /// Returns `true` for:
-    /// - `NetworkError::Timeout`
-    /// - `NetworkError::ConnectionFailed`
-    /// - `RateLimit`
-    /// - `Timeout`
-    #[must_use]
-    pub fn is_retryable(&self) -> bool {
-        match self {
-            Error::Network(ne) => matches!(
-                ne.as_ref(),
-                NetworkError::Timeout | NetworkError::ConnectionFailed(_)
-            ),
-            Error::RateLimit { .. } | Error::Timeout(_) => true,
-            Error::Context { source, .. } => source.is_retryable(),
-            _ => false,
-        }
-    }
-
-    /// Returns the retry delay if this is a rate limit error (penetrates Context layers).
-    #[must_use]
-    pub fn retry_after(&self) -> Option<Duration> {
-        match self {
-            Error::RateLimit { retry_after, .. } => *retry_after,
-            Error::Context { source, .. } => source.retry_after(),
-            _ => None,
-        }
-    }
-
-    /// Checks if this is a rate limit error (penetrates Context layers).
-    /// Returns the message and optional retry duration.
-    #[must_use]
-    pub fn as_rate_limit(&self) -> Option<(&str, Option<Duration>)> {
-        match self {
-            Error::RateLimit {
-                message,
-                retry_after,
-            } => Some((message.as_ref(), *retry_after)),
-            Error::Context { source, .. } => source.as_rate_limit(),
-            _ => None,
-        }
-    }
-
-    /// Checks if this is an authentication error (penetrates Context layers).
-    /// Returns the error message.
-    #[must_use]
-    pub fn as_authentication(&self) -> Option<&str> {
-        match self {
-            Error::Authentication(msg) => Some(msg.as_ref()),
-            Error::Context { source, .. } => source.as_authentication(),
-            _ => None,
-        }
-    }
-
-    /// Checks if this is a cancelled error (penetrates Context layers).
-    /// Returns the error message.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::cancelled("Operation cancelled");
-    /// assert_eq!(err.as_cancelled(), Some("Operation cancelled"));
-    ///
-    /// // Works through context layers
-    /// let wrapped = err.context("Wrapped error");
-    /// assert_eq!(wrapped.as_cancelled(), Some("Operation cancelled"));
-    /// ```
-    #[must_use]
-    pub fn as_cancelled(&self) -> Option<&str> {
-        match self {
-            Error::Cancelled(msg) => Some(msg.as_ref()),
-            Error::Context { source, .. } => source.as_cancelled(),
-            _ => None,
-        }
-    }
-
-    /// Checks if this is a resource exhausted error (penetrates Context layers).
-    /// Returns the error message.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use ccxt_core::error::Error;
-    ///
-    /// let err = Error::resource_exhausted("Maximum subscriptions reached");
-    /// assert_eq!(err.as_resource_exhausted(), Some("Maximum subscriptions reached"));
-    ///
-    /// // Works through context layers
-    /// let wrapped = err.context("Wrapped error");
-    /// assert_eq!(wrapped.as_resource_exhausted(), Some("Maximum subscriptions reached"));
-    /// ```
-    #[must_use]
-    pub fn as_resource_exhausted(&self) -> Option<&str> {
-        match self {
-            Error::ResourceExhausted(msg) => Some(msg.as_ref()),
-            Error::Context { source, .. } => source.as_resource_exhausted(),
-            _ => None,
-        }
-    }
-
-    /// Attempts to downcast the WebSocket error to a specific type.
-    #[must_use]
-    pub fn downcast_websocket<T: StdError + 'static>(&self) -> Option<&T> {
-        match self {
-            Error::WebSocket(e) => e.downcast_ref::<T>(),
-            Error::Context { source, .. } => source.downcast_websocket(),
-            _ => None,
-        }
+        assert_eq!(message.as_ref(), "Too many requests");
+        assert_eq!(*retry_after, Some(Duration::from_secs(60)));
+    } else {
+        panic!("Expected RateLimit variant");
     }
 }
 
-/// A simple error type for wrapping string messages.
-/// Used internally for WebSocket errors created from strings.
-#[derive(Debug)]
-struct SimpleError(String);
-
-impl fmt::Display for SimpleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
+#[test]
+fn test_error_market_not_found() {
+    let err = Error::market_not_found("BTC/USDT");
+    assert!(matches!(err, Error::MarketNotFound(_)));
+    assert!(err.to_string().contains("BTC/USDT"));
 }
 
-impl StdError for SimpleError {}
+#[test]
+fn test_error_context() {
+    let base = Error::network("Connection refused");
+    let with_context = base.context("Failed to fetch ticker");
 
-// ==================== From Implementations ====================
-
-impl From<NetworkError> for Error {
-    fn from(e: NetworkError) -> Self {
-        Error::Network(Box::new(e))
-    }
+    assert!(matches!(with_context, Error::Context { .. }));
+    assert!(with_context.to_string().contains("Failed to fetch ticker"));
 }
 
-impl From<Box<NetworkError>> for Error {
-    fn from(e: Box<NetworkError>) -> Self {
-        Error::Network(e)
-    }
+#[test]
+fn test_error_context_chain() {
+    let base = Error::network("Connection refused");
+    let ctx1 = base.context("Layer 1");
+    let ctx2 = ctx1.context("Layer 2");
+
+    // Check that report contains all layers
+    let report = ctx2.report();
+    assert!(report.contains("Layer 2"));
+    assert!(report.contains("Layer 1"));
+    assert!(report.contains("Connection refused"));
 }
 
-impl From<ParseError> for Error {
-    fn from(e: ParseError) -> Self {
-        Error::Parse(Box::new(e))
-    }
+#[test]
+fn test_error_root_cause() {
+    let base = Error::network("Connection refused");
+    let ctx1 = base.context("Layer 1");
+    let ctx2 = ctx1.context("Layer 2");
+
+    let root = ctx2.root_cause();
+    assert!(matches!(root, Error::Network(_)));
 }
 
-impl From<Box<ParseError>> for Error {
-    fn from(e: Box<ParseError>) -> Self {
-        Error::Parse(e)
-    }
+#[test]
+fn test_error_is_retryable() {
+    // Retryable errors
+    assert!(Error::rate_limit("test", None).is_retryable());
+    assert!(Error::timeout("test").is_retryable());
+    assert!(Error::from(NetworkError::Timeout).is_retryable());
+    assert!(Error::from(NetworkError::ConnectionFailed("test".to_string())).is_retryable());
+
+    // Non-retryable errors
+    assert!(!Error::authentication("test").is_retryable());
+    assert!(!Error::invalid_request("test").is_retryable());
+    assert!(!Error::market_not_found("test").is_retryable());
 }
 
-impl From<OrderError> for Error {
-    fn from(e: OrderError) -> Self {
-        Error::Order(Box::new(e))
-    }
+#[test]
+fn test_error_is_retryable_through_context() {
+    let err = Error::rate_limit("test", Some(Duration::from_secs(30)))
+        .context("Layer 1")
+        .context("Layer 2");
+
+    assert!(err.is_retryable());
+    assert_eq!(err.retry_after(), Some(Duration::from_secs(30)));
 }
 
-impl From<Box<OrderError>> for Error {
-    fn from(e: Box<OrderError>) -> Self {
-        Error::Order(e)
-    }
+#[test]
+fn test_error_as_rate_limit() {
+    let err = Error::rate_limit("Too many requests", Some(Duration::from_secs(60)));
+    let (msg, retry) = err.as_rate_limit().unwrap();
+    assert_eq!(msg, "Too many requests");
+    assert_eq!(retry, Some(Duration::from_secs(60)));
 }
 
-impl From<serde_json::Error> for Error {
-    fn from(e: serde_json::Error) -> Self {
-        Error::Parse(Box::new(ParseError::Json(e)))
-    }
+#[test]
+fn test_error_as_rate_limit_through_context() {
+    let err =
+        Error::rate_limit("Too many requests", Some(Duration::from_secs(60))).context("Wrapped");
+    let (msg, retry) = err.as_rate_limit().unwrap();
+    assert_eq!(msg, "Too many requests");
+    assert_eq!(retry, Some(Duration::from_secs(60)));
 }
 
-impl From<rust_decimal::Error> for Error {
-    fn from(e: rust_decimal::Error) -> Self {
-        Error::Parse(Box::new(ParseError::Decimal(e)))
-    }
+#[test]
+fn test_error_as_authentication() {
+    let err = Error::authentication("Invalid key");
+    assert_eq!(err.as_authentication(), Some("Invalid key"));
 }
 
-// Feature-gated: only available when reqwest is enabled
-impl From<reqwest::Error> for NetworkError {
-    fn from(e: reqwest::Error) -> Self {
-        if e.is_timeout() {
-            NetworkError::Timeout
-        } else if e.is_connect() {
-            NetworkError::ConnectionFailed(truncate_message(e.to_string()))
-        } else if let Some(status) = e.status() {
-            NetworkError::RequestFailed {
-                status: status.as_u16(),
-                message: truncate_message(e.to_string()),
-            }
-        } else {
-            NetworkError::Transport(Box::new(e))
-        }
-    }
+#[test]
+fn test_error_as_authentication_through_context() {
+    let err = Error::authentication("Invalid key").context("Wrapped");
+    assert_eq!(err.as_authentication(), Some("Invalid key"));
 }
 
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Self {
-        Error::Network(Box::new(NetworkError::from(e)))
-    }
+#[test]
+fn test_network_error_request_failed() {
+    let err = NetworkError::RequestFailed {
+        status: 404,
+        message: "Not Found".to_string(),
+    };
+    assert!(err.to_string().contains("404"));
+    assert!(err.to_string().contains("Not Found"));
 }
 
-// ==================== ContextExt Trait ====================
-
-/// Extension trait for ergonomic error context attachment.
-///
-/// This trait provides methods to add context to errors, making it easier
-/// to understand where and why an error occurred. It works with both
-/// `Result<T, E>` and `Option<T>` types.
-///
-/// # When to Use
-///
-/// - Use `context()` when you have a static context message
-/// - Use `with_context()` when the context message is expensive to compute
-///   (it's only evaluated on error)
-///
-/// # Library vs Application Code
-///
-/// - **Library code**: Use this trait for adding context within the library
-/// - **Application code**: Consider using `anyhow::Context` for richer error handling
-///
-/// # Examples
-///
-/// ## Adding Context to Results
-///
-/// ```rust
-/// use ccxt_core::error::{Error, Result, ContextExt};
-///
-/// fn fetch_ticker(symbol: &str) -> Result<f64> {
-///     // Static context (always evaluated)
-///     let data = fetch_raw_data()
-///         .context("Failed to fetch raw data")?;
-///     
-///     // Lazy context (only evaluated on error)
-///     parse_price(&data)
-///         .with_context(|| format!("Failed to parse price for {}", symbol))
-/// }
-/// # fn fetch_raw_data() -> Result<String> { Ok("{}".to_string()) }
-/// # fn parse_price(_: &str) -> Result<f64> { Ok(42.0) }
-/// ```
-///
-/// ## Adding Context to Options
-///
-/// ```rust
-/// use ccxt_core::error::{Result, ContextExt};
-///
-/// fn get_required_field(json: &serde_json::Value) -> Result<&str> {
-///     json.get("field")
-///         .and_then(|v| v.as_str())
-///         .context("Missing required field 'field'")
-/// }
-/// ```
-pub trait ContextExt<T, E> {
-    /// Adds context to an error.
-    fn context<C>(self, context: C) -> Result<T>
-    where
-        C: fmt::Display + Send + Sync + 'static;
-
-    /// Adds lazy context to an error (only evaluated on error).
-    fn with_context<C, F>(self, f: F) -> Result<T>
-    where
-        C: fmt::Display + Send + Sync + 'static,
-        F: FnOnce() -> C;
+#[test]
+fn test_parse_error_missing_field() {
+    let err = ParseError::missing_field("price");
+    assert!(err.to_string().contains("price"));
 }
 
-impl<T, E> ContextExt<T, E> for std::result::Result<T, E>
-where
-    E: Into<Error>,
-{
-    fn context<C>(self, context: C) -> Result<T>
-    where
-        C: fmt::Display + Send + Sync + 'static,
-    {
-        self.map_err(|e| e.into().context(context.to_string()))
-    }
-
-    fn with_context<C, F>(self, f: F) -> Result<T>
-    where
-        C: fmt::Display + Send + Sync + 'static,
-        F: FnOnce() -> C,
-    {
-        self.map_err(|e| e.into().context(f().to_string()))
-    }
+#[test]
+fn test_parse_error_invalid_value() {
+    let err = ParseError::invalid_value("amount", "must be positive");
+    let display = err.to_string();
+    assert!(display.contains("amount"));
+    assert!(display.contains("must be positive"));
 }
 
-impl<T> ContextExt<T, Error> for Option<T> {
-    fn context<C>(self, context: C) -> Result<T>
-    where
-        C: fmt::Display + Send + Sync + 'static,
-    {
-        self.ok_or_else(|| Error::generic(context.to_string()))
-    }
-
-    fn with_context<C, F>(self, f: F) -> Result<T>
-    where
-        C: fmt::Display + Send + Sync + 'static,
-        F: FnOnce() -> C,
-    {
-        self.ok_or_else(|| Error::generic(f().to_string()))
-    }
+#[test]
+fn test_error_display() {
+    let err = Error::exchange("400", "Bad Request");
+    let display = format!("{}", err);
+    assert!(display.contains("400"));
+    assert!(display.contains("Bad Request"));
 }
 
-// ==================== Legacy Compatibility ====================
-
-/// Helper trait for adding context to errors (legacy alias for ContextExt).
-#[deprecated(since = "0.2.0", note = "Use ContextExt instead")]
-pub trait ErrorContext<T>: Sized {
-    /// Add context to an error
-    fn context(self, context: impl fmt::Display) -> Result<T>;
+#[test]
+fn test_context_ext_result() {
+    let result: std::result::Result<(), Error> = Err(Error::network("test"));
+    let with_context = ContextExt::context(result, "Operation failed");
+    assert!(with_context.is_err());
+    let err = with_context.unwrap_err();
+    assert!(err.to_string().contains("Operation failed"));
 }
 
-#[allow(deprecated)]
-impl<T, E: Into<Error>> ErrorContext<T> for std::result::Result<T, E> {
-    fn context(self, context: impl fmt::Display) -> Result<T> {
-        self.map_err(|e| e.into().context(context.to_string()))
-    }
+#[test]
+fn test_context_ext_option() {
+    let opt: Option<i32> = None;
+    let result = opt.context("Value not found");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("Value not found"));
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[test]
+fn test_from_serde_json_error() {
+    let json_err = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
+    let err: Error = json_err.into();
+    assert!(matches!(err, Error::Parse(_)));
+}
 
-    #[test]
-    fn test_exchange_error_details_display() {
-        let details = ExchangeErrorDetails::new("400", "Bad Request");
-        let display = format!("{}", details);
-        assert!(display.contains("400"));
-        assert!(display.contains("Bad Request"));
-    }
+#[test]
+fn test_from_network_error() {
+    let network_err = NetworkError::Timeout;
+    let err: Error = network_err.into();
+    assert!(matches!(err, Error::Network(_)));
+}
 
-    #[test]
-    fn test_exchange_error_details_with_data() {
-        let data = serde_json::json!({"error": "test"});
-        let details = ExchangeErrorDetails::with_data("500", "Internal Error", data.clone());
-        assert_eq!(details.code, "500");
-        assert_eq!(details.message, "Internal Error");
-        assert_eq!(details.data, Some(data));
-    }
+#[test]
+fn test_from_order_error() {
+    let order_err = OrderError::CreationFailed("test".to_string());
+    let err: Error = order_err.into();
+    assert!(matches!(err, Error::Order(_)));
+}
 
-    #[test]
-    fn test_error_exchange_creation() {
-        let err = Error::exchange("400", "Bad Request");
-        if let Error::Exchange(details) = &err {
-            assert_eq!(details.code, "400");
-            assert_eq!(details.message, "Bad Request");
-        } else {
-            panic!("Expected Exchange variant");
-        }
-    }
+#[test]
+fn test_truncate_message() {
+    let short = "short message".to_string();
+    assert_eq!(truncate_message(short.clone()), short);
 
-    #[test]
-    fn test_error_exchange_string_code() {
-        // Test that string codes (not just numeric) work
-        let err = Error::exchange("INVALID_SYMBOL", "Symbol not found");
-        if let Error::Exchange(details) = &err {
-            assert_eq!(details.code, "INVALID_SYMBOL");
-        } else {
-            panic!("Expected Exchange variant");
-        }
-    }
+    let long = "x".repeat(2000);
+    let truncated = truncate_message(long);
+    assert!(truncated.len() < 2000);
+    assert!(truncated.ends_with("... (truncated)"));
+}
 
-    #[test]
-    fn test_error_authentication() {
-        let err = Error::authentication("Invalid API key");
-        assert!(matches!(err, Error::Authentication(_)));
-        assert!(err.to_string().contains("Invalid API key"));
-    }
+// Static assertion tests for Send + Sync
+#[test]
+fn error_is_send_sync_static() {
+    fn assert_traits<T: Send + Sync + 'static + StdError>() {}
+    assert_traits::<Error>();
+    assert_traits::<NetworkError>();
+    assert_traits::<ParseError>();
+    assert_traits::<OrderError>();
+}
 
-    #[test]
-    fn test_error_rate_limit() {
-        let err = Error::rate_limit("Too many requests", Some(Duration::from_secs(60)));
-        if let Error::RateLimit {
-            message,
-            retry_after,
-        } = &err
-        {
-            assert_eq!(message.as_ref(), "Too many requests");
-            assert_eq!(*retry_after, Some(Duration::from_secs(60)));
-        } else {
-            panic!("Expected RateLimit variant");
-        }
-    }
-
-    #[test]
-    fn test_error_market_not_found() {
-        let err = Error::market_not_found("BTC/USDT");
-        assert!(matches!(err, Error::MarketNotFound(_)));
-        assert!(err.to_string().contains("BTC/USDT"));
-    }
-
-    #[test]
-    fn test_error_context() {
-        let base = Error::network("Connection refused");
-        let with_context = base.context("Failed to fetch ticker");
-
-        assert!(matches!(with_context, Error::Context { .. }));
-        assert!(with_context.to_string().contains("Failed to fetch ticker"));
-    }
-
-    #[test]
-    fn test_error_context_chain() {
-        let base = Error::network("Connection refused");
-        let ctx1 = base.context("Layer 1");
-        let ctx2 = ctx1.context("Layer 2");
-
-        // Check that report contains all layers
-        let report = ctx2.report();
-        assert!(report.contains("Layer 2"));
-        assert!(report.contains("Layer 1"));
-        assert!(report.contains("Connection refused"));
-    }
-
-    #[test]
-    fn test_error_root_cause() {
-        let base = Error::network("Connection refused");
-        let ctx1 = base.context("Layer 1");
-        let ctx2 = ctx1.context("Layer 2");
-
-        let root = ctx2.root_cause();
-        assert!(matches!(root, Error::Network(_)));
-    }
-
-    #[test]
-    fn test_error_is_retryable() {
-        // Retryable errors
-        assert!(Error::rate_limit("test", None).is_retryable());
-        assert!(Error::timeout("test").is_retryable());
-        assert!(Error::from(NetworkError::Timeout).is_retryable());
-        assert!(Error::from(NetworkError::ConnectionFailed("test".to_string())).is_retryable());
-
-        // Non-retryable errors
-        assert!(!Error::authentication("test").is_retryable());
-        assert!(!Error::invalid_request("test").is_retryable());
-        assert!(!Error::market_not_found("test").is_retryable());
-    }
-
-    #[test]
-    fn test_error_is_retryable_through_context() {
-        let err = Error::rate_limit("test", Some(Duration::from_secs(30)))
-            .context("Layer 1")
-            .context("Layer 2");
-
-        assert!(err.is_retryable());
-        assert_eq!(err.retry_after(), Some(Duration::from_secs(30)));
-    }
-
-    #[test]
-    fn test_error_as_rate_limit() {
-        let err = Error::rate_limit("Too many requests", Some(Duration::from_secs(60)));
-        let (msg, retry) = err.as_rate_limit().unwrap();
-        assert_eq!(msg, "Too many requests");
-        assert_eq!(retry, Some(Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn test_error_as_rate_limit_through_context() {
-        let err = Error::rate_limit("Too many requests", Some(Duration::from_secs(60)))
-            .context("Wrapped");
-        let (msg, retry) = err.as_rate_limit().unwrap();
-        assert_eq!(msg, "Too many requests");
-        assert_eq!(retry, Some(Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn test_error_as_authentication() {
-        let err = Error::authentication("Invalid key");
-        assert_eq!(err.as_authentication(), Some("Invalid key"));
-    }
-
-    #[test]
-    fn test_error_as_authentication_through_context() {
-        let err = Error::authentication("Invalid key").context("Wrapped");
-        assert_eq!(err.as_authentication(), Some("Invalid key"));
-    }
-
-    #[test]
-    fn test_network_error_request_failed() {
-        let err = NetworkError::RequestFailed {
-            status: 404,
-            message: "Not Found".to_string(),
-        };
-        assert!(err.to_string().contains("404"));
-        assert!(err.to_string().contains("Not Found"));
-    }
-
-    #[test]
-    fn test_parse_error_missing_field() {
-        let err = ParseError::missing_field("price");
-        assert!(err.to_string().contains("price"));
-    }
-
-    #[test]
-    fn test_parse_error_invalid_value() {
-        let err = ParseError::invalid_value("amount", "must be positive");
-        let display = err.to_string();
-        assert!(display.contains("amount"));
-        assert!(display.contains("must be positive"));
-    }
-
-    #[test]
-    fn test_error_display() {
-        let err = Error::exchange("400", "Bad Request");
-        let display = format!("{}", err);
-        assert!(display.contains("400"));
-        assert!(display.contains("Bad Request"));
-    }
-
-    #[test]
-    fn test_context_ext_result() {
-        let result: std::result::Result<(), Error> = Err(Error::network("test"));
-        let with_context = ContextExt::context(result, "Operation failed");
-        assert!(with_context.is_err());
-        let err = with_context.unwrap_err();
-        assert!(err.to_string().contains("Operation failed"));
-    }
-
-    #[test]
-    fn test_context_ext_option() {
-        let opt: Option<i32> = None;
-        let result = opt.context("Value not found");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("Value not found"));
-    }
-
-    #[test]
-    fn test_from_serde_json_error() {
-        let json_err = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
-        let err: Error = json_err.into();
-        assert!(matches!(err, Error::Parse(_)));
-    }
-
-    #[test]
-    fn test_from_network_error() {
-        let network_err = NetworkError::Timeout;
-        let err: Error = network_err.into();
-        assert!(matches!(err, Error::Network(_)));
-    }
-
-    #[test]
-    fn test_from_order_error() {
-        let order_err = OrderError::CreationFailed("test".to_string());
-        let err: Error = order_err.into();
-        assert!(matches!(err, Error::Order(_)));
-    }
-
-    #[test]
-    fn test_truncate_message() {
-        let short = "short message".to_string();
-        assert_eq!(truncate_message(short.clone()), short);
-
-        let long = "x".repeat(2000);
-        let truncated = truncate_message(long);
-        assert!(truncated.len() < 2000);
-        assert!(truncated.ends_with("... (truncated)"));
-    }
-
-    // Static assertion tests for Send + Sync
-    #[test]
-    fn error_is_send_sync_static() {
-        fn assert_traits<T: Send + Sync + 'static + StdError>() {}
-        assert_traits::<Error>();
-        assert_traits::<NetworkError>();
-        assert_traits::<ParseError>();
-        assert_traits::<OrderError>();
-    }
-
-    #[test]
-    fn error_size_is_reasonable() {
-        let size = std::mem::size_of::<Error>();
-        // Target: Error size ≤ 56 bytes on 64-bit systems
-        assert!(
-            size <= 56,
-            "Error enum size {} exceeds 56 bytes, consider boxing large variants",
-            size
-        );
-    }
+#[test]
+fn error_size_is_reasonable() {
+    let size = std::mem::size_of::<Error>();
+    // Target: Error size ≤ 56 bytes on 64-bit systems
+    assert!(
+        size <= 56,
+        "Error enum size {} exceeds 56 bytes, consider boxing large variants",
+        size
+    );
 }
 
 // ==================== Property-Based Tests ====================

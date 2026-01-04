@@ -5,9 +5,6 @@
 use ccxt_core::types::EndpointType;
 use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,18 +14,22 @@ pub mod constants;
 pub mod endpoint_router;
 pub mod error;
 mod exchange_impl;
+pub mod options;
 pub mod parser;
 pub mod rest;
 pub mod signed_request;
 pub mod symbol;
 pub mod time_sync;
+pub mod urls;
 pub mod ws;
 mod ws_exchange_impl;
 
 pub use builder::BinanceBuilder;
 pub use endpoint_router::BinanceEndpointRouter;
+pub use options::BinanceOptions;
 pub use signed_request::{HttpMethod, SignedRequestBuilder};
 pub use time_sync::{TimeSyncConfig, TimeSyncManager};
+pub use urls::BinanceUrls;
 /// Binance exchange structure.
 #[derive(Debug)]
 pub struct Binance {
@@ -38,124 +39,6 @@ pub struct Binance {
     options: BinanceOptions,
     /// Time synchronization manager for caching server time offset.
     time_sync: Arc<TimeSyncManager>,
-}
-
-/// Binance-specific options.
-///
-/// # Example
-///
-/// ```rust
-/// use ccxt_exchanges::binance::BinanceOptions;
-/// use ccxt_core::types::default_type::{DefaultType, DefaultSubType};
-///
-/// let options = BinanceOptions {
-///     default_type: DefaultType::Swap,
-///     default_sub_type: Some(DefaultSubType::Linear),
-///     ..Default::default()
-/// };
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BinanceOptions {
-    /// Enables time synchronization.
-    pub adjust_for_time_difference: bool,
-    /// Receive window in milliseconds.
-    pub recv_window: u64,
-    /// Default trading type (spot/margin/swap/futures/option).
-    ///
-    /// This determines which API endpoints to use for operations.
-    /// Supports both `DefaultType` enum and string values for backward compatibility.
-    #[serde(deserialize_with = "deserialize_default_type")]
-    pub default_type: DefaultType,
-    /// Default sub-type for contract settlement (linear/inverse).
-    ///
-    /// - `Linear`: USDT-margined contracts (FAPI)
-    /// - `Inverse`: Coin-margined contracts (DAPI)
-    ///
-    /// Only applicable when `default_type` is `Swap`, `Futures`, or `Option`.
-    /// Ignored for `Spot` and `Margin` types.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_sub_type: Option<DefaultSubType>,
-    /// Enables testnet mode.
-    pub test: bool,
-    /// Time sync interval in seconds.
-    ///
-    /// Controls how often the time offset is refreshed when auto sync is enabled.
-    /// Default: 30 seconds.
-    #[serde(default = "default_sync_interval")]
-    pub time_sync_interval_secs: u64,
-    /// Enable automatic periodic time sync.
-    ///
-    /// When enabled, the time offset will be automatically refreshed
-    /// based on `time_sync_interval_secs`.
-    /// Default: true.
-    #[serde(default = "default_auto_sync")]
-    pub auto_time_sync: bool,
-    /// Rate limit in requests per second.
-    ///
-    /// Default: 50.
-    #[serde(default = "default_rate_limit")]
-    pub rate_limit: u32,
-}
-
-fn default_sync_interval() -> u64 {
-    30
-}
-
-fn default_auto_sync() -> bool {
-    true
-}
-
-fn default_rate_limit() -> u32 {
-    50
-}
-
-/// Custom deserializer for DefaultType that accepts both enum values and strings.
-///
-/// This provides backward compatibility with configurations that use string values
-/// like "spot", "future", "swap", etc.
-fn deserialize_default_type<'de, D>(deserializer: D) -> std::result::Result<DefaultType, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    // First try to deserialize as a string (for backward compatibility)
-    // Then try as the enum directly
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrDefaultType {
-        String(String),
-        DefaultType(DefaultType),
-    }
-
-    match StringOrDefaultType::deserialize(deserializer)? {
-        StringOrDefaultType::String(s) => {
-            // Handle legacy "future" value (map to Swap for perpetuals)
-            let lowercase = s.to_lowercase();
-            let normalized = match lowercase.as_str() {
-                "future" => "swap",      // Legacy: "future" typically meant perpetual futures
-                "delivery" => "futures", // Legacy: "delivery" meant dated futures
-                _ => lowercase.as_str(),
-            };
-            DefaultType::from_str(normalized).map_err(|e| D::Error::custom(e.to_string()))
-        }
-        StringOrDefaultType::DefaultType(dt) => Ok(dt),
-    }
-}
-
-impl Default for BinanceOptions {
-    fn default() -> Self {
-        Self {
-            adjust_for_time_difference: false,
-            recv_window: 5000,
-            default_type: DefaultType::default(), // Defaults to Spot
-            default_sub_type: None,
-            test: false,
-            time_sync_interval_secs: default_sync_interval(),
-            auto_time_sync: default_auto_sync(),
-            rate_limit: default_rate_limit(),
-        }
-    }
 }
 
 impl Binance {
@@ -427,25 +310,8 @@ impl Binance {
     }
 
     /// Returns the supported timeframes.
-    pub fn timeframes(&self) -> HashMap<String, String> {
-        let mut timeframes = HashMap::new();
-        timeframes.insert("1s".to_string(), "1s".to_string());
-        timeframes.insert("1m".to_string(), "1m".to_string());
-        timeframes.insert("3m".to_string(), "3m".to_string());
-        timeframes.insert("5m".to_string(), "5m".to_string());
-        timeframes.insert("15m".to_string(), "15m".to_string());
-        timeframes.insert("30m".to_string(), "30m".to_string());
-        timeframes.insert("1h".to_string(), "1h".to_string());
-        timeframes.insert("2h".to_string(), "2h".to_string());
-        timeframes.insert("4h".to_string(), "4h".to_string());
-        timeframes.insert("6h".to_string(), "6h".to_string());
-        timeframes.insert("8h".to_string(), "8h".to_string());
-        timeframes.insert("12h".to_string(), "12h".to_string());
-        timeframes.insert("1d".to_string(), "1d".to_string());
-        timeframes.insert("3d".to_string(), "3d".to_string());
-        timeframes.insert("1w".to_string(), "1w".to_string());
-        timeframes.insert("1M".to_string(), "1M".to_string());
-        timeframes
+    pub fn timeframes(&self) -> std::collections::HashMap<String, String> {
+        constants::timeframes()
     }
 
     /// Returns the API URLs.
@@ -678,121 +544,6 @@ impl Binance {
     pub fn create_authenticated_ws(self: &std::sync::Arc<Self>) -> ws::BinanceWs {
         let ws_url = self.get_ws_url();
         ws::BinanceWs::new_with_auth(ws_url, self.clone())
-    }
-}
-
-/// Binance API URLs.
-#[derive(Debug, Clone)]
-pub struct BinanceUrls {
-    /// Public API URL.
-    pub public: String,
-    /// Private API URL.
-    pub private: String,
-    /// SAPI URL (Spot API).
-    pub sapi: String,
-    /// SAPI V2 URL.
-    pub sapi_v2: String,
-    /// FAPI URL (Futures API - short form).
-    pub fapi: String,
-    /// FAPI URL (Futures API).
-    pub fapi_public: String,
-    /// FAPI Private URL.
-    pub fapi_private: String,
-    /// DAPI URL (Delivery API - short form).
-    pub dapi: String,
-    /// DAPI URL (Delivery API).
-    pub dapi_public: String,
-    /// DAPI Private URL.
-    pub dapi_private: String,
-    /// EAPI URL (Options API - short form).
-    pub eapi: String,
-    /// EAPI URL (Options API).
-    pub eapi_public: String,
-    /// EAPI Private URL.
-    pub eapi_private: String,
-    /// PAPI URL (Portfolio Margin API).
-    pub papi: String,
-    /// WebSocket URL (Spot).
-    pub ws: String,
-    /// WebSocket Futures URL (USDT-margined perpetuals/futures).
-    pub ws_fapi: String,
-    /// WebSocket Delivery URL (Coin-margined perpetuals/futures).
-    pub ws_dapi: String,
-    /// WebSocket Options URL.
-    pub ws_eapi: String,
-}
-
-impl BinanceUrls {
-    /// Returns production environment URLs.
-    pub fn production() -> Self {
-        Self {
-            public: "https://api.binance.com/api/v3".to_string(),
-            private: "https://api.binance.com/api/v3".to_string(),
-            sapi: "https://api.binance.com/sapi/v1".to_string(),
-            sapi_v2: "https://api.binance.com/sapi/v2".to_string(),
-            fapi: "https://fapi.binance.com/fapi/v1".to_string(),
-            fapi_public: "https://fapi.binance.com/fapi/v1".to_string(),
-            fapi_private: "https://fapi.binance.com/fapi/v1".to_string(),
-            dapi: "https://dapi.binance.com/dapi/v1".to_string(),
-            dapi_public: "https://dapi.binance.com/dapi/v1".to_string(),
-            dapi_private: "https://dapi.binance.com/dapi/v1".to_string(),
-            eapi: "https://eapi.binance.com/eapi/v1".to_string(),
-            eapi_public: "https://eapi.binance.com/eapi/v1".to_string(),
-            eapi_private: "https://eapi.binance.com/eapi/v1".to_string(),
-            papi: "https://papi.binance.com/papi/v1".to_string(),
-            ws: "wss://stream.binance.com:9443/ws".to_string(),
-            ws_fapi: "wss://fstream.binance.com/ws".to_string(),
-            ws_dapi: "wss://dstream.binance.com/ws".to_string(),
-            ws_eapi: "wss://nbstream.binance.com/eoptions/ws".to_string(),
-        }
-    }
-
-    /// Returns testnet URLs.
-    pub fn testnet() -> Self {
-        Self {
-            public: "https://testnet.binance.vision/api/v3".to_string(),
-            private: "https://testnet.binance.vision/api/v3".to_string(),
-            sapi: "https://testnet.binance.vision/sapi/v1".to_string(),
-            sapi_v2: "https://testnet.binance.vision/sapi/v2".to_string(),
-            fapi: "https://testnet.binancefuture.com/fapi/v1".to_string(),
-            fapi_public: "https://testnet.binancefuture.com/fapi/v1".to_string(),
-            fapi_private: "https://testnet.binancefuture.com/fapi/v1".to_string(),
-            dapi: "https://testnet.binancefuture.com/dapi/v1".to_string(),
-            dapi_public: "https://testnet.binancefuture.com/dapi/v1".to_string(),
-            dapi_private: "https://testnet.binancefuture.com/dapi/v1".to_string(),
-            eapi: "https://testnet.binanceops.com/eapi/v1".to_string(),
-            eapi_public: "https://testnet.binanceops.com/eapi/v1".to_string(),
-            eapi_private: "https://testnet.binanceops.com/eapi/v1".to_string(),
-            papi: "https://testnet.binance.vision/papi/v1".to_string(),
-            ws: "wss://testnet.binance.vision/ws".to_string(),
-            ws_fapi: "wss://stream.binancefuture.com/ws".to_string(),
-            ws_dapi: "wss://dstream.binancefuture.com/ws".to_string(),
-            ws_eapi: "wss://testnet.binanceops.com/ws-api/v3".to_string(),
-        }
-    }
-
-    /// Returns demo environment URLs.
-    pub fn demo() -> Self {
-        Self {
-            public: "https://demo-api.binance.com/api/v3".to_string(),
-            private: "https://demo-api.binance.com/api/v3".to_string(),
-            sapi: "https://demo-api.binance.com/sapi/v1".to_string(),
-            sapi_v2: "https://demo-api.binance.com/sapi/v2".to_string(),
-            fapi: "https://demo-fapi.binance.com/fapi/v1".to_string(),
-            fapi_public: "https://demo-fapi.binance.com/fapi/v1".to_string(),
-            fapi_private: "https://demo-fapi.binance.com/fapi/v1".to_string(),
-            dapi: "https://demo-dapi.binance.com/dapi/v1".to_string(),
-            dapi_public: "https://demo-dapi.binance.com/dapi/v1".to_string(),
-            dapi_private: "https://demo-dapi.binance.com/dapi/v1".to_string(),
-            eapi: "https://demo-eapi.binance.com/eapi/v1".to_string(),
-            eapi_public: "https://demo-eapi.binance.com/eapi/v1".to_string(),
-            eapi_private: "https://demo-eapi.binance.com/eapi/v1".to_string(),
-            papi: "https://demo-papi.binance.com/papi/v1".to_string(),
-            ws: "wss://demo-stream.binance.com/ws".to_string(),
-            ws_fapi: "wss://demo-fstream.binance.com/ws".to_string(),
-            ws_dapi: "wss://demo-dstream.binance.com/ws".to_string(),
-            ws_eapi: "wss://demo-nbstream.binance.com/eoptions/ws".to_string(),
-        }
     }
 }
 
