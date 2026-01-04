@@ -91,6 +91,7 @@ pub mod error;
 pub mod exchange;
 pub mod http_client;
 pub mod logging;
+pub mod parser_utils;
 pub mod precision;
 pub mod rate_limiter;
 pub mod retry_strategy;
