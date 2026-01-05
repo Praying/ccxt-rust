@@ -45,6 +45,15 @@ pub struct BinanceWs {
     pub(crate) positions: Arc<RwLock<HashMap<String, HashMap<String, Position>>>>,
 }
 
+impl std::fmt::Debug for BinanceWs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinanceWs")
+            .field("is_connected", &self.client.is_connected())
+            .field("state", &self.client.state())
+            .finish_non_exhaustive()
+    }
+}
+
 impl BinanceWs {
     /// Creates a new Binance WebSocket client
     pub fn new(url: String) -> Self {
@@ -281,6 +290,25 @@ impl BinanceWs {
     /// Indicates whether the WebSocket connection is active
     pub fn is_connected(&self) -> bool {
         self.client.is_connected()
+    }
+
+    /// Returns the current connection state.
+    pub fn state(&self) -> ccxt_core::ws_client::WsConnectionState {
+        self.client.state()
+    }
+
+    /// Returns the list of active subscriptions.
+    ///
+    /// Returns a vector of subscription channel names that are currently active.
+    /// This method retrieves the actual subscriptions from the underlying WsClient's
+    /// subscription manager, providing accurate state tracking.
+    pub fn subscriptions(&self) -> Vec<String> {
+        self.client.subscriptions()
+    }
+
+    /// Returns the number of active subscriptions.
+    pub fn subscription_count(&self) -> usize {
+        self.client.subscription_count()
     }
 
     /// Watches a single ticker stream (internal helper)

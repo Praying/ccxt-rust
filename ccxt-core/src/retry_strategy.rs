@@ -7,8 +7,20 @@
 //! - Configurable retry conditions
 //! - Retry budget mechanism
 
-use crate::error::Error;
+use crate::error::{ConfigValidationError, Error, ValidationResult};
+use regex::Regex;
+use std::sync::LazyLock;
 use std::time::Duration;
+
+/// Regex pattern for detecting server error messages using word boundary matching.
+/// Matches:
+/// - HTTP status codes 500, 502, 503, 504 as standalone numbers (not part of larger numbers)
+/// - Common server error phrases
+static SERVER_ERROR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(500|502|503|504)\b|internal server error|bad gateway|service unavailable|gateway timeout"
+    ).expect("Invalid server error regex pattern")
+});
 
 /// Retry strategy type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +117,60 @@ impl RetryConfig {
             jitter_factor: 0.0,
         }
     }
+
+    /// Validates the retry configuration parameters.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(ValidationResult)` if the configuration is valid.
+    /// The `ValidationResult` may contain warnings for suboptimal but valid configurations.
+    ///
+    /// Returns `Err(ConfigValidationError)` if the configuration is invalid.
+    ///
+    /// # Validation Rules
+    ///
+    /// - `max_retries` must be <= 10 (excessive retries can cause issues)
+    /// - `base_delay_ms` must be >= 10 (too short delays can cause thundering herd)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::retry_strategy::RetryConfig;
+    ///
+    /// let config = RetryConfig::default();
+    /// let result = config.validate();
+    /// assert!(result.is_ok());
+    ///
+    /// let invalid_config = RetryConfig {
+    ///     max_retries: 15, // Too high
+    ///     ..Default::default()
+    /// };
+    /// let result = invalid_config.validate();
+    /// assert!(result.is_err());
+    /// ```
+    pub fn validate(&self) -> Result<ValidationResult, ConfigValidationError> {
+        let warnings = Vec::new();
+
+        // Validate max_retries <= 10
+        if self.max_retries > 10 {
+            return Err(ConfigValidationError::too_high(
+                "max_retries",
+                self.max_retries,
+                10,
+            ));
+        }
+
+        // Validate base_delay_ms >= 10
+        if self.base_delay_ms < 10 {
+            return Err(ConfigValidationError::too_low(
+                "base_delay_ms",
+                self.base_delay_ms,
+                10,
+            ));
+        }
+
+        Ok(ValidationResult::with_warnings(warnings))
+    }
 }
 
 /// Retry strategy.
@@ -197,16 +263,103 @@ impl RetryStrategy {
     }
 
     /// Checks if the message indicates a server error (5xx).
-    fn is_server_error(msg: &str) -> bool {
-        let msg_lower = msg.to_lowercase();
-        msg_lower.contains("500")
-            || msg_lower.contains("502")
-            || msg_lower.contains("503")
-            || msg_lower.contains("504")
-            || msg_lower.contains("internal server error")
-            || msg_lower.contains("bad gateway")
-            || msg_lower.contains("service unavailable")
-            || msg_lower.contains("gateway timeout")
+    ///
+    /// Uses word boundary matching to avoid false positives like "order_id: 15001234"
+    /// being misidentified as containing a 500 error.
+    ///
+    /// # Arguments
+    ///
+    /// * `msg` - The error message to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the message indicates a server error, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::retry_strategy::RetryStrategy;
+    ///
+    /// // True positives
+    /// assert!(RetryStrategy::is_server_error("500 Internal Server Error"));
+    /// assert!(RetryStrategy::is_server_error("HTTP 502 Bad Gateway"));
+    ///
+    /// // False positives avoided
+    /// assert!(!RetryStrategy::is_server_error("order_id: 15001234"));
+    /// assert!(!RetryStrategy::is_server_error("amount: 5000"));
+    /// ```
+    pub fn is_server_error(msg: &str) -> bool {
+        Self::is_server_error_message(msg)
+    }
+
+    /// Checks if an HTTP status code indicates a server error (5xx).
+    ///
+    /// Server errors are HTTP status codes in the range 500-599.
+    ///
+    /// # Arguments
+    ///
+    /// * `status` - The HTTP status code to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the status code is in the 500-599 range, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::retry_strategy::RetryStrategy;
+    ///
+    /// assert!(RetryStrategy::is_server_error_code(500));
+    /// assert!(RetryStrategy::is_server_error_code(502));
+    /// assert!(RetryStrategy::is_server_error_code(503));
+    /// assert!(RetryStrategy::is_server_error_code(504));
+    /// assert!(RetryStrategy::is_server_error_code(599));
+    ///
+    /// assert!(!RetryStrategy::is_server_error_code(200));
+    /// assert!(!RetryStrategy::is_server_error_code(400));
+    /// assert!(!RetryStrategy::is_server_error_code(404));
+    /// assert!(!RetryStrategy::is_server_error_code(499));
+    /// assert!(!RetryStrategy::is_server_error_code(600));
+    /// ```
+    pub fn is_server_error_code(status: u16) -> bool {
+        (500..600).contains(&status)
+    }
+
+    /// Checks if a message indicates a server error using word boundary matching.
+    ///
+    /// This method uses regex with word boundaries to precisely detect server error
+    /// patterns without false positives from numbers that happen to contain 500, 502, etc.
+    ///
+    /// # Arguments
+    ///
+    /// * `msg` - The error message to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the message matches server error patterns, `false` otherwise.
+    ///
+    /// # Patterns Matched
+    ///
+    /// - Status codes: `500`, `502`, `503`, `504` (as standalone words)
+    /// - Phrases: "internal server error", "bad gateway", "service unavailable", "gateway timeout"
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::retry_strategy::RetryStrategy;
+    ///
+    /// // Matches server error patterns
+    /// assert!(RetryStrategy::is_server_error_message("500 Internal Server Error"));
+    /// assert!(RetryStrategy::is_server_error_message("Error: 502"));
+    /// assert!(RetryStrategy::is_server_error_message("Service Unavailable"));
+    ///
+    /// // Does NOT match numbers containing 500, 502, etc.
+    /// assert!(!RetryStrategy::is_server_error_message("order_id: 15001234"));
+    /// assert!(!RetryStrategy::is_server_error_message("balance: 5020.50"));
+    /// assert!(!RetryStrategy::is_server_error_message("id=25030"));
+    /// ```
+    pub fn is_server_error_message(msg: &str) -> bool {
+        SERVER_ERROR_PATTERN.is_match(msg)
     }
 
     /// Checks if the message indicates a timeout error.
@@ -358,12 +511,100 @@ mod tests {
 
     #[test]
     fn test_is_server_error() {
+        // True positives - should detect server errors
         assert!(RetryStrategy::is_server_error("500 Internal Server Error"));
         assert!(RetryStrategy::is_server_error("502 Bad Gateway"));
         assert!(RetryStrategy::is_server_error("503 Service Unavailable"));
         assert!(RetryStrategy::is_server_error("504 Gateway Timeout"));
+        assert!(RetryStrategy::is_server_error("HTTP 500"));
+        assert!(RetryStrategy::is_server_error("Error: 502"));
+        assert!(RetryStrategy::is_server_error("Status 503"));
+        assert!(RetryStrategy::is_server_error("internal server error"));
+        assert!(RetryStrategy::is_server_error("bad gateway"));
+        assert!(RetryStrategy::is_server_error("service unavailable"));
+        assert!(RetryStrategy::is_server_error("gateway timeout"));
+
+        // True negatives - should NOT detect as server errors
         assert!(!RetryStrategy::is_server_error("400 Bad Request"));
         assert!(!RetryStrategy::is_server_error("404 Not Found"));
+        assert!(!RetryStrategy::is_server_error("200 OK"));
+
+        // False positive prevention - numbers containing 500, 502, etc.
+        assert!(!RetryStrategy::is_server_error("order_id: 15001234"));
+        assert!(!RetryStrategy::is_server_error("balance: 5020.50"));
+        assert!(!RetryStrategy::is_server_error("id=25030"));
+        assert!(!RetryStrategy::is_server_error("amount: 5000"));
+        assert!(!RetryStrategy::is_server_error("price: 50200"));
+        assert!(!RetryStrategy::is_server_error("timestamp: 1500123456789"));
+    }
+
+    #[test]
+    fn test_is_server_error_code() {
+        // Server error codes (500-599)
+        assert!(RetryStrategy::is_server_error_code(500));
+        assert!(RetryStrategy::is_server_error_code(501));
+        assert!(RetryStrategy::is_server_error_code(502));
+        assert!(RetryStrategy::is_server_error_code(503));
+        assert!(RetryStrategy::is_server_error_code(504));
+        assert!(RetryStrategy::is_server_error_code(505));
+        assert!(RetryStrategy::is_server_error_code(599));
+
+        // Non-server error codes
+        assert!(!RetryStrategy::is_server_error_code(200));
+        assert!(!RetryStrategy::is_server_error_code(201));
+        assert!(!RetryStrategy::is_server_error_code(301));
+        assert!(!RetryStrategy::is_server_error_code(400));
+        assert!(!RetryStrategy::is_server_error_code(401));
+        assert!(!RetryStrategy::is_server_error_code(403));
+        assert!(!RetryStrategy::is_server_error_code(404));
+        assert!(!RetryStrategy::is_server_error_code(429));
+        assert!(!RetryStrategy::is_server_error_code(499));
+        assert!(!RetryStrategy::is_server_error_code(600));
+        assert!(!RetryStrategy::is_server_error_code(0));
+    }
+
+    #[test]
+    fn test_is_server_error_message() {
+        // Standard server error messages
+        assert!(RetryStrategy::is_server_error_message(
+            "500 Internal Server Error"
+        ));
+        assert!(RetryStrategy::is_server_error_message("502 Bad Gateway"));
+        assert!(RetryStrategy::is_server_error_message(
+            "503 Service Unavailable"
+        ));
+        assert!(RetryStrategy::is_server_error_message(
+            "504 Gateway Timeout"
+        ));
+
+        // Case insensitive matching
+        assert!(RetryStrategy::is_server_error_message(
+            "INTERNAL SERVER ERROR"
+        ));
+        assert!(RetryStrategy::is_server_error_message("Bad Gateway"));
+        assert!(RetryStrategy::is_server_error_message(
+            "SERVICE UNAVAILABLE"
+        ));
+
+        // Status codes at different positions
+        assert!(RetryStrategy::is_server_error_message("Error 500"));
+        assert!(RetryStrategy::is_server_error_message("HTTP/1.1 502"));
+        assert!(RetryStrategy::is_server_error_message("Status: 503"));
+        assert!(RetryStrategy::is_server_error_message("504"));
+
+        // Word boundary tests - should NOT match
+        assert!(!RetryStrategy::is_server_error_message(
+            "order_id: 15001234"
+        ));
+        assert!(!RetryStrategy::is_server_error_message("balance: 5020.50"));
+        assert!(!RetryStrategy::is_server_error_message("id=25030"));
+        assert!(!RetryStrategy::is_server_error_message("amount: 5000"));
+        assert!(!RetryStrategy::is_server_error_message("price: 50200"));
+        assert!(!RetryStrategy::is_server_error_message(
+            "timestamp: 1500123456789"
+        ));
+        assert!(!RetryStrategy::is_server_error_message("order5020"));
+        assert!(!RetryStrategy::is_server_error_message("5030items"));
     }
 
     #[test]
@@ -372,6 +613,80 @@ mod tests {
         assert!(RetryStrategy::is_timeout_error("Connection timed out"));
         assert!(RetryStrategy::is_timeout_error("408 Request Timeout"));
         assert!(!RetryStrategy::is_timeout_error("Connection refused"));
+    }
+
+    #[test]
+    fn test_retry_config_validate_default() {
+        let config = RetryConfig::default();
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn test_retry_config_validate_max_retries_too_high() {
+        let config = RetryConfig {
+            max_retries: 15,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.field_name(), "max_retries");
+        assert!(matches!(
+            err,
+            crate::error::ConfigValidationError::ValueTooHigh { .. }
+        ));
+    }
+
+    #[test]
+    fn test_retry_config_validate_max_retries_boundary() {
+        // max_retries = 10 should be valid
+        let config = RetryConfig {
+            max_retries: 10,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+
+        // max_retries = 11 should be invalid
+        let config = RetryConfig {
+            max_retries: 11,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_retry_config_validate_base_delay_too_low() {
+        let config = RetryConfig {
+            base_delay_ms: 5,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.field_name(), "base_delay_ms");
+        assert!(matches!(
+            err,
+            crate::error::ConfigValidationError::ValueTooLow { .. }
+        ));
+    }
+
+    #[test]
+    fn test_retry_config_validate_base_delay_boundary() {
+        // base_delay_ms = 10 should be valid
+        let config = RetryConfig {
+            base_delay_ms: 10,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+
+        // base_delay_ms = 9 should be invalid
+        let config = RetryConfig {
+            base_delay_ms: 9,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
     }
 
     #[test]

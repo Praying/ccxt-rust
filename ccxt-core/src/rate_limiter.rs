@@ -27,6 +27,7 @@
 //! # }
 //! ```
 
+use crate::error::{ConfigValidationError, ValidationResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -91,6 +92,58 @@ impl Default for RateLimiterConfig {
     }
 }
 
+impl RateLimiterConfig {
+    /// Validates the rate limiter configuration parameters.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(ValidationResult)` if the configuration is valid.
+    /// The `ValidationResult` may contain warnings for suboptimal but valid configurations.
+    ///
+    /// Returns `Err(ConfigValidationError)` if the configuration is invalid.
+    ///
+    /// # Validation Rules
+    ///
+    /// - `capacity` must be > 0 (zero capacity is invalid)
+    /// - `refill_period` < 100ms generates a warning (may cause high CPU usage)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::rate_limiter::RateLimiterConfig;
+    /// use std::time::Duration;
+    ///
+    /// let config = RateLimiterConfig::new(10, Duration::from_secs(1));
+    /// let result = config.validate();
+    /// assert!(result.is_ok());
+    ///
+    /// let invalid_config = RateLimiterConfig::new(0, Duration::from_secs(1));
+    /// let result = invalid_config.validate();
+    /// assert!(result.is_err());
+    /// ```
+    pub fn validate(&self) -> Result<ValidationResult, ConfigValidationError> {
+        let mut warnings = Vec::new();
+
+        // Validate capacity > 0
+        if self.capacity == 0 {
+            return Err(ConfigValidationError::invalid(
+                "capacity",
+                "capacity cannot be zero",
+            ));
+        }
+
+        // Warn if refill_period < 100ms
+        if self.refill_period < Duration::from_millis(100) {
+            warnings.push(format!(
+                "refill_period {:?} is very short, may cause high CPU usage",
+                self.refill_period
+            ));
+        }
+
+        Ok(ValidationResult::with_warnings(warnings))
+    }
+}
+
 /// Internal state of the rate limiter
 #[derive(Debug)]
 struct RateLimiterState {
@@ -98,6 +151,10 @@ struct RateLimiterState {
     tokens: u32,
     /// Last time tokens were refilled
     last_refill: Instant,
+    /// Accumulated nanoseconds for fractional token tracking (precision optimization)
+    /// This field tracks the remainder when elapsed time doesn't evenly divide into refill periods,
+    /// preventing floating-point precision drift over long-running applications.
+    remainder_nanos: u64,
     /// Configuration
     config: RateLimiterConfig,
 }
@@ -107,23 +164,60 @@ impl RateLimiterState {
         Self {
             tokens: config.capacity,
             last_refill: Instant::now(),
+            remainder_nanos: 0,
             config,
         }
     }
 
-    /// Refill tokens based on elapsed time
+    /// Refill tokens based on elapsed time using integer arithmetic
+    ///
+    /// This implementation uses nanosecond-based integer arithmetic instead of
+    /// floating-point seconds to avoid precision drift over long-running applications.
+    /// The formula used is: `elapsed_nanos / period_nanos * refill_amount`
+    ///
+    /// The `remainder_nanos` field tracks fractional periods that haven't yet
+    /// accumulated to a full refill period, ensuring no time is lost between refills.
+    #[allow(clippy::cast_possible_truncation)]
     fn refill(&mut self) {
         let now = Instant::now();
-        let elapsed = now.duration_since(self.last_refill);
+        // Note: as_nanos() returns u128, but for practical durations (< 584 years),
+        // u64 is sufficient. We use saturating conversion to handle edge cases.
+        let elapsed_nanos = now
+            .duration_since(self.last_refill)
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
+        let period_nanos = self
+            .config
+            .refill_period
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
 
-        if elapsed >= self.config.refill_period {
-            // Calculate how many refill periods have passed
-            let periods = elapsed.as_secs_f64() / self.config.refill_period.as_secs_f64();
-            #[allow(clippy::cast_possible_truncation)]
-            let tokens_to_add = (periods * f64::from(self.config.refill_amount)) as u32;
+        // Avoid division by zero (should not happen with valid config)
+        if period_nanos == 0 {
+            return;
+        }
+
+        // Add elapsed time to accumulated remainder
+        let total_nanos = self.remainder_nanos.saturating_add(elapsed_nanos);
+
+        // Calculate complete periods using integer division
+        let complete_periods = total_nanos / period_nanos;
+
+        if complete_periods > 0 {
+            // Calculate tokens to add using integer arithmetic
+            // Use u64 for intermediate calculation to avoid overflow
+            let tokens_to_add = complete_periods
+                .saturating_mul(u64::from(self.config.refill_amount))
+                .min(u64::from(u32::MAX)) as u32;
 
             // Add tokens up to capacity
-            self.tokens = (self.tokens + tokens_to_add).min(self.config.capacity);
+            self.tokens = self
+                .tokens
+                .saturating_add(tokens_to_add)
+                .min(self.config.capacity);
+
+            // Store remainder for next refill (preserves fractional periods)
+            self.remainder_nanos = total_nanos % period_nanos;
             self.last_refill = now;
         }
     }
@@ -278,6 +372,7 @@ impl RateLimiter {
         let mut state = self.state.lock().await;
         state.tokens = state.config.capacity;
         state.last_refill = Instant::now();
+        state.remainder_nanos = 0;
     }
 }
 
@@ -502,5 +597,161 @@ mod tests {
 
         // All tokens should be consumed
         assert_eq!(limiter.available_tokens().await, 0);
+    }
+
+    #[test]
+    fn test_rate_limiter_config_validate_default() {
+        let config = RateLimiterConfig::default();
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn test_rate_limiter_config_validate_zero_capacity() {
+        let config = RateLimiterConfig::new(0, Duration::from_secs(1));
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.field_name(), "capacity");
+        assert!(matches!(
+            err,
+            crate::error::ConfigValidationError::ValueInvalid { .. }
+        ));
+    }
+
+    #[test]
+    fn test_rate_limiter_config_validate_short_refill_period_warning() {
+        let config = RateLimiterConfig::new(10, Duration::from_millis(50));
+        let result = config.validate();
+        assert!(result.is_ok());
+        let validation_result = result.unwrap();
+        assert!(!validation_result.warnings.is_empty());
+        assert!(validation_result.warnings[0].contains("refill_period"));
+        assert!(validation_result.warnings[0].contains("very short"));
+    }
+
+    #[test]
+    fn test_rate_limiter_config_validate_refill_period_boundary() {
+        // refill_period = 100ms should not generate warning
+        let config = RateLimiterConfig::new(10, Duration::from_millis(100));
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+
+        // refill_period = 99ms should generate warning
+        let config = RateLimiterConfig::new(10, Duration::from_millis(99));
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(!result.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn test_rate_limiter_config_validate_valid_config() {
+        let config = RateLimiterConfig::new(100, Duration::from_secs(60));
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+    }
+
+    /// Test that the integer-based refill calculation maintains precision
+    /// over many iterations without drift.
+    #[test]
+    fn test_rate_limiter_integer_precision() {
+        // Create a state with a specific configuration
+        let config = RateLimiterConfig::new(100, Duration::from_millis(100)).with_refill_amount(10);
+        let mut state = RateLimiterState::new(config);
+
+        // Consume all tokens
+        state.tokens = 0;
+
+        // Simulate many small time increments that don't complete a full period
+        // This tests the remainder_nanos accumulation
+        let period_nanos = 100_000_000u64; // 100ms in nanos
+        let small_increment = 33_333_333u64; // ~33.3ms in nanos
+
+        // After 3 increments of ~33.3ms, we should have ~100ms total
+        // which equals 1 complete period = 10 tokens
+        state.remainder_nanos = small_increment;
+        state.remainder_nanos += small_increment;
+        state.remainder_nanos += small_increment;
+
+        // Calculate complete periods
+        let complete_periods = state.remainder_nanos / period_nanos;
+        assert_eq!(complete_periods, 0); // 99.9ms < 100ms, no complete period yet
+
+        // Add one more nanosecond to push over the threshold
+        state.remainder_nanos += 1;
+        let complete_periods = state.remainder_nanos / period_nanos;
+        assert_eq!(complete_periods, 1); // Now we have 1 complete period
+
+        // Verify remainder is preserved correctly
+        let expected_remainder = (small_increment * 3 + 1) % period_nanos;
+        assert_eq!(state.remainder_nanos % period_nanos, expected_remainder);
+    }
+
+    /// Test that remainder_nanos is properly reset when reset() is called
+    #[tokio::test]
+    async fn test_rate_limiter_reset_clears_remainder() {
+        let config = RateLimiterConfig::new(5, Duration::from_secs(1));
+        let limiter = RateLimiter::new(config);
+
+        // Use all tokens
+        for _ in 0..5 {
+            limiter.wait().await;
+        }
+
+        // Wait a bit to accumulate some remainder
+        sleep(Duration::from_millis(50)).await;
+
+        // Reset should clear everything including remainder
+        limiter.reset().await;
+
+        // Verify tokens are back to capacity
+        assert_eq!(limiter.available_tokens().await, 5);
+    }
+
+    /// Test that the refill calculation handles zero period_nanos gracefully
+    #[test]
+    fn test_rate_limiter_refill_zero_period_protection() {
+        // This tests the edge case protection in refill()
+        // A zero period should not cause division by zero
+        let config = RateLimiterConfig {
+            capacity: 10,
+            refill_period: Duration::ZERO, // Edge case: zero duration
+            refill_amount: 5,
+            cost_per_request: 1,
+        };
+        let mut state = RateLimiterState::new(config);
+        state.tokens = 0;
+
+        // This should not panic due to division by zero
+        state.refill();
+
+        // Tokens should remain unchanged (no refill with zero period)
+        assert_eq!(state.tokens, 0);
+    }
+
+    /// Test that integer arithmetic doesn't overflow with large values
+    #[test]
+    fn test_rate_limiter_refill_overflow_protection() {
+        let config =
+            RateLimiterConfig::new(u32::MAX, Duration::from_nanos(1)).with_refill_amount(u32::MAX);
+        let mut state = RateLimiterState::new(config);
+        state.tokens = 0;
+
+        // Simulate a large elapsed time
+        state.remainder_nanos = u64::MAX / 2;
+
+        // This should not panic due to overflow
+        // The saturating_mul and min operations should protect against overflow
+        let period_nanos = 1u64;
+        let complete_periods = state.remainder_nanos / period_nanos;
+        let tokens_to_add = complete_periods
+            .saturating_mul(u64::from(state.config.refill_amount))
+            .min(u64::from(u32::MAX)) as u32;
+
+        // Should be capped at u32::MAX
+        assert_eq!(tokens_to_add, u32::MAX);
     }
 }

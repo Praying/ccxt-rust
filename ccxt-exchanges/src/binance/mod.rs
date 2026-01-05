@@ -7,6 +7,7 @@ use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 pub mod auth;
 pub mod builder;
@@ -40,6 +41,8 @@ pub struct Binance {
     options: BinanceOptions,
     /// Time synchronization manager for caching server time offset.
     time_sync: Arc<TimeSyncManager>,
+    /// Persistent WebSocket connection reference for state tracking.
+    ws_connection: Arc<RwLock<Option<ws::BinanceWs>>>,
 }
 
 impl Binance {
@@ -94,6 +97,7 @@ impl Binance {
             base,
             options,
             time_sync,
+            ws_connection: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -136,6 +140,7 @@ impl Binance {
             base,
             options,
             time_sync,
+            ws_connection: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -173,6 +178,7 @@ impl Binance {
             base,
             options,
             time_sync,
+            ws_connection: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -194,6 +200,32 @@ impl Binance {
     /// Sets the Binance options.
     pub fn set_options(&mut self, options: BinanceOptions) {
         self.options = options;
+    }
+
+    /// Returns a reference to the persistent WebSocket connection.
+    ///
+    /// This allows access to the stored WebSocket instance for state tracking.
+    /// The connection is stored when `ws_connect()` is called and cleared
+    /// when `ws_disconnect()` is called.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    /// let ws_conn = binance.ws_connection();
+    /// let guard = ws_conn.read().await;
+    /// if guard.is_some() {
+    ///     println!("WebSocket is connected");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn ws_connection(&self) -> &Arc<RwLock<Option<ws::BinanceWs>>> {
+        &self.ws_connection
     }
 
     /// Returns a reference to the time synchronization manager.

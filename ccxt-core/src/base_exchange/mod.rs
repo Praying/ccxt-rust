@@ -93,6 +93,8 @@ impl BaseExchange {
                     strategy_type: crate::retry_strategy::RetryStrategyType::Fixed,
                     ..crate::retry_strategy::RetryConfig::default()
                 }),
+            max_response_size: 10 * 1024 * 1024, // 10MB default
+            circuit_breaker: None,               // Disabled by default for backward compatibility
         };
 
         let mut http_client = HttpClient::new(http_config)?;

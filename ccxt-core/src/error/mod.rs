@@ -134,6 +134,7 @@
 //! }
 //! ```
 
+mod config;
 mod context;
 mod convert;
 mod details;
@@ -148,6 +149,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 // Re-export all public types for backward compatibility
+pub use config::{ConfigValidationError, ValidationResult};
 pub use context::ContextExt;
 #[allow(deprecated)]
 pub use context::ErrorContext;
@@ -274,6 +276,23 @@ pub enum Error {
     /// ```
     #[error("Resource exhausted: {0}")]
     ResourceExhausted(Cow<'static, str>),
+
+    /// Configuration validation error.
+    ///
+    /// This error is returned when configuration parameters fail validation,
+    /// such as values being out of range or missing required fields.
+    /// Boxed to reduce enum size.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::{Error, ConfigValidationError};
+    ///
+    /// let err = Error::config_validation(ConfigValidationError::too_high("max_retries", 15, 10));
+    /// assert!(err.to_string().contains("Configuration error"));
+    /// ```
+    #[error("Configuration error: {0}")]
+    ConfigValidation(Box<ConfigValidationError>),
 
     /// Error with additional context, preserving the error chain.
     #[error("{context}")]
@@ -409,6 +428,22 @@ impl Error {
     /// ```
     pub fn resource_exhausted(msg: impl Into<Cow<'static, str>>) -> Self {
         Self::ResourceExhausted(msg.into())
+    }
+
+    /// Creates a configuration validation error.
+    ///
+    /// Use this when configuration parameters fail validation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::{Error, ConfigValidationError};
+    ///
+    /// let err = Error::config_validation(ConfigValidationError::too_high("max_retries", 15, 10));
+    /// assert!(err.to_string().contains("Configuration error"));
+    /// ```
+    pub fn config_validation(err: ConfigValidationError) -> Self {
+        Self::ConfigValidation(Box::new(err))
     }
 
     /// Creates an invalid request error.
@@ -622,6 +657,30 @@ impl Error {
         match self {
             Error::ResourceExhausted(msg) => Some(msg.as_ref()),
             Error::Context { source, .. } => source.as_resource_exhausted(),
+            _ => None,
+        }
+    }
+
+    /// Checks if this is a configuration validation error (penetrates Context layers).
+    /// Returns a reference to the `ConfigValidationError`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::error::{Error, ConfigValidationError};
+    ///
+    /// let err = Error::config_validation(ConfigValidationError::too_high("max_retries", 15, 10));
+    /// assert!(err.as_config_validation().is_some());
+    ///
+    /// // Works through context layers
+    /// let wrapped = err.context("Wrapped error");
+    /// assert!(wrapped.as_config_validation().is_some());
+    /// ```
+    #[must_use]
+    pub fn as_config_validation(&self) -> Option<&ConfigValidationError> {
+        match self {
+            Error::ConfigValidation(err) => Some(err.as_ref()),
+            Error::Context { source, .. } => source.as_config_validation(),
             _ => None,
         }
     }

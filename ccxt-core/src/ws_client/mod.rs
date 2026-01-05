@@ -496,6 +496,23 @@ impl WsClient {
         self.subscription_manager.remaining_capacity()
     }
 
+    /// Returns a list of all active subscription channel names.
+    ///
+    /// Each subscription is identified by its channel name, optionally combined
+    /// with a symbol in the format "channel:symbol" or just "channel".
+    pub fn subscriptions(&self) -> Vec<String> {
+        self.subscription_manager
+            .iter()
+            .map(|entry| {
+                let sub = entry.value();
+                match &sub.symbol {
+                    Some(sym) => format!("{}:{}", sub.channel, sym),
+                    None => sub.channel.clone(),
+                }
+            })
+            .collect()
+    }
+
     /// Sends a raw WebSocket message.
     #[instrument(name = "ws_send", skip(self, message))]
     pub async fn send(&self, message: Message) -> Result<()> {

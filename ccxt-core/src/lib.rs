@@ -85,6 +85,7 @@ pub use serde_json;
 pub mod auth;
 pub mod base_exchange;
 pub mod capability;
+pub mod circuit_breaker;
 pub mod config;
 pub mod credentials;
 pub mod error;
@@ -113,6 +114,9 @@ pub mod test_config;
 
 // Re-exports of core types for convenience
 pub use base_exchange::{BaseExchange, ExchangeConfig, ExchangeConfigBuilder, MarketCache};
+pub use circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerEvent, CircuitState,
+};
 pub use credentials::{SecretBytes, SecretString};
 // Re-export unified Exchange trait from exchange module
 pub use exchange::{ArcExchange, BoxedExchange, Exchange, ExchangeExt};
@@ -160,6 +164,7 @@ pub mod prelude {
     pub use crate::base_exchange::{
         BaseExchange, ExchangeConfig, ExchangeConfigBuilder, MarketCache,
     };
+    pub use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
     pub use crate::error::{ContextExt, Error, Result};
     // Re-export unified Exchange trait and capabilities
     pub use crate::exchange::{

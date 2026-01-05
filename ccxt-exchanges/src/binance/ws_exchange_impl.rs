@@ -50,23 +50,40 @@ impl WsExchange for Binance {
         // Create a public WebSocket connection
         let ws = self.create_ws();
         ws.connect().await?;
+
+        // Store the connected WebSocket instance for state tracking
+        let mut conn = self.ws_connection.write().await;
+        *conn = Some(ws);
+
         Ok(())
     }
 
     async fn ws_disconnect(&self) -> Result<()> {
-        // Create a temporary WS to disconnect
-        let ws = self.create_ws();
-        ws.disconnect().await
+        // Get and clear the stored WebSocket connection
+        let mut conn = self.ws_connection.write().await;
+        if let Some(ws) = conn.take() {
+            ws.disconnect().await?;
+        }
+        Ok(())
     }
 
     fn ws_is_connected(&self) -> bool {
-        // Without persistent state tracking, return false
-        // In a full implementation, we'd track the active connection
+        // Use try_read to avoid blocking
+        if let Ok(conn) = self.ws_connection.try_read() {
+            if let Some(ref ws) = *conn {
+                return ws.is_connected();
+            }
+        }
         false
     }
 
     fn ws_state(&self) -> WsConnectionState {
-        // Return disconnected since we don't have persistent state
+        // Use try_read to avoid blocking
+        if let Ok(conn) = self.ws_connection.try_read() {
+            if let Some(ref ws) = *conn {
+                return ws.state();
+            }
+        }
         WsConnectionState::Disconnected
     }
 
@@ -442,8 +459,12 @@ impl WsExchange for Binance {
     }
 
     fn subscriptions(&self) -> Vec<String> {
-        // Without persistent state, return empty
-        // In a full implementation, we'd track active subscriptions
+        // Use try_read to avoid blocking
+        if let Ok(conn) = self.ws_connection.try_read() {
+            if let Some(ref ws) = *conn {
+                return ws.subscriptions();
+            }
+        }
         Vec::new()
     }
 }
