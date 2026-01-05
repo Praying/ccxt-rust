@@ -218,7 +218,10 @@ pub fn parse_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> {
         data["symbol"]
             .as_str()
             .map(ToString::to_string)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                ccxt_core::Error::from(ccxt_core::ParseError::missing_field("symbol"))
+                    .context("Failed to parse ticker: missing symbol identifier")
+            })?
     };
 
     // Bybit uses different timestamp fields
@@ -342,10 +345,15 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
     let symbol = if let Some(m) = market {
         m.symbol.clone()
     } else {
+        // Check both "symbol" (REST API) and "s" (WebSocket) fields
         data["symbol"]
             .as_str()
+            .or_else(|| data["s"].as_str())
             .map(ToString::to_string)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                ccxt_core::Error::from(ccxt_core::ParseError::missing_field("symbol/s"))
+                    .context("Failed to parse: missing symbol identifier")
+            })?
     };
 
     let id = data["execId"]
@@ -556,10 +564,15 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
     let symbol = if let Some(m) = market {
         m.symbol.clone()
     } else {
+        // Check both "symbol" (REST API) and "s" (WebSocket) fields
         data["symbol"]
             .as_str()
+            .or_else(|| data["s"].as_str())
             .map(ToString::to_string)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                ccxt_core::Error::from(ccxt_core::ParseError::missing_field("symbol/s"))
+                    .context("Failed to parse: missing symbol identifier")
+            })?
     };
 
     let id = data["orderId"]

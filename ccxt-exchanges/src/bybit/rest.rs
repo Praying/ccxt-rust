@@ -158,9 +158,15 @@ impl Bybit {
         };
 
         // Build body string for POST requests
-        let body_string = body
-            .map(|b| serde_json::to_string(b).unwrap_or_default())
-            .unwrap_or_default();
+        let body_string = match body {
+            Some(b) => serde_json::to_string(b).map_err(|e| {
+                ccxt_core::Error::from(ccxt_core::ParseError::invalid_format(
+                    "request body",
+                    format!("JSON serialization failed: {}", e),
+                ))
+            })?,
+            None => String::new(),
+        };
 
         // Sign the request - Bybit uses query string for GET, body for POST
         let sign_params = if method.to_uppercase() == "GET" {

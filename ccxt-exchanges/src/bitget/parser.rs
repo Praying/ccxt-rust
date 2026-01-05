@@ -167,7 +167,10 @@ pub fn parse_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> {
             .as_str()
             .or_else(|| data["instId"].as_str())
             .map(ToString::to_string)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                ccxt_core::Error::from(ccxt_core::ParseError::missing_field("symbol/instId"))
+                    .context("Failed to parse ticker: missing symbol identifier")
+            })?
     };
 
     // Bitget uses "ts" for timestamp
@@ -318,7 +321,10 @@ pub fn parse_trade(data: &Value, market: Option<&Market>) -> Result<Trade> {
         data["symbol"]
             .as_str()
             .map(ToString::to_string)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                ccxt_core::Error::from(ccxt_core::ParseError::missing_field("symbol"))
+                    .context("Failed to parse trade: missing symbol identifier")
+            })?
     };
 
     let id = data["tradeId"]
@@ -472,7 +478,10 @@ pub fn parse_order(data: &Value, market: Option<&Market>) -> Result<Order> {
             .as_str()
             .or_else(|| data["instId"].as_str())
             .map(ToString::to_string)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                ccxt_core::Error::from(ccxt_core::ParseError::missing_field("symbol/instId"))
+                    .context("Failed to parse order: missing symbol identifier")
+            })?
     };
 
     let id = data["orderId"]

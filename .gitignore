@@ -38,6 +38,8 @@ go/
 .kiro/
 .roo/
 .specify/
+specs/
+.claude/
 .gemini/
 _bmad/
 docs/
