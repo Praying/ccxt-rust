@@ -18,6 +18,7 @@ pub mod options;
 pub mod parser;
 pub mod rest;
 pub mod signed_request;
+pub mod signing_strategy;
 pub mod symbol;
 pub mod time_sync;
 pub mod urls;

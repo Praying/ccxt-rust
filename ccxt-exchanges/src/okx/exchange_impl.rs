@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use ccxt_core::{
     Result,
     exchange::{Capability, Exchange, ExchangeCapabilities},
+    signed_request::HasHttpClient,
     types::{
         Amount, Balance, Market, Ohlcv, Order, OrderBook, OrderSide, OrderType, Price, Ticker,
         Timeframe, Trade,
@@ -16,6 +17,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::Okx;
+
+// ==================== HasHttpClient Implementation ====================
+
+impl HasHttpClient for Okx {
+    fn http_client(&self) -> &ccxt_core::http_client::HttpClient {
+        &self.base().http_client
+    }
+
+    fn base_url(&self) -> &str {
+        // Return empty string - OKX's signed_request builder handles full URL construction
+        // using self.okx.urls().rest
+        ""
+    }
+}
 
 #[async_trait]
 impl Exchange for Okx {

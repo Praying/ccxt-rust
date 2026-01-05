@@ -95,6 +95,7 @@ pub mod parser_utils;
 pub mod precision;
 pub mod rate_limiter;
 pub mod retry_strategy;
+pub mod signed_request;
 pub mod symbol;
 pub mod time;
 /// Exchange trait hierarchy for modular capability composition
