@@ -63,6 +63,8 @@ once_cell = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
+regex = { workspace = true }
+lazy_static = { workspace = true }
 
 # Security
 zeroize = { workspace = true }

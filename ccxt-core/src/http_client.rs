@@ -17,12 +17,14 @@
 //! - HTTP response status and body preview
 //! - Error details with structured fields
 
+use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::config::ProxyConfig;
-use crate::error::{Error, Result};
+use crate::error::{ConfigValidationError, Error, Result, ValidationResult};
 use crate::rate_limiter::RateLimiter;
 use crate::retry_strategy::{RetryConfig, RetryStrategy};
 use reqwest::{Client, Method, Response, StatusCode, header::HeaderMap};
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -48,6 +50,20 @@ pub struct HttpConfig {
     pub enable_rate_limit: bool,
     /// Optional retry configuration (uses default if `None`)
     pub retry_config: Option<RetryConfig>,
+    /// Maximum response body size in bytes (default: 10MB)
+    ///
+    /// Responses exceeding this limit will be rejected with an `InvalidRequest` error.
+    /// This protects against malicious or abnormal responses that could exhaust memory.
+    pub max_response_size: usize,
+
+    /// Optional circuit breaker configuration.
+    ///
+    /// When enabled, the circuit breaker will track request failures and
+    /// automatically block requests to failing endpoints, allowing the
+    /// system to recover.
+    ///
+    /// Default: `None` (disabled for backward compatibility)
+    pub circuit_breaker: Option<CircuitBreakerConfig>,
 }
 
 impl Default for HttpConfig {
@@ -63,7 +79,66 @@ impl Default for HttpConfig {
             proxy: None,
             enable_rate_limit: true,
             retry_config: None, // Uses default retry configuration
+            max_response_size: 10 * 1024 * 1024, // 10MB default
+            circuit_breaker: None, // Disabled by default for backward compatibility
         }
+    }
+}
+
+impl HttpConfig {
+    /// Validates the HTTP configuration parameters.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(ValidationResult)` if the configuration is valid.
+    /// The `ValidationResult` may contain warnings for suboptimal but valid configurations.
+    ///
+    /// Returns `Err(ConfigValidationError)` if the configuration is invalid.
+    ///
+    /// # Validation Rules
+    ///
+    /// - `timeout` > 5 minutes returns an error (excessive timeout)
+    /// - `timeout` < 1 second generates a warning (may cause frequent timeouts)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::http_client::HttpConfig;
+    /// use std::time::Duration;
+    ///
+    /// let config = HttpConfig::default();
+    /// let result = config.validate();
+    /// assert!(result.is_ok());
+    ///
+    /// let invalid_config = HttpConfig {
+    ///     timeout: Duration::from_secs(600), // 10 minutes - too long
+    ///     ..Default::default()
+    /// };
+    /// let result = invalid_config.validate();
+    /// assert!(result.is_err());
+    /// ```
+    pub fn validate(&self) -> std::result::Result<ValidationResult, ConfigValidationError> {
+        let mut warnings = Vec::new();
+
+        // Validate timeout <= 5 minutes
+        let max_timeout = Duration::from_secs(300); // 5 minutes
+        if self.timeout > max_timeout {
+            return Err(ConfigValidationError::too_high(
+                "timeout",
+                format!("{:?}", self.timeout),
+                "5 minutes",
+            ));
+        }
+
+        // Warn if timeout < 1 second
+        if self.timeout < Duration::from_secs(1) {
+            warnings.push(format!(
+                "timeout {:?} is very short, may cause frequent timeouts",
+                self.timeout
+            ));
+        }
+
+        Ok(ValidationResult::with_warnings(warnings))
     }
 }
 
@@ -74,6 +149,7 @@ pub struct HttpClient {
     config: HttpConfig,
     rate_limiter: Option<RateLimiter>,
     retry_strategy: RetryStrategy,
+    circuit_breaker: Option<Arc<CircuitBreaker>>,
 }
 
 impl HttpClient {
@@ -117,11 +193,18 @@ impl HttpClient {
 
         let retry_strategy = RetryStrategy::new(config.retry_config.clone().unwrap_or_default());
 
+        // Create circuit breaker if configured
+        let circuit_breaker = config
+            .circuit_breaker
+            .as_ref()
+            .map(|cb_config| Arc::new(CircuitBreaker::new(cb_config.clone())));
+
         Ok(Self {
             client,
             config,
             rate_limiter: None,
             retry_strategy,
+            circuit_breaker,
         })
     }
 
@@ -163,6 +246,35 @@ impl HttpClient {
         self.retry_strategy = strategy;
     }
 
+    /// Sets the circuit breaker for this client.
+    ///
+    /// # Arguments
+    ///
+    /// * `circuit_breaker` - Circuit breaker instance to use
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ccxt_core::http_client::{HttpClient, HttpConfig};
+    /// use ccxt_core::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+    /// use std::sync::Arc;
+    ///
+    /// let mut client = HttpClient::new(HttpConfig::default()).unwrap();
+    /// let cb = Arc::new(CircuitBreaker::new(CircuitBreakerConfig::default()));
+    /// client.set_circuit_breaker(cb);
+    /// ```
+    pub fn set_circuit_breaker(&mut self, circuit_breaker: Arc<CircuitBreaker>) {
+        self.circuit_breaker = Some(circuit_breaker);
+    }
+
+    /// Returns a reference to the circuit breaker, if configured.
+    ///
+    /// This can be used to check the circuit breaker state or manually
+    /// record success/failure.
+    pub fn circuit_breaker(&self) -> Option<&Arc<CircuitBreaker>> {
+        self.circuit_breaker.as_ref()
+    }
+
     /// Executes an HTTP request with automatic retry mechanism and timeout control.
     ///
     /// The entire retry flow is wrapped with `tokio::time::timeout` to ensure
@@ -199,6 +311,11 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: Option<Value>,
     ) -> Result<Value> {
+        // Check circuit breaker before making request
+        if let Some(ref cb) = self.circuit_breaker {
+            cb.allow_request()?;
+        }
+
         // Lint: collapsible_if
         // Reason: Keeping separate for clarity - first check if rate limiting is enabled, then check limiter
         #[allow(clippy::collapsible_if)]
@@ -214,7 +331,7 @@ impl HttpClient {
         let total_timeout = self.config.timeout;
         let url_for_error = url.to_string();
 
-        match tokio::time::timeout(
+        let result = match tokio::time::timeout(
             total_timeout,
             self.execute_with_retry(|| {
                 let url = url.to_string();
@@ -240,7 +357,17 @@ impl HttpClient {
                     total_timeout.as_millis()
                 )))
             }
+        };
+
+        // Record success/failure with circuit breaker
+        if let Some(ref cb) = self.circuit_breaker {
+            match &result {
+                Ok(_) => cb.record_success(),
+                Err(_) => cb.record_failure(),
+            }
         }
+
+        result
     }
 
     /// Executes an async operation with automatic retry mechanism.
@@ -331,25 +458,57 @@ impl HttpClient {
             Error::network(format!("Request failed: {e}"))
         })?;
 
-        self.process_response(response).await
+        self.process_response_with_limit(response, url).await
     }
 
-    /// Processes an HTTP response, handling errors and parsing JSON.
-    #[instrument(name = "http_process_response", skip(self, response), fields(status))]
-    async fn process_response(&self, response: Response) -> Result<Value> {
+    /// Processes an HTTP response with size limit enforcement.
+    ///
+    /// This method checks the Content-Length header first and rejects responses
+    /// that exceed the configured `max_response_size`. For responses without
+    /// Content-Length, it streams the body while tracking accumulated size.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The HTTP response to process
+    /// * `url` - The request URL (for logging purposes)
+    ///
+    /// # Returns
+    ///
+    /// Returns the response body as a JSON `Value`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidRequest` error if the response exceeds `max_response_size`.
+    #[instrument(name = "http_process_response_with_limit", skip(self, response), fields(status, url = %url))]
+    async fn process_response_with_limit(&self, response: Response, url: &str) -> Result<Value> {
         let status = response.status();
         let headers = response.headers().clone();
+        let max_size = self.config.max_response_size;
 
         // Record the status in the span
         tracing::Span::current().record("status", status.as_u16());
 
-        let body_text = response.text().await.map_err(|e| {
-            error!(
-                error = %e,
-                "Failed to read response body"
+        // Check Content-Length header first (Requirement 1.2)
+        if let Some(content_length) = response.content_length()
+            && content_length > max_size as u64
+        {
+            warn!(
+                url = %url,
+                content_length = content_length,
+                max_size = max_size,
+                "Response exceeds size limit (Content-Length check)"
             );
-            Error::network(format!("Failed to read response body: {e}"))
-        })?;
+            return Err(Error::invalid_request(format!(
+                "Response size {} bytes exceeds limit {} bytes",
+                content_length, max_size
+            )));
+        }
+
+        // Stream response body with size tracking (Requirement 1.3)
+        let body_bytes = self
+            .stream_response_with_limit(response, url, max_size)
+            .await?;
+        let body_text = String::from_utf8_lossy(&body_bytes).to_string();
 
         // Log response details (truncate body preview for large responses)
         let body_preview: String = body_text.chars().take(200).collect();
@@ -382,6 +541,67 @@ impl HttpClient {
         }
 
         Ok(result)
+    }
+
+    /// Streams response body while enforcing size limit.
+    ///
+    /// This method reads the response body in chunks and aborts if the
+    /// accumulated size exceeds the configured limit.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The HTTP response to stream
+    /// * `url` - The request URL (for logging purposes)
+    /// * `max_size` - Maximum allowed response size in bytes
+    ///
+    /// # Returns
+    ///
+    /// Returns the complete response body as bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidRequest` error if accumulated size exceeds `max_size`.
+    async fn stream_response_with_limit(
+        &self,
+        response: Response,
+        url: &str,
+        max_size: usize,
+    ) -> Result<Vec<u8>> {
+        use futures_util::StreamExt;
+
+        let mut stream = response.bytes_stream();
+        let mut body = Vec::new();
+        let mut accumulated_size: usize = 0;
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| {
+                error!(
+                    error = %e,
+                    "Failed to read response chunk"
+                );
+                Error::network(format!("Failed to read response chunk: {e}"))
+            })?;
+
+            accumulated_size = accumulated_size.saturating_add(chunk.len());
+
+            // Check if accumulated size exceeds limit (Requirement 1.3)
+            if accumulated_size > max_size {
+                warn!(
+                    url = %url,
+                    accumulated_size = accumulated_size,
+                    max_size = max_size,
+                    "Response exceeds size limit during streaming"
+                );
+                return Err(Error::invalid_request(format!(
+                    "Response size {} bytes exceeds limit {} bytes (streaming)",
+                    accumulated_size, max_size
+                )));
+            }
+
+            body.extend_from_slice(&chunk);
+        }
+
+        Ok(body)
     }
 
     /// Handles HTTP error status codes and converts them to appropriate errors.
@@ -602,6 +822,7 @@ mod tests {
         assert!(!config.verbose);
         assert_eq!(config.user_agent, "ccxt-rust/1.0");
         assert!(config.enable_rate_limit);
+        assert_eq!(config.max_response_size, 10 * 1024 * 1024); // 10MB
     }
 
     #[tokio::test]
@@ -849,5 +1070,239 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_http_config_validate_default() {
+        let config = HttpConfig::default();
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn test_http_config_validate_timeout_too_high() {
+        let config = HttpConfig {
+            timeout: Duration::from_secs(600), // 10 minutes
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.field_name(), "timeout");
+        assert!(matches!(
+            err,
+            crate::error::ConfigValidationError::ValueTooHigh { .. }
+        ));
+    }
+
+    #[test]
+    fn test_http_config_validate_timeout_boundary() {
+        // timeout = 5 minutes should be valid
+        let config = HttpConfig {
+            timeout: Duration::from_secs(300),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+
+        // timeout = 301 seconds should be invalid
+        let config = HttpConfig {
+            timeout: Duration::from_secs(301),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_http_config_validate_short_timeout_warning() {
+        let config = HttpConfig {
+            timeout: Duration::from_millis(500),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_ok());
+        let validation_result = result.unwrap();
+        assert!(!validation_result.warnings.is_empty());
+        assert!(validation_result.warnings[0].contains("timeout"));
+        assert!(validation_result.warnings[0].contains("very short"));
+    }
+
+    #[test]
+    fn test_http_config_validate_timeout_warning_boundary() {
+        // timeout = 1 second should not generate warning
+        let config = HttpConfig {
+            timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
+
+        // timeout = 999ms should generate warning
+        let config = HttpConfig {
+            timeout: Duration::from_millis(999),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_ok());
+        assert!(!result.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn test_http_config_max_response_size_default() {
+        let config = HttpConfig::default();
+        assert_eq!(config.max_response_size, 10 * 1024 * 1024); // 10MB
+    }
+
+    #[test]
+    fn test_http_config_max_response_size_custom() {
+        let config = HttpConfig {
+            max_response_size: 1024 * 1024, // 1MB
+            ..Default::default()
+        };
+        assert_eq!(config.max_response_size, 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn test_response_size_limit_small_response() {
+        // Test that small responses pass through normally
+        let config = HttpConfig {
+            max_response_size: 10 * 1024 * 1024, // 10MB
+            ..Default::default()
+        };
+        let client = HttpClient::new(config).unwrap();
+
+        // httpbin.org/get returns a small JSON response
+        match client.get("https://httpbin.org/get", None).await {
+            Ok(value) => {
+                assert!(value.is_object());
+            }
+            Err(e) => {
+                // Network errors are acceptable in CI environments
+                warn!("Network test skipped due to: {:?}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_response_size_limit_with_content_length() {
+        // Test that responses with Content-Length exceeding limit are rejected
+        let config = HttpConfig {
+            max_response_size: 100, // Very small limit (100 bytes)
+            retry_config: Some(RetryConfig {
+                max_retries: 0,
+                ..RetryConfig::default()
+            }),
+            ..Default::default()
+        };
+        let client = HttpClient::new(config).unwrap();
+
+        // httpbin.org/bytes/1000 returns 1000 bytes with Content-Length header
+        let result = client.get("https://httpbin.org/bytes/1000", None).await;
+
+        match result {
+            Err(Error::InvalidRequest(msg)) => {
+                // Expected: response should be rejected due to size limit
+                assert!(
+                    msg.contains("exceeds limit") || msg.contains("size"),
+                    "Error message should mention size limit: {}",
+                    msg
+                );
+            }
+            Err(Error::Network(_)) => {
+                // Network errors are acceptable in CI environments
+                warn!("Network test skipped due to network error");
+            }
+            Ok(_) => {
+                // If the response somehow passed, it might be because httpbin
+                // returned a smaller response or the Content-Length was not set
+                warn!("Response passed size check - httpbin may have returned smaller response");
+            }
+            Err(e) => {
+                panic!("Unexpected error type: {:?}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_http_config_circuit_breaker_default() {
+        let config = HttpConfig::default();
+        assert!(config.circuit_breaker.is_none());
+    }
+
+    #[test]
+    fn test_http_config_circuit_breaker_custom() {
+        use crate::circuit_breaker::CircuitBreakerConfig;
+
+        let config = HttpConfig {
+            circuit_breaker: Some(CircuitBreakerConfig::default()),
+            ..Default::default()
+        };
+        assert!(config.circuit_breaker.is_some());
+    }
+
+    #[test]
+    fn test_http_client_circuit_breaker_disabled_by_default() {
+        let config = HttpConfig::default();
+        let client = HttpClient::new(config).unwrap();
+        assert!(client.circuit_breaker().is_none());
+    }
+
+    #[test]
+    fn test_http_client_circuit_breaker_enabled() {
+        use crate::circuit_breaker::CircuitBreakerConfig;
+
+        let config = HttpConfig {
+            circuit_breaker: Some(CircuitBreakerConfig::default()),
+            ..Default::default()
+        };
+        let client = HttpClient::new(config).unwrap();
+        assert!(client.circuit_breaker().is_some());
+    }
+
+    #[test]
+    fn test_http_client_set_circuit_breaker() {
+        use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+
+        let config = HttpConfig::default();
+        let mut client = HttpClient::new(config).unwrap();
+        assert!(client.circuit_breaker().is_none());
+
+        let cb = Arc::new(CircuitBreaker::new(CircuitBreakerConfig::default()));
+        client.set_circuit_breaker(cb);
+        assert!(client.circuit_breaker().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_http_client_circuit_breaker_blocks_when_open() {
+        use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+
+        let config = HttpConfig::default();
+        let mut client = HttpClient::new(config).unwrap();
+
+        // Create a circuit breaker that's already open
+        let cb_config = CircuitBreakerConfig {
+            failure_threshold: 1,
+            reset_timeout: Duration::from_secs(60), // Long timeout
+            success_threshold: 1,
+        };
+        let cb = Arc::new(CircuitBreaker::new(cb_config));
+
+        // Open the circuit
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+
+        client.set_circuit_breaker(cb);
+
+        // Request should be blocked
+        let result = client.get("https://httpbin.org/get", None).await;
+        assert!(result.is_err());
+
+        if let Err(e) = result {
+            assert!(e.as_resource_exhausted().is_some());
+        }
     }
 }

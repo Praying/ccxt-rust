@@ -1,6 +1,6 @@
 //! From implementations for converting between error types.
 
-use crate::error::{Error, NetworkError, OrderError, ParseError};
+use crate::error::{ConfigValidationError, Error, NetworkError, OrderError, ParseError};
 
 /// Maximum length for error messages to prevent memory bloat from large HTTP responses.
 pub(crate) const MAX_ERROR_MESSAGE_LEN: usize = 1024;
@@ -82,5 +82,17 @@ impl From<reqwest::Error> for NetworkError {
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::Network(Box::new(NetworkError::from(e)))
+    }
+}
+
+impl From<ConfigValidationError> for Error {
+    fn from(e: ConfigValidationError) -> Self {
+        Error::ConfigValidation(Box::new(e))
+    }
+}
+
+impl From<Box<ConfigValidationError>> for Error {
+    fn from(e: Box<ConfigValidationError>) -> Self {
+        Error::ConfigValidation(e)
     }
 }
