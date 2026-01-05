@@ -499,8 +499,7 @@ impl HttpClient {
                 "Response exceeds size limit (Content-Length check)"
             );
             return Err(Error::invalid_request(format!(
-                "Response size {} bytes exceeds limit {} bytes",
-                content_length, max_size
+                "Response size {content_length} bytes exceeds limit {max_size} bytes"
             )));
         }
 
@@ -593,8 +592,7 @@ impl HttpClient {
                     "Response exceeds size limit during streaming"
                 );
                 return Err(Error::invalid_request(format!(
-                    "Response size {} bytes exceeds limit {} bytes (streaming)",
-                    accumulated_size, max_size
+                    "Response size {accumulated_size} bytes exceeds limit {max_size} bytes (streaming)"
                 )));
             }
 

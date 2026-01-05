@@ -72,7 +72,6 @@ parking_lot = "0.12"
 url = "2.5"
 urlencoding = "2.1"
 regex = "1.10"
-lazy_static = "1.4"
 bitflags = "2.9"
 
 # Security
@@ -140,7 +139,6 @@ once_cell = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }
 regex = { workspace = true }
-lazy_static = { workspace = true }
 paste = { workspace = true }
 
 [[bin]]

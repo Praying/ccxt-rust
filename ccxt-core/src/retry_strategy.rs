@@ -8,19 +8,19 @@
 //! - Retry budget mechanism
 
 use crate::error::{ConfigValidationError, Error, ValidationResult};
-use lazy_static::lazy_static;
 use regex::Regex;
+use std::sync::LazyLock;
 use std::time::Duration;
 
-lazy_static! {
-    /// Regex pattern for detecting server error messages using word boundary matching.
-    /// Matches:
-    /// - HTTP status codes 500, 502, 503, 504 as standalone numbers (not part of larger numbers)
-    /// - Common server error phrases
-    static ref SERVER_ERROR_PATTERN: Regex = Regex::new(
+/// Regex pattern for detecting server error messages using word boundary matching.
+/// Matches:
+/// - HTTP status codes 500, 502, 503, 504 as standalone numbers (not part of larger numbers)
+/// - Common server error phrases
+static SERVER_ERROR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
         r"(?i)\b(500|502|503|504)\b|internal server error|bad gateway|service unavailable|gateway timeout"
-    ).expect("Invalid server error regex pattern");
-}
+    ).expect("Invalid server error regex pattern")
+});
 
 /// Retry strategy type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

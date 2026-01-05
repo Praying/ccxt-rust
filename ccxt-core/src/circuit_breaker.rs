@@ -400,7 +400,10 @@ impl CircuitBreaker {
                 if elapsed >= self.config.reset_timeout {
                     // Safe truncation: reset_timeout is typically seconds/minutes, not years
                     let reset_timeout_ms =
-                        self.config.reset_timeout.as_millis().min(u64::MAX as u128) as u64;
+                        self.config
+                            .reset_timeout
+                            .as_millis()
+                            .min(u128::from(u64::MAX)) as u64;
                     info!(
                         elapsed_ms = elapsed_ms,
                         reset_timeout_ms = reset_timeout_ms,
@@ -411,14 +414,17 @@ impl CircuitBreaker {
                 } else {
                     // Safe truncation: reset_timeout is typically seconds/minutes, not years
                     let reset_timeout_ms =
-                        self.config.reset_timeout.as_millis().min(u64::MAX as u128) as u64;
+                        self.config
+                            .reset_timeout
+                            .as_millis()
+                            .min(u128::from(u64::MAX)) as u64;
                     let remaining_ms = reset_timeout_ms.saturating_sub(elapsed_ms);
                     warn!(
                         remaining_ms = remaining_ms,
                         "Circuit breaker: Open state, rejecting request"
                     );
                     self.emit_event(CircuitBreakerEvent::RequestRejected {
-                        reason: format!("Circuit breaker is open, retry after {}ms", remaining_ms),
+                        reason: format!("Circuit breaker is open, retry after {remaining_ms}ms"),
                     });
                     Err(Error::resource_exhausted("Circuit breaker is open"))
                 }
