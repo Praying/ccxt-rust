@@ -151,31 +151,31 @@ impl Exchange for Okx {
                     open: Price(Decimal::try_from(o.open).map_err(|e| {
                         ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
                             "OHLCV open",
-                            format!("{}", e),
+                            format!("{e}"),
                         ))
                     })?),
                     high: Price(Decimal::try_from(o.high).map_err(|e| {
                         ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
                             "OHLCV high",
-                            format!("{}", e),
+                            format!("{e}"),
                         ))
                     })?),
                     low: Price(Decimal::try_from(o.low).map_err(|e| {
                         ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
                             "OHLCV low",
-                            format!("{}", e),
+                            format!("{e}"),
                         ))
                     })?),
                     close: Price(Decimal::try_from(o.close).map_err(|e| {
                         ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
                             "OHLCV close",
-                            format!("{}", e),
+                            format!("{e}"),
                         ))
                     })?),
                     volume: Amount(Decimal::try_from(o.volume).map_err(|e| {
                         ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
                             "OHLCV volume",
-                            format!("{}", e),
+                            format!("{e}"),
                         ))
                     })?),
                 })
