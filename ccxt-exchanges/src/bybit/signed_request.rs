@@ -345,7 +345,12 @@ impl<'a> BybitSignedRequestBuilder<'a> {
             body.to_string()
         } else if !self.params.is_empty() {
             // Convert params to JSON for POST/DELETE
-            serde_json::to_string(&self.params).unwrap_or_default()
+            serde_json::to_string(&self.params).map_err(|e| {
+                ccxt_core::Error::from(ccxt_core::ParseError::invalid_format(
+                    "request params",
+                    format!("JSON serialization failed: {}", e),
+                ))
+            })?
         } else {
             String::new()
         };

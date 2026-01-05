@@ -134,17 +134,45 @@ impl Exchange for Bitget {
         let ohlcv_data = Bitget::fetch_ohlcv(self, symbol, &timeframe_str, since, limit).await?;
 
         // Convert OHLCV to Ohlcv with proper type conversions
-        Ok(ohlcv_data
+        ohlcv_data
             .into_iter()
-            .map(|o| Ohlcv {
-                timestamp: o.timestamp,
-                open: Price::from(Decimal::try_from(o.open).unwrap_or_default()),
-                high: Price::from(Decimal::try_from(o.high).unwrap_or_default()),
-                low: Price::from(Decimal::try_from(o.low).unwrap_or_default()),
-                close: Price::from(Decimal::try_from(o.close).unwrap_or_default()),
-                volume: Amount::from(Decimal::try_from(o.volume).unwrap_or_default()),
+            .map(|o| -> ccxt_core::Result<Ohlcv> {
+                Ok(Ohlcv {
+                    timestamp: o.timestamp,
+                    open: Price(Decimal::try_from(o.open).map_err(|e| {
+                        ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
+                            "OHLCV open",
+                            format!("{}", e),
+                        ))
+                    })?),
+                    high: Price(Decimal::try_from(o.high).map_err(|e| {
+                        ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
+                            "OHLCV high",
+                            format!("{}", e),
+                        ))
+                    })?),
+                    low: Price(Decimal::try_from(o.low).map_err(|e| {
+                        ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
+                            "OHLCV low",
+                            format!("{}", e),
+                        ))
+                    })?),
+                    close: Price(Decimal::try_from(o.close).map_err(|e| {
+                        ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
+                            "OHLCV close",
+                            format!("{}", e),
+                        ))
+                    })?),
+                    volume: Amount(Decimal::try_from(o.volume).map_err(|e| {
+                        ccxt_core::Error::from(ccxt_core::ParseError::invalid_value(
+                            "OHLCV volume",
+                            format!("{}", e),
+                        ))
+                    })?),
+                })
             })
-            .collect())
+            .collect::<ccxt_core::Result<Vec<Ohlcv>>>()
+            .map_err(|e| e.context("Failed to convert Bitget OHLCV data"))
     }
 
     // ==================== Trading (Private API) ====================

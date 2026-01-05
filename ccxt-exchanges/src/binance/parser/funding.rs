@@ -40,11 +40,8 @@ pub fn parse_funding_rate(data: &Value, market: Option<&Market>) -> Result<FeeFu
         estimated_settle_price: None,
         funding_rate,
         funding_timestamp,
-        funding_datetime: funding_timestamp.map(|t| {
-            chrono::DateTime::from_timestamp(t / 1000, 0)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()
-        }),
+        funding_datetime: funding_timestamp
+            .and_then(|t| chrono::DateTime::from_timestamp(t / 1000, 0).map(|dt| dt.to_rfc3339())),
         next_funding_rate: None,
         next_funding_timestamp: None,
         next_funding_datetime: None,
@@ -79,17 +76,11 @@ pub fn parse_funding_rate_history(
         symbol,
         funding_rate,
         funding_timestamp: funding_time,
-        funding_datetime: funding_time.map(|t| {
-            chrono::DateTime::from_timestamp(t / 1000, 0)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()
-        }),
+        funding_datetime: funding_time
+            .and_then(|t| chrono::DateTime::from_timestamp(t / 1000, 0).map(|dt| dt.to_rfc3339())),
         timestamp: funding_time,
-        datetime: funding_time.map(|t| {
-            chrono::DateTime::from_timestamp(t / 1000, 0)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()
-        }),
+        datetime: funding_time
+            .and_then(|t| chrono::DateTime::from_timestamp(t / 1000, 0).map(|dt| dt.to_rfc3339())),
     })
 }
 
