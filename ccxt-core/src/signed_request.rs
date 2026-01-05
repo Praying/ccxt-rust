@@ -27,7 +27,7 @@ use crate::error::Result;
 use crate::http_client::HttpClient;
 use async_trait::async_trait;
 use reqwest::header::HeaderMap;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// HTTP request methods supported by signed requests.
@@ -117,7 +117,7 @@ pub trait HasHttpClient {
     fn http_client(&self) -> &HttpClient;
 
     /// Get the base URL for API requests.
-    fn base_url(&self) -> &str;
+    fn base_url(&self) -> &'static str;
 }
 
 /// Generic builder for creating authenticated API requests.
@@ -163,7 +163,7 @@ where
     }
 
     /// Add a required parameter.
-    pub fn param(mut self, key: impl Into<String>, value: impl ToString) -> Self {
+    pub fn param(mut self, key: impl Into<String>, value: &dyn ToString) -> Self {
         self.params.insert(key.into(), value.to_string());
         self
     }
@@ -234,7 +234,7 @@ where
 
         // Build URL
         let base_url = self.exchange.base_url();
-        let full_url = format!("{}{}", base_url, self.endpoint);
+        let full_url = format!("{base_url}{}", self.endpoint);
 
         // Execute request based on method
         let client = self.exchange.http_client();
@@ -245,25 +245,25 @@ where
                 let url = if query_string.is_empty() {
                     full_url
                 } else {
-                    format!("{}?{}", full_url, query_string)
+                    format!("{full_url}?{query_string}")
                 };
                 client.get(&url, Some(headers)).await
             }
             HttpMethod::Post => {
                 let body = ctx.body.unwrap_or_else(|| {
-                    serde_json::to_value(&ctx.params).unwrap_or(Value::Object(Default::default()))
+                    serde_json::to_value(&ctx.params).unwrap_or(Value::Object(Map::default()))
                 });
                 client.post(&full_url, Some(headers), Some(body)).await
             }
             HttpMethod::Put => {
                 let body = ctx.body.unwrap_or_else(|| {
-                    serde_json::to_value(&ctx.params).unwrap_or(Value::Object(Default::default()))
+                    serde_json::to_value(&ctx.params).unwrap_or(Value::Object(Map::default()))
                 });
                 client.put(&full_url, Some(headers), Some(body)).await
             }
             HttpMethod::Delete => {
                 let body = ctx.body.unwrap_or_else(|| {
-                    serde_json::to_value(&ctx.params).unwrap_or(Value::Object(Default::default()))
+                    serde_json::to_value(&ctx.params).unwrap_or(Value::Object(Map::default()))
                 });
                 client.delete(&full_url, Some(headers), Some(body)).await
             }
@@ -277,7 +277,7 @@ where
 pub fn build_query_string(params: &BTreeMap<String, String>) -> String {
     params
         .iter()
-        .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+        .map(|(k, v)| format!("{k}={}", urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&")
 }
@@ -286,7 +286,7 @@ pub fn build_query_string(params: &BTreeMap<String, String>) -> String {
 pub fn build_query_string_raw(params: &BTreeMap<String, String>) -> String {
     params
         .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
+        .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<_>>()
         .join("&")
 }

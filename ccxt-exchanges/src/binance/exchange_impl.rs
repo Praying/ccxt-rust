@@ -1192,7 +1192,7 @@ impl ccxt_core::signed_request::HasHttpClient for Binance {
         &self.base().http_client
     }
 
-    fn base_url(&self) -> &str {
+    fn base_url(&self) -> &'static str {
         // Return empty string since Binance uses full URLs in endpoints
         ""
     }

@@ -25,7 +25,7 @@ impl HasHttpClient for Okx {
         &self.base().http_client
     }
 
-    fn base_url(&self) -> &str {
+    fn base_url(&self) -> &'static str {
         // Return empty string - OKX's signed_request builder handles full URL construction
         // using self.okx.urls().rest
         ""
