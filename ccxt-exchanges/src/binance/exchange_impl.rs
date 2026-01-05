@@ -1185,3 +1185,15 @@ mod tests {
         }
     }
 }
+
+// Implement HasHttpClient trait for generic SignedRequestBuilder support
+impl ccxt_core::signed_request::HasHttpClient for Binance {
+    fn http_client(&self) -> &ccxt_core::http_client::HttpClient {
+        &self.base().http_client
+    }
+
+    fn base_url(&self) -> &'static str {
+        // Return empty string since Binance uses full URLs in endpoints
+        ""
+    }
+}
