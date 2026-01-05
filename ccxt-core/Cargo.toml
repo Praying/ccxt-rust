@@ -84,7 +84,7 @@ default = ["rustls-tls", "websocket"]
 
 # TLS implementations (mutually exclusive, choose one)
 rustls-tls = [
-    "reqwest/rustls-tls",
+    "reqwest/rustls",
     "tokio-tungstenite?/rustls-tls-native-roots",
     "tokio-tungstenite?/connect"
 ]
