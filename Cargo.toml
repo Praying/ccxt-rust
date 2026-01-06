@@ -152,6 +152,7 @@ mockito = { workspace = true }
 proptest = { workspace = true }
 wiremock = { workspace = true }
 paste = { workspace = true }
+futures = { workspace = true }
 
 [features]
 default = ["rest", "websocket", "rustls-tls"]

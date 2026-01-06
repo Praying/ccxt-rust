@@ -121,7 +121,7 @@ fn parse_error_strategy() -> impl Strategy<Value = ParseError> {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// **Feature: code-refactoring-improvements, Property 4: Error Display**
     /// **Validates: Requirements 5.3**
@@ -270,7 +270,7 @@ proptest! {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// *For any* error with context, the context should be preserved in display.
     #[test]

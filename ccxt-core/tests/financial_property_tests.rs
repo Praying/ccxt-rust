@@ -54,7 +54,7 @@ fn cost_strategy() -> impl Strategy<Value = Cost> {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// **Feature: code-refactoring-improvements, Property 2: Serialization round-trip**
     /// **Validates: Requirements 5.2**
@@ -107,7 +107,7 @@ proptest! {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// **Feature: code-refactoring-improvements, Property 3: Arithmetic precision**
     /// **Validates: Requirements 5.1**

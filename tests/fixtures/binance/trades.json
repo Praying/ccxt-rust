@@ -1,0 +1,74 @@
+[
+  {
+    "id": 12345,
+    "symbol": "BTC/USDT",
+    "price": 50000.00,
+    "amount": 0.1,
+    "side": "buy",
+    "takerOrMaker": "maker",
+    "timestamp": 1234567890000,
+    "datetime": "2023-12-01T00:00:00.000Z",
+    "cost": 5000.00,
+    "fee": {
+      "currency": "USDT",
+      "cost": 0.5
+    },
+    "info": {
+      "id": 12345,
+      "price": "50000.00000000",
+      "qty": "0.10000000",
+      "quoteQty": "5000.00000000",
+      "time": 1234567890000,
+      "isBuyerMaker": true,
+      "isBestMatch": true
+    }
+  },
+  {
+    "id": 12346,
+    "symbol": "BTC/USDT",
+    "price": 50001.00,
+    "amount": 0.05,
+    "side": "sell",
+    "takerOrMaker": "taker",
+    "timestamp": 1234567891000,
+    "datetime": "2023-12-01T00:00:01.000Z",
+    "cost": 2500.05,
+    "fee": {
+      "currency": "USDT",
+      "cost": 0.25
+    },
+    "info": {
+      "id": 12346,
+      "price": "50001.00000000",
+      "qty": "0.05000000",
+      "quoteQty": "2500.05000000",
+      "time": 1234567891000,
+      "isBuyerMaker": false,
+      "isBestMatch": true
+    }
+  },
+  {
+    "id": 12347,
+    "symbol": "BTC/USDT",
+    "price": 50000.50,
+    "amount": 0.2,
+    "side": "buy",
+    "takerOrMaker": "maker",
+    "timestamp": 1234567892000,
+    "datetime": "2023-12-01T00:00:02.000Z",
+    "cost": 10000.10,
+    "fee": {
+      "currency": "USDT",
+      "cost": 1.0
+    },
+    "info": {
+      "id": 12347,
+      "price": "50000.50000000",
+      "qty": "0.20000000",
+      "quoteQty": "10000.10000000",
+      "time": 1234567892000,
+      "isBuyerMaker": true,
+      "isBestMatch": true
+    }
+  }
+]

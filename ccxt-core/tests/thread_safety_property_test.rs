@@ -320,7 +320,7 @@ fn arb_thread_safe_exchange() -> impl Strategy<Value = ThreadSafeExchange> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(50))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// **Feature: binance-rest-api-modularization, Property 4: Thread Safety**
     ///

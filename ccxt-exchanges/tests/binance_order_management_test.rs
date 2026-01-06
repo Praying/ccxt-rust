@@ -1,118 +1,18 @@
-//! Binance order management enhanced API integration tests.
+//! Binance order management parameter and status validation tests.
 //!
-//! Tests order management API methods.
+//! Tests parameter validation logic and order status validation.
 //!
-//! Note: Some methods (fetch_canceled_orders, fetch_open_order, fetch_order_trades,
-//! edit_order, edit_orders) are being migrated to the new modular REST API structure.
-//! Tests for these methods are currently placeholders.
+//! Note: Order management API methods (fetch_canceled_orders, fetch_open_order,
+//! fetch_order_trades, edit_order, edit_orders) are being migrated to the new
+//! modular REST API structure. Integration tests for these methods will be
+//! implemented in tests/integration/binance/ directory.
 
-use ccxt_core::{
-    ExchangeConfig,
-    types::{OrderSide, OrderType},
-};
-use ccxt_exchanges::binance::Binance;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
 #[cfg(test)]
 mod binance_order_management_tests {
     use super::*;
-
-    /// Create a Binance instance for testing.
-    fn create_test_binance() -> Binance {
-        let config = ExchangeConfig {
-            id: "binance".to_string(),
-            name: "Binance".to_string(),
-            api_key: Some(ccxt_core::SecretString::new("test_api_key")),
-            secret: Some(ccxt_core::SecretString::new("test_api_secret")),
-            ..Default::default()
-        };
-        Binance::new(config).expect("Failed to create Binance instance")
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_canceled_orders method not yet migrated to new modular structure"]
-    async fn test_fetch_canceled_orders() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_canceled_orders is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_canceled_orders method not yet migrated to new modular structure"]
-    async fn test_fetch_canceled_orders_with_time_range() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_canceled_orders is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_canceled_and_closed_orders method not yet migrated to new modular structure"]
-    async fn test_fetch_canceled_and_closed_orders() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_canceled_and_closed_orders is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_canceled_and_closed_orders method not yet migrated to new modular structure"]
-    async fn test_fetch_canceled_and_closed_orders_all_symbols() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_canceled_and_closed_orders is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_open_order method not yet migrated to new modular structure"]
-    async fn test_fetch_open_order() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_open_order is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_open_order method not yet migrated to new modular structure"]
-    async fn test_fetch_open_order_without_symbol() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_open_order is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_order_trades method not yet migrated to new modular structure"]
-    async fn test_fetch_order_trades() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_order_trades is available
-    }
-
-    #[tokio::test]
-    #[ignore = "fetch_order_trades method not yet migrated to new modular structure"]
-    async fn test_fetch_order_trades_with_pagination() {
-        let _binance = create_test_binance();
-        // TODO: Implement when fetch_order_trades is available
-    }
-
-    #[tokio::test]
-    #[ignore = "edit_order method not yet migrated to new modular structure"]
-    async fn test_edit_order() {
-        let _binance = create_test_binance();
-        // TODO: Implement when edit_order is available
-    }
-
-    #[tokio::test]
-    #[ignore = "edit_order method not yet migrated to new modular structure"]
-    async fn test_edit_order_with_params() {
-        let _binance = create_test_binance();
-        // TODO: Implement when edit_order is available
-    }
-
-    #[tokio::test]
-    #[ignore = "edit_orders method not yet migrated to new modular structure"]
-    async fn test_edit_orders_batch() {
-        let _binance = create_test_binance();
-        // TODO: Implement when edit_orders is available
-    }
-
-    #[tokio::test]
-    #[ignore = "edit_orders method not yet migrated to new modular structure"]
-    async fn test_edit_orders_with_different_types() {
-        let _binance = create_test_binance();
-        // TODO: Implement when edit_orders is available
-    }
 
     #[test]
     fn test_order_management_parameter_validation() {

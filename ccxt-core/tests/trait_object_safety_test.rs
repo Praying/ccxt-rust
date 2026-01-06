@@ -321,7 +321,7 @@ fn arb_mock_exchange() -> impl Strategy<Value = MockExchange> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
     ///
