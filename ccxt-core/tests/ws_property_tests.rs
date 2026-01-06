@@ -53,7 +53,7 @@ fn ops_per_thread_strategy() -> impl Strategy<Value = usize> {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100))]
+    #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// **Feature: code-refactoring-improvements, Property 5: Concurrent subscription consistency**
     /// **Validates: Requirements 5.5**

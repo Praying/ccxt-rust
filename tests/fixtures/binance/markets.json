@@ -1,0 +1,206 @@
+{
+  "BTC/USDT": {
+    "id": "BTCUSDT",
+    "symbol": "BTC/USDT",
+    "base": "BTC",
+    "quote": "USDT",
+    "settle": "USDT",
+    "baseId": "BTC",
+    "quoteId": "USDT",
+    "settleId": "USDT",
+    "type": "spot",
+    "spot": true,
+    "margin": false,
+    "future": false,
+    "contract": false,
+    "active": true,
+    "contractSize": 1,
+    "linear": true,
+    "inverse": false,
+    "taker": 0.001,
+    "maker": 0.001,
+    "precision": {
+      "amount": 8,
+      "price": 2
+    },
+    "limits": {
+      "amount": {
+        "min": 0.00001,
+        "max": 9000.00
+      },
+      "price": {
+        "min": 0.01,
+        "max": 1000000.00
+      },
+      "cost": {
+        "min": 10.00,
+        "max": 9000000.00
+      }
+    },
+    "info": {
+      "symbol": "BTCUSDT",
+      "status": "TRADING",
+      "baseAsset": "BTC",
+      "quoteAsset": "USDT",
+      "baseAssetPrecision": 8,
+      "quotePrecision": 8,
+      "quoteAssetPrecision": 8,
+      "baseCommissionPrecision": 8,
+      "quoteCommissionPrecision": 8,
+      "orderTypes": [
+        "LIMIT",
+        "LIMIT_MAKER",
+        "MARKET",
+        "STOP_LOSS_LIMIT",
+        "STOP_LOSS_MARKET",
+        "TAKE_PROFIT_LIMIT",
+        "TAKE_PROFIT_MARKET"
+      ],
+      "icebergAllowed": true,
+      "ocoAllowed": true,
+      "quoteOrderQtyMarketAllowed": true,
+      "allowTrailingStop": true,
+      "cancelReplaceAllowed": false,
+      "isSpotTradingAllowed": true,
+      "isMarginTradingAllowed": true,
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "minPrice": "0.01000000",
+          "maxPrice": "1000000.00000000",
+          "tickSize": "0.01000000"
+        },
+        {
+          "filterType": "PERCENT_PRICE",
+          "multiplierUp": "5",
+          "multiplierDown": "0.2",
+          "avgPriceMins": 5
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "0.00001000",
+          "maxQty": "9000.00000000",
+          "stepSize": "0.00001000"
+        },
+        {
+          "filterType": "MIN_NOTIONAL",
+          "minNotional": "10.00000000"
+        },
+        {
+          "filterType": "ICEBERG_PARTS",
+          "limit": 10
+        },
+        {
+          "filterType": "MAX_NUM_ORDERS",
+          "maxNumOrders": 60
+        },
+        {
+          "filterType": "MAX_ALGO_ORDERS",
+          "maxNumAlgoOrders": 5
+        }
+      ]
+    }
+  },
+  "ETH/USDT": {
+    "id": "ETHUSDT",
+    "symbol": "ETH/USDT",
+    "base": "ETH",
+    "quote": "USDT",
+    "settle": "USDT",
+    "baseId": "ETH",
+    "quoteId": "USDT",
+    "settleId": "USDT",
+    "type": "spot",
+    "spot": true,
+    "margin": false,
+    "future": false,
+    "contract": false,
+    "active": true,
+    "contractSize": 1,
+    "linear": true,
+    "inverse": false,
+    "taker": 0.001,
+    "maker": 0.001,
+    "precision": {
+      "amount": 5,
+      "price": 2
+    },
+    "limits": {
+      "amount": {
+        "min": 0.001,
+        "max": 10000.00
+      },
+      "price": {
+        "min": 0.01,
+        "max": 1000000.00
+      },
+      "cost": {
+        "min": 10.00,
+        "max": 10000000.00
+      }
+    },
+    "info": {
+      "symbol": "ETHUSDT",
+      "status": "TRADING",
+      "baseAsset": "ETH",
+      "quoteAsset": "USDT",
+      "baseAssetPrecision": 8,
+      "quotePrecision": 8,
+      "quoteAssetPrecision": 8,
+      "baseCommissionPrecision": 8,
+      "quoteCommissionPrecision": 8,
+      "orderTypes": [
+        "LIMIT",
+        "LIMIT_MAKER",
+        "MARKET",
+        "STOP_LOSS_LIMIT",
+        "STOP_LOSS_MARKET",
+        "TAKE_PROFIT_LIMIT",
+        "TAKE_PROFIT_MARKET"
+      ],
+      "icebergAllowed": true,
+      "ocoAllowed": true,
+      "quoteOrderQtyMarketAllowed": true,
+      "allowTrailingStop": true,
+      "cancelReplaceAllowed": false,
+      "isSpotTradingAllowed": true,
+      "isMarginTradingAllowed": true,
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "minPrice": "0.01000000",
+          "maxPrice": "1000000.00000000",
+          "tickSize": "0.01000000"
+        },
+        {
+          "filterType": "PERCENT_PRICE",
+          "multiplierUp": "5",
+          "multiplierDown": "0.2",
+          "avgPriceMins": 5
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "0.00100000",
+          "maxQty": "10000.00000000",
+          "stepSize": "0.00100000"
+        },
+        {
+          "filterType": "MIN_NOTIONAL",
+          "minNotional": "10.00000000"
+        },
+        {
+          "filterType": "ICEBERG_PARTS",
+          "limit": 10
+        },
+        {
+          "filterType": "MAX_NUM_ORDERS",
+          "maxNumOrders": 60
+        },
+        {
+          "filterType": "MAX_ALGO_ORDERS",
+          "maxNumAlgoOrders": 5
+        }
+      ]
+    }
+  }
+}

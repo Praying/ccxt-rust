@@ -1,0 +1,83 @@
+{
+  "info": {
+    "makerCommission": 0.001,
+    "takerCommission": 0.001,
+    "buyerCommission": 0,
+    "sellerCommission": 0,
+    "canTrade": true,
+    "canWithdraw": true,
+    "canDeposit": true,
+    "updateTime": 1234567890000,
+    "accountType": "SPOT"
+  },
+  "balances": {
+    "BTC": {
+      "free": "1.5",
+      "used": "0.5",
+      "total": "2.0",
+      "currency": "BTC",
+      "info": {
+        "free": "1.50000000",
+        "locked": "0.50000000",
+        "freeze": "0.00000000",
+        "withdrawing": "0.00000000",
+        "ipoing": "0.00000000",
+        "ipoable": "0.00000000",
+        "storage": "0.00000000",
+        "storageWithdraw": "0.00000000",
+        "crossWalletBalance": "0.00000000",
+        "crossUnPledgedQuantity": "0.00000000",
+        "crossUnPledgedAmount": "0.00000000",
+        "borrowed": "0.00000000",
+        "interest": "0.00000000",
+        "netAsset": "2.00000000"
+      }
+    },
+    "USDT": {
+      "free": "10000.5",
+      "used": "5000.0",
+      "total": "15000.5",
+      "currency": "USDT",
+      "info": {
+        "free": "10000.50000000",
+        "locked": "5000.00000000",
+        "freeze": "0.00000000",
+        "withdrawing": "0.00000000",
+        "ipoing": "0.00000000",
+        "ipoable": "0.00000000",
+        "storage": "0.00000000",
+        "storageWithdraw": "0.00000000",
+        "crossWalletBalance": "0.00000000",
+        "crossUnPledgedQuantity": "0.00000000",
+        "crossUnPledgedAmount": "0.00000000",
+        "borrowed": "0.00000000",
+        "interest": "0.00000000",
+        "netAsset": "15000.50000000"
+      }
+    },
+    "ETH": {
+      "free": "10.0",
+      "used": "0.0",
+      "total": "10.0",
+      "currency": "ETH",
+      "info": {
+        "free": "10.00000000",
+        "locked": "0.00000000",
+        "freeze": "0.00000000",
+        "withdrawing": "0.00000000",
+        "ipoing": "0.00000000",
+        "ipoable": "0.00000000",
+        "storage": "0.00000000",
+        "storageWithdraw": "0.00000000",
+        "crossWalletBalance": "0.00000000",
+        "crossUnPledgedQuantity": "0.00000000",
+        "crossUnPledgedAmount": "0.00000000",
+        "borrowed": "0.00000000",
+        "interest": "0.00000000",
+        "netAsset": "10.00000000"
+      }
+    }
+  },
+  "timestamp": 1234567890000,
+  "datetime": "2023-12-01T00:00:00.000Z"
+}
