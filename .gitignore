@@ -41,6 +41,8 @@ go/
 specs/
 .claude/
 .gemini/
+.opencode/
 _bmad/
+_bmad-output/
 docs/
 AGENTS.md

@@ -636,6 +636,7 @@ impl CircuitBreaker {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
 mod tests {
     use super::*;
 

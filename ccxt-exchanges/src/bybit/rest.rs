@@ -302,12 +302,12 @@ impl Bybit {
         // Check cache status while holding the lock
         {
             let cache = self.base().market_cache.read().await;
-            if cache.loaded && !reload {
+            if cache.is_loaded() && !reload {
                 debug!(
                     "Returning cached markets for Bybit ({} markets)",
-                    cache.markets.len()
+                    cache.market_count()
                 );
-                return Ok(cache.markets.clone());
+                return Ok(cache.markets());
             }
         }
 
@@ -315,7 +315,7 @@ impl Bybit {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache.markets())
     }
 
     /// Fetch ticker for a single trading pair.
@@ -370,13 +370,18 @@ impl Bybit {
     /// Returns a vector of [`Ticker`] structures.
     pub async fn fetch_tickers(&self, symbols: Option<Vec<String>>) -> Result<Vec<Ticker>> {
         let cache = self.base().market_cache.read().await;
-        if !cache.loaded {
+        if !cache.is_loaded() {
             drop(cache);
             return Err(Error::exchange(
                 "-1",
                 "Markets not loaded. Call load_markets() first.",
             ));
         }
+        // Build a snapshot of markets by ID for efficient lookup
+        let markets_snapshot: std::collections::HashMap<String, Arc<Market>> = cache
+            .iter_markets()
+            .map(|(_, m)| (m.id.clone(), m))
+            .collect();
         drop(cache);
 
         let path = Self::build_api_path("/market/tickers");
@@ -403,12 +408,8 @@ impl Bybit {
         let mut tickers = Vec::new();
         for ticker_data in tickers_array {
             if let Some(symbol_id) = ticker_data["symbol"].as_str() {
-                let cache = self.base().market_cache.read().await;
-                if let Some(market) = cache.markets_by_id.get(symbol_id) {
-                    let market_clone = market.clone();
-                    drop(cache);
-
-                    match parser::parse_ticker(ticker_data, Some(&market_clone)) {
+                if let Some(market) = markets_snapshot.get(symbol_id) {
+                    match parser::parse_ticker(ticker_data, Some(market)) {
                         Ok(ticker) => {
                             if let Some(ref syms) = symbols {
                                 if syms.contains(&ticker.symbol) {
@@ -426,8 +427,6 @@ impl Bybit {
                             );
                         }
                     }
-                } else {
-                    drop(cache);
                 }
             }
         }

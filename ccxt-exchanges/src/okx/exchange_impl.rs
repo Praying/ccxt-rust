@@ -258,7 +258,7 @@ impl Exchange for Okx {
     async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
         let cache = self.base().market_cache.read().await;
 
-        if !cache.loaded {
+        if !cache.is_loaded() {
             return Err(ccxt_core::Error::exchange(
                 "-1",
                 "Markets not loaded. Call load_markets() first.",
@@ -266,15 +266,13 @@ impl Exchange for Okx {
         }
 
         cache
-            .markets
-            .get(symbol)
-            .cloned()
+            .get_market(symbol)
             .ok_or_else(|| ccxt_core::Error::bad_symbol(format!("Market {} not found", symbol)))
     }
 
     async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>> {
         let cache = self.base().market_cache.read().await;
-        cache.markets.clone()
+        cache.markets()
     }
 }
 

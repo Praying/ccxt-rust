@@ -1593,7 +1593,7 @@ mod market_cache_consistency {
 
                 // Verify all markets are present
                 for market in &markets {
-                    let cached = cache.markets.get(&market.symbol);
+                    let cached = cache.get_market(&market.symbol);
                     assert!(cached.is_some(), "Market {} should be in cache", market.symbol);
 
                     let cached = cached.unwrap();
@@ -1604,7 +1604,7 @@ mod market_cache_consistency {
                 }
 
                 // Verify cache is marked as loaded
-                assert!(cache.loaded, "Cache should be marked as loaded");
+                assert!(cache.is_loaded(), "Cache should be marked as loaded");
             });
         }
 
@@ -1622,17 +1622,17 @@ mod market_cache_consistency {
                 // Read from cache multiple times
                 let read1 = {
                     let cache = bitget.base().market_cache.read().await;
-                    cache.markets.clone()
+                    cache.markets()
                 };
 
                 let read2 = {
                     let cache = bitget.base().market_cache.read().await;
-                    cache.markets.clone()
+                    cache.markets()
                 };
 
                 let read3 = {
                     let cache = bitget.base().market_cache.read().await;
-                    cache.markets.clone()
+                    cache.markets()
                 };
 
                 // Verify all reads are identical

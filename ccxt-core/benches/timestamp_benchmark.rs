@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)] // unwrap() is acceptable in benchmarks
+
 use ccxt_core::time::{
     TimestampConversion, TimestampUtils, iso8601, milliseconds, parse_date, parse_iso8601, ymdhms,
     yyyymmdd,

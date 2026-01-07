@@ -7,6 +7,8 @@
 //! **Feature: binance-rest-api-modularization, Property 4: Thread Safety**
 //! **Validates: Requirements 4.3**
 
+#![allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
+
 use async_trait::async_trait;
 use ccxt_core::capability::ExchangeCapabilities;
 use ccxt_core::error::Result;

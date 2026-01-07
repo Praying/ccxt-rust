@@ -190,12 +190,12 @@ impl Binance {
         // Check cache status while holding the lock
         {
             let cache = self.base().market_cache.read().await;
-            if cache.loaded && !reload {
+            if cache.is_loaded() && !reload {
                 tracing::debug!(
                     "Returning cached markets for Binance ({} markets)",
-                    cache.markets.len()
+                    cache.market_count()
                 );
-                return Ok(cache.markets.clone());
+                return Ok(cache.markets());
             }
         }
 
@@ -203,7 +203,7 @@ impl Binance {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache.markets())
     }
 
     /// Fetch ticker for a single trading pair.
@@ -279,16 +279,20 @@ impl Binance {
     /// Returns an error if markets are not loaded or the API request fails.
     pub async fn fetch_tickers(&self, symbols: Option<Vec<String>>) -> Result<Vec<Ticker>> {
         // Acquire read lock once and clone the necessary data to avoid lock contention in the loop
-        let markets_by_id = {
-            let cache = self.base().market_cache.read().await;
-            if !cache.loaded {
-                return Err(Error::exchange(
-                    "-1",
-                    "Markets not loaded. Call load_markets() first.",
-                ));
-            }
-            cache.markets_by_id.clone()
-        };
+        let cache = self.base().market_cache.read().await;
+        if !cache.is_loaded() {
+            return Err(Error::exchange(
+                "-1",
+                "Markets not loaded. Call load_markets() first.",
+            ));
+        }
+        // Get an iterator over markets by ID for efficient lookup
+        let markets_snapshot: std::collections::HashMap<String, Arc<ccxt_core::types::Market>> =
+            cache
+                .iter_markets()
+                .map(|(_, m)| (m.id.clone(), m))
+                .collect();
+        drop(cache);
 
         let url = format!("{}{}", self.urls().public, endpoints::TICKER_24HR);
         let data = self.base().http_client.get(&url, None).await?;
@@ -304,7 +308,7 @@ impl Binance {
         for ticker_data in tickers_array {
             if let Some(binance_symbol) = ticker_data["symbol"].as_str() {
                 // Use the pre-cloned map instead of acquiring a lock on each iteration
-                if let Some(market) = markets_by_id.get(binance_symbol) {
+                if let Some(market) = markets_snapshot.get(binance_symbol) {
                     match parser::parse_ticker(ticker_data, Some(market)) {
                         Ok(ticker) => {
                             if let Some(ref syms) = symbols {

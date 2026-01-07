@@ -80,8 +80,8 @@ impl Okx {
 
         {
             let cache = self.base().market_cache.read().await;
-            if cache.loaded && !reload {
-                return Ok(cache.markets.clone());
+            if cache.is_loaded() && !reload {
+                return Ok(cache.markets());
             }
         }
 
@@ -89,7 +89,7 @@ impl Okx {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache.markets())
     }
 
     /// Fetch ticker for a single trading pair.
@@ -139,13 +139,18 @@ impl Okx {
     /// Returns a vector of [`Ticker`] structures.
     pub async fn fetch_tickers(&self, symbols: Option<Vec<String>>) -> Result<Vec<Ticker>> {
         let cache = self.base().market_cache.read().await;
-        if !cache.loaded {
+        if !cache.is_loaded() {
             drop(cache);
             return Err(Error::exchange(
                 "-1",
                 "Markets not loaded. Call load_markets() first.",
             ));
         }
+        // Build a snapshot of markets by ID for efficient lookup
+        let markets_snapshot: std::collections::HashMap<String, Arc<Market>> = cache
+            .iter_markets()
+            .map(|(_, m)| (m.id.clone(), m))
+            .collect();
         drop(cache);
 
         let path = Self::build_api_path("/market/tickers");
@@ -168,12 +173,8 @@ impl Okx {
         let mut tickers = Vec::new();
         for ticker_data in tickers_array {
             if let Some(inst_id) = ticker_data["instId"].as_str() {
-                let cache = self.base().market_cache.read().await;
-                if let Some(market) = cache.markets_by_id.get(inst_id) {
-                    let market_clone = market.clone();
-                    drop(cache);
-
-                    match parser::parse_ticker(ticker_data, Some(&market_clone)) {
+                if let Some(market) = markets_snapshot.get(inst_id) {
+                    match parser::parse_ticker(ticker_data, Some(market)) {
                         Ok(ticker) => {
                             if let Some(ref syms) = symbols {
                                 if syms.contains(&ticker.symbol) {
@@ -191,8 +192,6 @@ impl Okx {
                             );
                         }
                     }
-                } else {
-                    drop(cache);
                 }
             }
         }

@@ -387,14 +387,17 @@ pub fn eddsa_sign(data: &str, secret_key: &[u8]) -> Result<String> {
 /// # Arguments
 /// * `payload` - JWT payload as JSON object
 /// * `secret` - Secret key for signing
-/// * `algorithm` - Hash algorithm for HMAC
+/// * `algorithm` - Hash algorithm for HMAC (supports Sha256, Sha384, Sha512)
 /// * `header_options` - Optional additional header fields
 ///
 /// # Returns
 /// Complete JWT string (header.payload.signature).
 ///
 /// # Errors
-/// Returns error if JSON serialization or signing fails.
+/// Returns error if:
+/// - JSON serialization fails
+/// - Signing fails
+/// - Unsupported algorithm is provided (only HS256, HS384, HS512 are supported)
 ///
 /// # Examples
 /// ```
@@ -406,7 +409,11 @@ pub fn eddsa_sign(data: &str, secret_key: &[u8]) -> Result<String> {
 ///     "exp": 1234567890
 /// });
 ///
+/// // Using HS256
 /// let token = jwt_sign(&payload, "secret", HashAlgorithm::Sha256, None).unwrap();
+///
+/// // Using HS512
+/// let token_512 = jwt_sign(&payload, "secret", HashAlgorithm::Sha512, None).unwrap();
 /// ```
 pub fn jwt_sign(
     payload: &serde_json::Value,
@@ -414,10 +421,22 @@ pub fn jwt_sign(
     algorithm: HashAlgorithm,
     header_options: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> Result<String> {
+    // Map HashAlgorithm to JWT algorithm string
+    let alg_str = match algorithm {
+        HashAlgorithm::Sha256 => "HS256",
+        HashAlgorithm::Sha384 => "HS384",
+        HashAlgorithm::Sha512 => "HS512",
+        _ => {
+            return Err(Error::invalid_argument(format!(
+                "JWT does not support {algorithm} algorithm. Supported algorithms: HS256, HS384, HS512"
+            )));
+        }
+    };
+
     let mut header = serde_json::Map::new();
     header.insert(
         "alg".to_string(),
-        serde_json::Value::String("HS256".to_string()),
+        serde_json::Value::String(alg_str.to_string()),
     );
     header.insert(
         "typ".to_string(),
@@ -496,6 +515,7 @@ pub fn base64url_decode(base64url: &str) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
 mod tests {
     use super::*;
 
@@ -563,6 +583,62 @@ mod tests {
         // JWT应该有3部分，用.分隔
         let parts: Vec<&str> = token.split('.').collect();
         assert_eq!(parts.len(), 3);
+
+        // Verify header contains correct algorithm
+        let header_bytes = base64url_decode(parts[0]).unwrap();
+        let header_str = String::from_utf8(header_bytes).unwrap();
+        assert!(header_str.contains("HS256"));
+    }
+
+    #[test]
+    fn test_jwt_sign_with_different_algorithms() {
+        use serde_json::json;
+
+        let payload = json!({
+            "user_id": "123",
+            "exp": 1234567890
+        });
+
+        // Test HS256
+        let token_256 = jwt_sign(&payload, "secret", HashAlgorithm::Sha256, None).unwrap();
+        let parts_256: Vec<&str> = token_256.split('.').collect();
+        let header_256 = String::from_utf8(base64url_decode(parts_256[0]).unwrap()).unwrap();
+        assert!(header_256.contains("HS256"));
+
+        // Test HS384
+        let token_384 = jwt_sign(&payload, "secret", HashAlgorithm::Sha384, None).unwrap();
+        let parts_384: Vec<&str> = token_384.split('.').collect();
+        let header_384 = String::from_utf8(base64url_decode(parts_384[0]).unwrap()).unwrap();
+        assert!(header_384.contains("HS384"));
+
+        // Test HS512
+        let token_512 = jwt_sign(&payload, "secret", HashAlgorithm::Sha512, None).unwrap();
+        let parts_512: Vec<&str> = token_512.split('.').collect();
+        let header_512 = String::from_utf8(base64url_decode(parts_512[0]).unwrap()).unwrap();
+        assert!(header_512.contains("HS512"));
+    }
+
+    #[test]
+    fn test_jwt_sign_unsupported_algorithm() {
+        use serde_json::json;
+
+        let payload = json!({
+            "user_id": "123",
+            "exp": 1234567890
+        });
+
+        // SHA1 is not supported for JWT
+        let result = jwt_sign(&payload, "secret", HashAlgorithm::Sha1, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not support"));
+
+        // MD5 is not supported for JWT
+        let result = jwt_sign(&payload, "secret", HashAlgorithm::Md5, None);
+        assert!(result.is_err());
+
+        // Keccak is not supported for JWT
+        let result = jwt_sign(&payload, "secret", HashAlgorithm::Keccak, None);
+        assert!(result.is_err());
     }
 
     #[test]
