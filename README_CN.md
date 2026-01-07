@@ -3,12 +3,17 @@
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust CI](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml)
-[![Security Audit](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml)
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://docs.rs/ccxt-rust)
 
 CCXT (CryptoCurrency eXchange Trading) 库的专业级 Rust 实现，提供统一、类型安全的接口访问主流的加密货币交易所，具有高性能异步操作特性。
 
 [English](README.md) | 简体中文
+
+<!--
+en_version: 0.1.2
+cn_version: 0.1.2
+last_updated: 2025-01-07
+-->
 
 ## 🎯 支持的交易所
 
@@ -21,7 +26,6 @@ CCXT (CryptoCurrency eXchange Trading) 库的专业级 Rust 实现，提供统�
 | **Bybit** | ✅ | ✅ | ✅ |
 
 > **图例**: ✅ 已支持, 🚧 开发中, 🔄 计划中
-
 
 ## 🌟 特性
 
@@ -69,74 +73,74 @@ CCXT (CryptoCurrency eXchange Trading) 库的专业级 Rust 实现，提供统�
 
 项目采用清晰的模块化工作空间架构，并提供统一的 Exchange trait：
 
+### 项目结构
+
 ```
 ccxt-rust/
 ├── ccxt-core/              # 核心类型、trait 和错误处理
 │   ├── types/              # Market、Order、Trade、Ticker 等
 │   ├── exchange.rs         # 统一 Exchange trait
 │   ├── ws_exchange.rs      # WebSocket Exchange trait
-│   ├── error.rs            # 全面的错误类型
-│   └── base_exchange.rs    # 基础交易所功能
+│   ├── error/              # 全面的错误类型
+│   ├── base_exchange/      # 基础交易所功能
+│   ├── http_client/        # HTTP 客户端（重试、熔断器）
+│   ├── ws_client/          # WebSocket 客户端（自动重连）
+│   ├── auth/               # 认证和签名
+│   └── ...
 ├── ccxt-exchanges/         # 交易所特定实现
-│   └── binance/            # Binance 交易所实现
-│       ├── mod.rs          # Binance 主结构体
-│       ├── builder.rs      # BinanceBuilder
-│       ├── exchange_impl.rs # Exchange trait 实现
-│       ├── ws_exchange_impl.rs # WsExchange trait 实现
-│       ├── rest/           # REST API 客户端模块
-│       ├── ws.rs           # WebSocket 客户端
-│       ├── parser.rs       # 响应解析
-│       └── auth.rs         # 认证
+│   ├── binance/            # Binance 交易所实现
+│   ├── okx/                # OKX 交易所实现
+│   ├── bybit/              # Bybit 交易所实现
+│   ├── bitget/             # Bitget 交易所实现
+│   └── hyperliquid/        # Hyperliquid 交易所实现
 ├── examples/               # 全面的使用示例
 ├── tests/                  # 集成测试
 └── docs/                   # 详细文档
 ```
 
-### 统一 Exchange Trait
+### 模块关系
 
-`ccxt-core` 中的 `Exchange` trait 为所有交易所提供了统一的接口：
-
-```rust
-use ccxt_core::exchange::{Exchange, ExchangeCapabilities, BoxedExchange};
-
-// 通过统一接口使用任何交易所
-async fn fetch_price(exchange: &dyn Exchange, symbol: &str) -> Result<Decimal, Error> {
-    // 调用前检查功能支持情况
-    if !exchange.capabilities().fetch_ticker() {
-        return Err(Error::not_implemented("fetch_ticker"));
-    }
-    
-    let ticker = exchange.fetch_ticker(symbol).await?;
-    ticker.last.ok_or_else(|| Error::invalid_response("No last price"))
-}
-
-// 多态地使用多个交易所
-async fn compare_prices(exchanges: &[BoxedExchange], symbol: &str) {
-    for exchange in exchanges {
-        println!("{}: {:?}", exchange.name(), fetch_price(exchange.as_ref(), symbol).await);
-    }
-}
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     应用程序代码                             │
+│  (通过统一的 Exchange trait 接口使用交易所)                  │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  统一 Exchange Trait                        │
+│  - 提供所有交易所的多态接口                                   │
+│  - 基于能力的功能发现                                        │
+│  - 市场数据、交易、账户管理方法                              │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    基础交易所层                              │
+│  - 所有交易所共享的通用功能                                  │
+│  - 市场缓存、精度处理、符号解析                              │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│              交易所实现                                      │
+│  - 交易所特定的 API 客户端                                  │
+│  - REST 和 WebSocket 实现                                   │
+│  - 自定义请求解析和认证                                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### WebSocket 流式传输
+### 核心设计原则
 
-`WsExchange` trait 提供实时数据流功能：
-
-```rust
-use ccxt_core::ws_exchange::{WsExchange, FullExchange};
-use futures::StreamExt;
-
-async fn watch_market(exchange: &dyn WsExchange, symbol: &str) {
-    exchange.ws_connect().await.unwrap();
-    
-    let mut stream = exchange.watch_ticker(symbol).await.unwrap();
-    while let Some(Ok(ticker)) = stream.next().await {
-        println!("Price: {:?}", ticker.last);
-    }
-}
-```
+1. **基于 Trait 的抽象**：统一的 `Exchange` trait 支持多态使用
+2. **能力发现**：通过 `ExchangeCapabilities` 进行运行时功能检测
+3. **类型安全**：使用 `rust_decimal` 进行金融计算的强类型保证
+4. **错误处理**：全面的错误类型，保留上下文
+5. **异步优先**：基于 Tokio 构建高效异步操作
 
 ## 🚀 快速开始
+
+**刚接触 ccxt-rust？** 从我们的 [5分钟快速入门指南](QUICKSTART_CN.md) 开始 📖
 
 ### 前置要求
 
@@ -145,13 +149,13 @@ async fn watch_market(exchange: &dyn WsExchange, symbol: &str) {
 
 ### 安装
 
-通过命令行添加：
+使用命令行添加：
 
 ```bash
 cargo add ccxt-rust
 ```
 
-或者在你的 `Cargo.toml` 中添加：
+或在 `Cargo.toml` 中添加：
 
 ```toml
 [dependencies]
@@ -162,135 +166,44 @@ rust_decimal = "1.39"
 futures = "0.3"
 ```
 
-### 集成示例：类型安全的交易机器人
-
-此示例展示了如何将 `ccxt-rust` 集成到你自己的结构体中，利用 Rust 的类型系统实现编译时安全。
+### 基本用法
 
 ```rust
+use ccxt_exchanges::binance::Binance;
 use ccxt_core::exchange::Exchange;
-use ccxt_exchanges::binance::Binance;
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use std::sync::Arc;
-
-// 定义一个可以与任何交易所实现一起工作的交易机器人
-struct TradingBot<E: Exchange> {
-    exchange: E,
-    symbol: String,
-    target_price: Decimal,
-}
-
-impl<E: Exchange> TradingBot<E> {
-    pub fn new(exchange: E, symbol: &str, target_price: Decimal) -> Self {
-        Self {
-            exchange,
-            symbol: symbol.to_string(),
-            target_price,
-        }
-    }
-
-    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Checking {} on {}...", self.symbol, self.exchange.name());
-
-        // 编译时检查：编译器确保 'fetch_ticker' 返回
-        // 强类型的 'Ticker' 结构体，防止类型错误。
-        let ticker = self.exchange.fetch_ticker(&self.symbol).await?;
-        
-        if let Some(last_price) = ticker.last {
-            println!("Current price: {}", last_price);
-            
-            // 类型安全比较：rust_decimal 确保精度
-            if last_price <= self.target_price {
-                println!("Target price reached! Executing buy strategy...");
-                // execute_buy_order()...
-            }
-        }
-
-        Ok(())
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. 初始化交易所
-    let binance = Binance::builder().build()?;
+    // 使用构建器模式初始化交易所（推荐）
+    let exchange = Binance::builder()
+        .api_key("your_api_key")
+        .secret("your_secret")
+        .sandbox(false)  // 使用生产环境 API
+        .build()?;
 
-    // 2. 创建机器人（编译器验证 'binance' 实现了 'Exchange'）
-    let bot = TradingBot::new(binance, "BTC/USDT", dec!(50000));
-
-    // 3. 运行策略
-    bot.run().await?;
+    // 通过统一的 Exchange trait 获取行情
+    let ticker = exchange.fetch_ticker("BTC/USDT").await?;
+    println!("BTC/USDT 价格: {:?}", ticker.last);
 
     Ok(())
 }
 ```
 
-### 多态地使用交易所
-
-```rust
-use ccxt_core::exchange::{Exchange, BoxedExchange};
-use std::sync::Arc;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 创建交易所作为 trait 对象
-    let exchange: BoxedExchange = Box::new(
-        ccxt_exchanges::binance::Binance::builder().build()?
-    );
-    
-    // 通过统一接口使用
-    println!("Exchange: {} ({})", exchange.name(), exchange.id());
-    println!("Capabilities: {:?}", exchange.capabilities());
-    
-    // 调用方法前检查功能支持
-    if exchange.capabilities().fetch_ticker() {
-        let ticker = exchange.fetch_ticker("BTC/USDT").await?;
-        println!("Price: {:?}", ticker.last);
-    }
-    
-    Ok(())
-}
-```
-
-### WebSocket 流式传输
-
-```rust
-use ccxt_exchanges::binance::Binance;
-use ccxt_core::ws_exchange::WsExchange;
-use futures::StreamExt;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化交易所
-    let exchange = Binance::builder().build()?;
-
-    // 使用 WsExchange trait 监听实时行情更新
-    let mut stream = exchange.watch_ticker("BTC/USDT").await?;
-    
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(ticker) => println!("Price: {:?}", ticker.last),
-            Err(e) => eprintln!("Error: {}", e),
-        }
-    }
-
-    Ok(())
-}
-```
+**更多示例**：查看 [QUICKSTART_CN.md](QUICKSTART_CN.md) 获取详细教程！
 
 ## 📚 示例
 
-项目包含涵盖所有主要功能的全面示例：
+项目包含覆盖所有主要功能的全面示例：
 
-- **`basic_usage.rs`** - 库入门使用
+- **`basic_usage.rs`** - 库的使用入门
 - **`binance_market_data_example.rs`** - 市场数据操作
 - **`binance_order_management_example.rs`** - 订单创建和管理
 - **`binance_account_example.rs`** - 账户操作
 - **`binance_margin_example.rs`** - 保证金交易
 - **`binance_futures_example.rs`** - 期货交易
-- **`binance_ws_example.rs`** - WebSocket 流式传输
+- **`binance_ws_example.rs`** - WebSocket 流
 - **`binance_conditional_orders_example.rs`** - 条件订单
-- **`binance_deposit_withdrawal_example.rs`** - 充值/提现操作
+- **`binance_deposit_withdrawal_example.rs`** - 充值提现操作
 
 运行任何示例：
 
@@ -299,18 +212,17 @@ cargo run --example basic_usage
 cargo run --example binance_ws_example
 ```
 
+## 🚩 功能标志
 
-## 🚩 功能标志 (Feature Flags)
+通过在 `Cargo.toml` 中选择所需功能来优化构建：
 
-通过在 `Cargo.toml` 中选择所需的功能来优化构建：
-
-- **`default`**: 启用 `rest`, `websocket`, 和 `rustls-tls`。
-- **`rest`**: 启用 REST API 支持。
-- **`websocket`**: 启用 WebSocket 支持。
-- **`rustls-tls`**: 使用 `rustls` 进行 TLS（默认，推荐）。
-- **`native-tls`**: 使用平台原生 TLS (OpenSSL/Schannel/Secure Transport)。
-- **`compression`**: 启用 HTTP 请求的 GZIP 压缩。
-- **`full`**: 启用所有功能。
+- **`default`**: 启用 `rest`、`websocket` 和 `rustls-tls`
+- **`rest`**: 启用 REST API 支持
+- **`websocket`**: 启用 WebSocket 支持
+- **`rustls-tls`**: 使用 `rustls` 进行 TLS（默认，推荐）
+- **`native-tls`**: 使用平台原生 TLS（OpenSSL/Schannel/Secure Transport）
+- **`compression`**: 启用 HTTP 请求的 GZIP 压缩
+- **`full`**: 启用所有功能
 
 ## 🔧 配置
 
@@ -345,7 +257,7 @@ RUST_LOG=info
 # 运行所有测试
 cargo test
 
-# 带输出运行测试
+# 运行测试并显示输出
 cargo test -- --nocapture
 
 # 运行特定测试套件
@@ -362,9 +274,9 @@ ENABLE_INTEGRATION_TESTS=true cargo test
 ## 📖 文档
 
 - **[API 文档](docs/)** - 详细的 API 参考
-- **[测试指南](docs/TESTING.md)** - 全面的测试文档
-- **[实现计划](docs/)** - 功能实现路线图
-- **[对比分析](docs/GO_RUST_COMPARISON_ANALYSIS.md)** - Go vs Rust 实现对比
+- **[快速入门](QUICKSTART_CN.md)** - 5分钟上手指南
+- **[贡献指南](CONTRIBUTING.md)** - 贡献流程
+- **[最佳实践](docs/best-practices.md)** - 使用建议
 
 生成本地文档：
 
@@ -397,7 +309,7 @@ cargo fmt
 # 运行 linter
 cargo clippy --all-targets --all-features
 
-# 严格 linting (无警告)
+# 严格 linting（无警告）
 cargo clippy --all-targets --all-features -- -D warnings
 
 # 检查编译
@@ -406,15 +318,15 @@ cargo check --all-features
 
 ## 🔐 安全
 
-- **切勿提交 API 密钥或机密信息** - 始终使用环境变量
-- **安全的凭证存储** - 使用系统密钥链或加密保管库
+- **永远不要提交 API 密钥或密钥** - 始终使用环境变量
+- **安全的凭证存储** - 使用系统钥匙串或加密保险库
 - **速率限制** - 内置速率限制以防止 API 封禁
-- **输入验证** - 所有输入在 API 调用前都经过验证
-- **仅限 HTTPS** - 所有通信均使用 TLS 加密
+- **输入验证** - 所有输入在 API 调用前都会被验证
+- **仅 HTTPS** - 所有通信使用 TLS 加密
 
 ## 🤝 贡献
 
-欢迎贡献！请遵循以下指南：
+欢迎贡献！请遵循以下准则：
 
 1. Fork 仓库
 2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
@@ -422,34 +334,30 @@ cargo check --all-features
 4. 为新功能添加测试
 5. 确保所有测试通过 (`cargo test`)
 6. 运行格式化和 linting (`cargo fmt && cargo clippy`)
-7. 提交你的更改 (`git commit -m 'Add amazing feature'`)
+7. 提交更改 (`git commit -m 'Add amazing feature'`)
 8. 推送到分支 (`git push origin feature/amazing-feature`)
-9. 开启 Pull Request
+9. 创建 Pull Request
 
-### 开发约定
-
-- **代码风格**: Rust 2024 edition, 100 字符行宽
-- **测试**: 至少 80% 测试覆盖率
-- **文档**: 所有公共 API 必须有文档
-- **错误处理**: 使用 `thiserror` 用于自定义错误
+查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
 
 ## 📊 性能
 
-专为高性能构建：
-- **异步 I/O**: 使用 Tokio 的非阻塞操作
-- **零拷贝解析**: 高效的 JSON 反序列化
-- **连接池**: 复用 HTTP 连接
-- **优化构建**: Release 版本启用 LTO 和单个 codegen 单元
-- **基准测试**: 基于 Criterion 的性能基准测试
+为高性能而构建：
+
+- **异步 I/O**：使用 Tokio 的非阻塞操作
+- **零拷贝解析**：高效的 JSON 反序列化
+- **连接池**：重用的 HTTP 连接
+- **优化构建**：Release 版本使用 LTO 和单代码生成单元
+- **基准测试**：基于 Criterion 的性能基准
 
 ## 🐛 故障排除
 
 ### 常见问题
 
 1. **编译错误**
-   - 确保安装了 Rust 1.91+: `rustc --version`
-   - 更新依赖: `cargo update`
-   - 清理构建: `cargo clean && cargo build`
+    - 确保 Rust 1.91+ 已安装：`rustc --version`
+    - 更新依赖：`cargo update`
+    - 清理构建：`cargo clean && cargo build`
 
 2. **API 认证失败**
    - 验证 `.env` 文件中的 API 密钥
@@ -461,26 +369,26 @@ cargo check --all-features
    - 使用 WebSocket 获取实时数据
    - 检查交易所特定的速率限制
 
-如需更多帮助，请参阅 [文档](docs/) 或开启 issue。
+更多帮助，请查看 [文档](docs/) 或提交 issue。
 
 ## 📝 许可证
 
-本项目采用 MIT 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
 
 ## 🙏 致谢
 
-- 灵感来自原始 [CCXT](https://github.com/ccxt/ccxt) 库
-- 基于出色的 Rust 生态系统库构建
+- 受原始 [CCXT](https://github.com/ccxt/ccxt) 库启发
+- 使用了出色的 Rust 生态系统库
 - 社区贡献者和测试者
 
 ## 📞 联系与支持
 
-- **Issues**: [GitHub Issues](https://github.com/Praying/ccxt-rust/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Praying/ccxt-rust/discussions)
+- **问题**: [GitHub Issues](https://github.com/Praying/ccxt-rust/issues)
+- **讨论**: [GitHub Discussions](https://github.com/Praying/ccxt-rust/discussions)
 - **文档**: [项目文档](docs/)
 
 ---
 
-**状态**: 🚧 积极开发中 | **版本**: 0.1.1 | **更新时间**: 2025-12
+**状态**: 🚧 积极开发中 | **版本**: 0.1.2 | **更新**: 2026-01
 
-⚠️ **注意**: 本库正处于积极开发阶段。API 在 v1.0 之前可能会发生变化。暂不建议用于生产环境。
+⚠️ **注意**: 此库正在积极开发中。在 v1.0 之前 API 可能会变化。暂不推荐生产使用。

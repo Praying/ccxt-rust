@@ -69,28 +69,73 @@ A professional-grade Rust implementation of the CCXT (CryptoCurrency eXchange Tr
 
 The project follows a clean, modular workspace architecture with a unified Exchange trait:
 
+### Project Structure
+
 ```
 ccxt-rust/
 ├── ccxt-core/              # Core types, traits, and error handling
 │   ├── types/              # Market, Order, Trade, Ticker, etc.
 │   ├── exchange.rs         # Unified Exchange trait
 │   ├── ws_exchange.rs      # WebSocket Exchange trait
-│   ├── error.rs            # Comprehensive error types
-│   └── base_exchange.rs    # Base exchange functionality
+│   ├── error/              # Comprehensive error types
+│   ├── base_exchange/      # Base exchange functionality
+│   ├── http_client/        # HTTP client with retry and circuit breaker
+│   ├── ws_client/          # WebSocket client with auto-reconnect
+│   ├── auth/               # Authentication and signing
+│   └── ...
 ├── ccxt-exchanges/         # Exchange-specific implementations
-│   └── binance/            # Binance exchange implementation
-│       ├── mod.rs          # Main Binance struct
-│       ├── builder.rs      # BinanceBuilder
-│       ├── exchange_impl.rs # Exchange trait implementation
-│       ├── ws_exchange_impl.rs # WsExchange trait implementation
-│       ├── rest/           # REST API client modules
-│       ├── ws.rs           # WebSocket client
-│       ├── parser.rs       # Response parsing
-│       └── auth.rs         # Authentication
+│   ├── binance/            # Binance exchange implementation
+│   ├── okx/                # OKX exchange implementation
+│   ├── bybit/              # Bybit exchange implementation
+│   ├── bitget/             # Bitget exchange implementation
+│   └── hyperliquid/        # Hyperliquid exchange implementation
 ├── examples/               # Comprehensive usage examples
 ├── tests/                  # Integration tests
 └── docs/                   # Detailed documentation
 ```
+
+### Module Relationships
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Application Code                        │
+│  (uses exchanges through unified Exchange trait interface)  │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Unified Exchange Trait                     │
+│  (ccxt-core::exchange::Exchange)                            │
+│  - Provides polymorphic interface for all exchanges        │
+│  - Capability-based feature discovery                       │
+│  - Market data, trading, account management methods        │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Base Exchange Layer                      │
+│  (ccxt-core::base_exchange::BaseExchange)                   │
+│  - Common functionality shared across exchanges             │
+│  - Market caching, precision handling, symbol parsing       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Exchange Implementations                        │
+│  (ccxt-exchanges::binance, okx, bybit, ...)                 │
+│  - Exchange-specific API clients                            │
+│  - REST and WebSocket implementations                       │
+│  - Custom request parsing and authentication                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Principles
+
+1. **Trait-Based Abstraction**: Unified `Exchange` trait allows polymorphic usage
+2. **Capability Discovery**: Runtime feature detection via `ExchangeCapabilities`
+3. **Type Safety**: Strong typing with `rust_decimal` for financial calculations
+4. **Error Handling**: Comprehensive error types with context preservation
+5. **Async First**: Built on Tokio for efficient async operations
 
 ### Unified Exchange Trait
 
@@ -137,6 +182,8 @@ async fn watch_market(exchange: &dyn WsExchange, symbol: &str) {
 ```
 
 ## 🚀 Quick Start
+
+**New to ccxt-rust?** Start with our [5-minute Quick Start Guide](QUICKSTART.md) 📖
 
 ### Prerequisites
 
@@ -193,7 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Place an order (requires API credentials)
     use ccxt_core::types::{OrderType, OrderSide};
     use rust_decimal_macros::dec;
-    
+
     let order = exchange.create_order(
         "BTC/USDT",
         OrderType::Limit,
@@ -219,17 +266,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exchange: BoxedExchange = Box::new(
         ccxt_exchanges::binance::Binance::builder().build()?
     );
-    
+
     // Use through the unified interface
     println!("Exchange: {} ({})", exchange.name(), exchange.id());
     println!("Capabilities: {:?}", exchange.capabilities());
-    
+
     // Check capabilities before calling methods
     if exchange.capabilities().fetch_ticker() {
         let ticker = exchange.fetch_ticker("BTC/USDT").await?;
         println!("Price: {:?}", ticker.last);
     }
-    
+
     Ok(())
 }
 ```
@@ -248,7 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Watch real-time ticker updates using the WsExchange trait
     let mut stream = exchange.watch_ticker("BTC/USDT").await?;
-    
+
     while let Some(result) = stream.next().await {
         match result {
             Ok(ticker) => println!("Price: {:?}", ticker.last),
@@ -259,6 +306,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+**More examples**: See the [QUICKSTART.md](QUICKSTART.md) guide for detailed tutorials!
 
 ## 📚 Examples
 
@@ -465,6 +514,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Status**: 🚧 Active Development | **Version**: 0.1.1 | **Updated**: 2025-12
+**Status**: 🚧 Active Development | **Version**: 0.1.2 | **Updated**: 2026-01
 
 ⚠️ **Note**: This library is under active development. APIs may change before v1.0. Not recommended for production use yet.

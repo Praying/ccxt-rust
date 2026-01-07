@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::convert::{MAX_ERROR_MESSAGE_LEN, truncate_message};
 use super::*;
 use std::time::Duration;
