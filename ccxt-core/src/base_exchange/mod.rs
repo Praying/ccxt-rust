@@ -95,6 +95,8 @@ impl BaseExchange {
                 }),
             max_response_size: 10 * 1024 * 1024, // 10MB default
             circuit_breaker: None,               // Disabled by default for backward compatibility
+            pool_max_idle_per_host: 10,          // Default: 10 idle connections per host
+            pool_idle_timeout: Duration::from_secs(90), // Default: 90 seconds
         };
 
         let mut http_client = HttpClient::new(http_config)?;
@@ -120,11 +122,11 @@ impl BaseExchange {
 
     /// Loads market data from the exchange
     pub async fn load_markets(&self, reload: bool) -> Result<Arc<HashMap<String, Arc<Market>>>> {
-        let cache = self.market_cache.write().await;
+        let cache = self.market_cache.read().await;
 
-        if cache.loaded && !reload {
+        if cache.is_loaded() && !reload {
             debug!("Returning cached markets for {}", self.config.id);
-            return Ok(cache.markets.clone());
+            return Ok(cache.markets());
         }
 
         info!("Loading markets for {}", self.config.id);
@@ -149,13 +151,13 @@ impl BaseExchange {
 
         {
             let cache = self.market_cache.read().await;
-            if cache.loaded && !reload {
+            if cache.is_loaded() && !reload {
                 debug!(
                     "Returning cached markets for {} ({} markets)",
                     self.config.id,
-                    cache.markets.len()
+                    cache.market_count()
                 );
-                return Ok(cache.markets.clone());
+                return Ok(cache.markets());
             }
         }
 
@@ -168,7 +170,7 @@ impl BaseExchange {
         self.set_markets(markets, currencies).await?;
 
         let cache = self.market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache.markets())
     }
 
     /// Sets market and currency data in the cache
@@ -177,57 +179,15 @@ impl BaseExchange {
         markets: Vec<Market>,
         currencies: Option<Vec<Currency>>,
     ) -> Result<Arc<HashMap<String, Arc<Market>>>> {
-        let mut cache = self.market_cache.write().await;
-
-        let mut markets_map = HashMap::new();
-        cache.markets_by_id.clear();
-        cache.symbols.clear();
-        cache.ids.clear();
-
-        for market in markets {
-            cache.symbols.push(market.symbol.clone());
-            cache.ids.push(market.id.clone());
-            let arc_market = Arc::new(market);
-            cache
-                .markets_by_id
-                .insert(arc_market.id.clone(), Arc::clone(&arc_market));
-            markets_map.insert(arc_market.symbol.clone(), arc_market);
-        }
-        cache.markets = Arc::new(markets_map);
-
-        if let Some(currencies) = currencies {
-            cache.currencies.clear();
-            cache.currencies_by_id.clear();
-            cache.codes.clear();
-
-            for currency in currencies {
-                cache.codes.push(currency.code.clone());
-                let arc_currency = Arc::new(currency);
-                cache
-                    .currencies_by_id
-                    .insert(arc_currency.id.clone(), Arc::clone(&arc_currency));
-                cache
-                    .currencies
-                    .insert(arc_currency.code.clone(), arc_currency);
-            }
-        }
-
-        cache.loaded = true;
-        info!(
-            "Loaded {} markets and {} currencies for {}",
-            cache.markets.len(),
-            cache.currencies.len(),
-            self.config.id
-        );
-
-        Ok(cache.markets.clone())
+        let cache = self.market_cache.read().await;
+        cache.set_markets(markets, currencies, &self.config.id)
     }
 
     /// Gets market information by trading symbol
     pub async fn market(&self, symbol: &str) -> Result<Arc<Market>> {
         let cache = self.market_cache.read().await;
 
-        if !cache.loaded {
+        if !cache.is_loaded() {
             drop(cache);
             return Err(Error::exchange(
                 "-1",
@@ -236,9 +196,7 @@ impl BaseExchange {
         }
 
         cache
-            .markets
-            .get(symbol)
-            .cloned()
+            .get_market(symbol)
             .ok_or_else(|| Error::bad_symbol(format!("Market {symbol} not found")))
     }
 
@@ -246,9 +204,7 @@ impl BaseExchange {
     pub async fn market_by_id(&self, id: &str) -> Result<Arc<Market>> {
         let cache = self.market_cache.read().await;
         cache
-            .markets_by_id
-            .get(id)
-            .cloned()
+            .get_market_by_id(id)
             .ok_or_else(|| Error::bad_symbol(format!("Market with id {id} not found")))
     }
 
@@ -256,16 +212,14 @@ impl BaseExchange {
     pub async fn currency(&self, code: &str) -> Result<Arc<Currency>> {
         let cache = self.market_cache.read().await;
         cache
-            .currencies
-            .get(code)
-            .cloned()
+            .get_currency(code)
             .ok_or_else(|| Error::bad_symbol(format!("Currency {code} not found")))
     }
 
     /// Gets all available trading symbols
     pub async fn symbols(&self) -> Result<Vec<String>> {
         let cache = self.market_cache.read().await;
-        Ok(cache.symbols.clone())
+        Ok(cache.symbols())
     }
 
     /// Applies rate limiting if enabled (deprecated, now handled by HttpClient)
@@ -726,6 +680,8 @@ impl BaseExchange {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
+#[allow(clippy::default_trait_access)] // Default::default() is acceptable in tests
 mod tests {
     use super::*;
 

@@ -312,6 +312,7 @@ impl ValidationResult {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_char_pattern)] // "5" is acceptable in tests
 mod tests {
     use super::*;
 

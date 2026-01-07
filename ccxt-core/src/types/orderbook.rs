@@ -358,11 +358,17 @@ impl OrderBook {
             .bids_map
             .iter()
             .rev()
-            .map(|(price_str, amount)| {
-                OrderBookEntry::new(
-                    Price::new(price_str.parse::<Decimal>().unwrap_or(Decimal::ZERO)),
-                    Amount::new(*amount),
-                )
+            .filter_map(|(price_str, amount)| match price_str.parse::<Decimal>() {
+                Ok(price) => Some(OrderBookEntry::new(Price::new(price), Amount::new(*amount))),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to parse bid price '{}' for {}: {}. Skipping entry.",
+                        price_str,
+                        self.symbol,
+                        e
+                    );
+                    None
+                }
             })
             .collect();
 
@@ -370,11 +376,17 @@ impl OrderBook {
         self.asks = self
             .asks_map
             .iter()
-            .map(|(price_str, amount)| {
-                OrderBookEntry::new(
-                    Price::new(price_str.parse::<Decimal>().unwrap_or(Decimal::ZERO)),
-                    Amount::new(*amount),
-                )
+            .filter_map(|(price_str, amount)| match price_str.parse::<Decimal>() {
+                Ok(price) => Some(OrderBookEntry::new(Price::new(price), Amount::new(*amount))),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to parse ask price '{}' for {}: {}. Skipping entry.",
+                        price_str,
+                        self.symbol,
+                        e
+                    );
+                    None
+                }
             })
             .collect();
     }

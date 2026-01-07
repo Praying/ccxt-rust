@@ -132,12 +132,12 @@ impl HyperLiquid {
         // Check cache status while holding the lock
         {
             let cache = self.base().market_cache.read().await;
-            if cache.loaded && !reload {
+            if cache.is_loaded() && !reload {
                 debug!(
                     "Returning cached markets for HyperLiquid ({} markets)",
-                    cache.markets.len()
+                    cache.market_count()
                 );
-                return Ok(cache.markets.clone());
+                return Ok(cache.markets());
             }
         }
 
@@ -145,7 +145,7 @@ impl HyperLiquid {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache.markets())
     }
 
     /// Fetch ticker for a single trading pair.
@@ -171,13 +171,14 @@ impl HyperLiquid {
             .await?;
 
         let cache = self.base().market_cache.read().await;
-        if !cache.loaded {
+        if !cache.is_loaded() {
             drop(cache);
             return Err(Error::exchange(
                 "-1",
                 "Markets not loaded. Call load_markets() first.",
             ));
         }
+        drop(cache);
 
         let mut tickers = Vec::new();
 

@@ -64,6 +64,23 @@ pub struct HttpConfig {
     ///
     /// Default: `None` (disabled for backward compatibility)
     pub circuit_breaker: Option<CircuitBreakerConfig>,
+
+    /// Maximum number of idle connections per host in the connection pool.
+    ///
+    /// This controls how many keep-alive connections are maintained for each host.
+    /// Higher values improve performance for repeated requests to the same host
+    /// but consume more resources.
+    ///
+    /// Default: 10
+    pub pool_max_idle_per_host: usize,
+
+    /// Timeout for idle connections in the pool.
+    ///
+    /// Connections that have been idle longer than this duration will be closed.
+    /// This helps free up resources and avoid stale connections.
+    ///
+    /// Default: 90 seconds
+    pub pool_idle_timeout: Duration,
 }
 
 impl Default for HttpConfig {
@@ -81,6 +98,8 @@ impl Default for HttpConfig {
             retry_config: None, // Uses default retry configuration
             max_response_size: 10 * 1024 * 1024, // 10MB default
             circuit_breaker: None, // Disabled by default for backward compatibility
+            pool_max_idle_per_host: 10, // Default: 10 idle connections per host
+            pool_idle_timeout: Duration::from_secs(90), // Default: 90 seconds
         }
     }
 }
@@ -172,6 +191,8 @@ impl HttpClient {
         let mut builder = Client::builder()
             .timeout(config.timeout)
             .connect_timeout(config.connect_timeout)
+            .pool_max_idle_per_host(config.pool_max_idle_per_host)
+            .pool_idle_timeout(config.pool_idle_timeout)
             .gzip(true)
             .user_agent(&config.user_agent);
 
@@ -476,6 +497,12 @@ impl HttpClient {
     ///
     /// Returns the response body as a JSON `Value`.
     ///
+    /// # Performance Optimizations
+    ///
+    /// - Early rejection based on Content-Length header (avoids downloading large responses)
+    /// - Pre-allocated buffer for streaming (reduces memory reallocations)
+    /// - Direct JSON parsing from bytes when possible
+    ///
     /// # Errors
     ///
     /// Returns `InvalidRequest` error if the response exceeds `max_response_size`.
@@ -489,6 +516,7 @@ impl HttpClient {
         tracing::Span::current().record("status", status.as_u16());
 
         // Check Content-Length header first (Requirement 1.2)
+        // This is a fast early rejection that avoids downloading large responses
         if let Some(content_length) = response.content_length()
             && content_length > max_size as u64
         {
@@ -507,19 +535,31 @@ impl HttpClient {
         let body_bytes = self
             .stream_response_with_limit(response, url, max_size)
             .await?;
-        let body_text = String::from_utf8_lossy(&body_bytes).to_string();
+
+        // Try to parse JSON directly from bytes first (more efficient)
+        // Fall back to string conversion only if needed for error handling
+        let body_text_for_error: String;
+        let mut result: Value = if let Ok(value) = serde_json::from_slice(&body_bytes) {
+            value
+        } else {
+            // Only convert to string if JSON parsing fails
+            body_text_for_error = String::from_utf8_lossy(&body_bytes).to_string();
+            Value::String(body_text_for_error.clone())
+        };
 
         // Log response details (truncate body preview for large responses)
-        let body_preview: String = body_text.chars().take(200).collect();
+        let body_preview: String = if body_bytes.len() <= 200 {
+            String::from_utf8_lossy(&body_bytes).to_string()
+        } else {
+            String::from_utf8_lossy(&body_bytes[..200]).to_string()
+        };
+
         debug!(
             status = %status,
-            body_length = body_text.len(),
+            body_length = body_bytes.len(),
             body_preview = %body_preview,
             "HTTP response received"
         );
-
-        let mut result: Value =
-            serde_json::from_str(&body_text).unwrap_or_else(|_| Value::String(body_text.clone()));
 
         if self.config.return_response_headers
             && let Value::Object(ref mut map) = result
@@ -529,6 +569,8 @@ impl HttpClient {
         }
 
         if !status.is_success() {
+            // Convert to string only for error handling
+            let body_text = String::from_utf8_lossy(&body_bytes).to_string();
             let err = Self::handle_http_error(status, &body_text, &result);
             error!(
                 status = status.as_u16(),
@@ -546,6 +588,12 @@ impl HttpClient {
     ///
     /// This method reads the response body in chunks and aborts if the
     /// accumulated size exceeds the configured limit.
+    ///
+    /// # Performance Optimizations
+    ///
+    /// - Pre-allocates buffer based on Content-Length header when available
+    /// - Uses `with_capacity` to minimize memory reallocations
+    /// - Early termination when size limit is exceeded
     ///
     /// # Arguments
     ///
@@ -568,8 +616,23 @@ impl HttpClient {
     ) -> Result<Vec<u8>> {
         use futures_util::StreamExt;
 
+        // Performance optimization: Pre-allocate buffer based on Content-Length
+        // This reduces memory reallocations for known-size responses
+        #[allow(clippy::cast_possible_truncation)]
+        let initial_capacity = response.content_length().map_or(
+            // Default initial capacity for unknown sizes (64KB is a good balance
+            // between memory usage and reallocation frequency)
+            64 * 1024,
+            |len| {
+                // Cap at max_size to avoid over-allocation for large responses
+                // that will be rejected anyway
+                // Note: truncation is safe here because max_size is already usize
+                std::cmp::min(len as usize, max_size)
+            },
+        );
+
         let mut stream = response.bytes_stream();
-        let mut body = Vec::new();
+        let mut body = Vec::with_capacity(initial_capacity);
         let mut accumulated_size: usize = 0;
 
         while let Some(chunk_result) = stream.next().await {
@@ -584,6 +647,7 @@ impl HttpClient {
             accumulated_size = accumulated_size.saturating_add(chunk.len());
 
             // Check if accumulated size exceeds limit (Requirement 1.3)
+            // Early termination to avoid wasting bandwidth and memory
             if accumulated_size > max_size {
                 warn!(
                     url = %url,
@@ -597,6 +661,12 @@ impl HttpClient {
             }
 
             body.extend_from_slice(&chunk);
+        }
+
+        // Shrink buffer if we over-allocated significantly (more than 25% unused)
+        // This helps with memory efficiency for responses smaller than expected
+        if body.capacity() > body.len() + body.len() / 4 {
+            body.shrink_to_fit();
         }
 
         Ok(body)
@@ -801,6 +871,10 @@ fn headers_to_json(headers: &HeaderMap) -> Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
+#[allow(clippy::match_same_arms)] // same arms are acceptable in tests
+#[allow(clippy::uninlined_format_args)] // format!("{}", x) is acceptable in tests
+#[allow(clippy::assertions_on_constants)] // assert!(true) is acceptable in tests
 mod tests {
     use super::*;
 
@@ -1303,4 +1377,38 @@ mod tests {
             assert!(e.as_resource_exhausted().is_some());
         }
     }
+}
+
+#[test]
+fn test_http_config_pool_settings_default() {
+    let config = HttpConfig::default();
+    assert_eq!(config.pool_max_idle_per_host, 10);
+    assert_eq!(config.pool_idle_timeout, Duration::from_secs(90));
+}
+
+#[test]
+fn test_http_config_pool_settings_custom() {
+    let config = HttpConfig {
+        pool_max_idle_per_host: 20,
+        pool_idle_timeout: Duration::from_secs(120),
+        ..Default::default()
+    };
+    assert_eq!(config.pool_max_idle_per_host, 20);
+    assert_eq!(config.pool_idle_timeout, Duration::from_secs(120));
+}
+
+#[test]
+fn test_http_client_with_custom_pool_settings() {
+    let config = HttpConfig {
+        pool_max_idle_per_host: 5,
+        pool_idle_timeout: Duration::from_secs(60),
+        ..Default::default()
+    };
+    let client = HttpClient::new(config);
+    assert!(client.is_ok());
+
+    // Verify the config is stored correctly
+    let client = client.unwrap();
+    assert_eq!(client.config().pool_max_idle_per_host, 5);
+    assert_eq!(client.config().pool_idle_timeout, Duration::from_secs(60));
 }

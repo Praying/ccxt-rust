@@ -1,3 +1,14 @@
+#![allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
+#![allow(clippy::uninlined_format_args)] // format!("{}", x) is acceptable in tests
+#![allow(clippy::manual_string_new)] // "".to_string() is acceptable in tests
+#![allow(clippy::redundant_closure)] // closures are acceptable in tests
+#![allow(clippy::unit_cmp)] // () comparison is acceptable in tests
+#![allow(clippy::ignored_unit_patterns)] // _ for () is acceptable in tests
+#![allow(clippy::items_after_statements)] // items after statements is acceptable in tests
+#![allow(clippy::assertions_on_constants)] // const assertions are acceptable in tests
+#![allow(clippy::len_zero)] // len() > 0 is acceptable in tests
+#![allow(clippy::io_other_error)] // io::Error::new is acceptable in tests
+
 use super::convert::{MAX_ERROR_MESSAGE_LEN, truncate_message};
 use super::*;
 use std::time::Duration;
@@ -5,7 +16,7 @@ use std::time::Duration;
 #[test]
 fn test_exchange_error_details_display() {
     let details = ExchangeErrorDetails::new("400", "Bad Request");
-    let display = format!("{}", details);
+    let display = format!("{details}");
     assert!(display.contains("400"));
     assert!(display.contains("Bad Request"));
 }

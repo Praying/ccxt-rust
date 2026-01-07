@@ -3,6 +3,7 @@
 use super::super::super::{Binance, parser};
 use ccxt_core::{Error, ParseError, Result, types::Position};
 use serde_json::Value;
+use std::sync::Arc;
 use tracing::warn;
 
 impl Binance {
@@ -75,15 +76,18 @@ impl Binance {
             ))
         })?;
 
-        let markets_by_id = {
-            let cache = self.base().market_cache.read().await;
-            cache.markets_by_id.clone()
-        };
+        let cache = self.base().market_cache.read().await;
+        let markets_snapshot: std::collections::HashMap<String, Arc<ccxt_core::types::Market>> =
+            cache
+                .iter_markets()
+                .map(|(_, m)| (m.id.clone(), m))
+                .collect();
+        drop(cache);
 
         let mut positions = Vec::new();
         for position_data in positions_array {
             if let Some(binance_symbol) = position_data["symbol"].as_str() {
-                if let Some(market) = markets_by_id.get(binance_symbol) {
+                if let Some(market) = markets_snapshot.get(binance_symbol) {
                     match parser::parse_position(position_data, Some(market)) {
                         Ok(position) => {
                             if position.contracts.unwrap_or(0.0) > 0.0 {

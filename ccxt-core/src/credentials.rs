@@ -220,19 +220,20 @@ impl From<Vec<u8>> for SecretBytes {
 }
 
 #[cfg(test)]
+#[allow(clippy::uninlined_format_args)] // format!("{}", x) is acceptable in tests
 mod tests {
     use super::*;
 
     #[test]
     fn test_secret_string_debug_redacted() {
         let secret = SecretString::new("my-api-key");
-        assert_eq!(format!("{:?}", secret), "[REDACTED]");
+        assert_eq!(format!("{secret:?}"), "[REDACTED]");
     }
 
     #[test]
     fn test_secret_string_display_redacted() {
         let secret = SecretString::new("my-api-key");
-        assert_eq!(format!("{}", secret), "[REDACTED]");
+        assert_eq!(format!("{secret}"), "[REDACTED]");
     }
 
     #[test]
@@ -275,7 +276,7 @@ mod tests {
     #[test]
     fn test_secret_bytes_debug_redacted() {
         let secret = SecretBytes::new(vec![1, 2, 3, 4, 5]);
-        assert_eq!(format!("{:?}", secret), "[REDACTED 5 bytes]");
+        assert_eq!(format!("{secret:?}"), "[REDACTED 5 bytes]");
     }
 
     #[test]

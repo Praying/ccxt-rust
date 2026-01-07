@@ -6,6 +6,10 @@
 //! **Feature: binance-rest-api-modularization, Property 3: Trait Object Safety**
 //! **Validates: Requirements 4.1**
 
+#![allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
+#![allow(clippy::len_zero)] // len() > 0 is acceptable in tests
+#![allow(clippy::vec_init_then_push)] // vec init then push is acceptable in tests
+
 use async_trait::async_trait;
 use ccxt_core::capability::ExchangeCapabilities;
 use ccxt_core::error::Result;

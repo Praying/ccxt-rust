@@ -201,6 +201,6 @@ impl Exchange for HyperLiquid {
 
     async fn markets(&self) -> Arc<HashMap<String, Arc<Market>>> {
         let cache = self.base().market_cache.read().await;
-        cache.markets.clone()
+        cache.markets()
     }
 }

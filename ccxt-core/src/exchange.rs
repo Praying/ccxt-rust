@@ -708,6 +708,11 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::manual_string_new)] // "".to_string() is acceptable in tests
+#[allow(clippy::redundant_closure)] // closures are acceptable in tests
+#[allow(clippy::clone_on_copy)] // clone on copy is acceptable in tests
+#[allow(clippy::unnecessary_literal_unwrap)] // unwrap_err on Err is acceptable in tests
+#[allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
 mod property_tests {
     use super::*;
     use crate::error::Error;

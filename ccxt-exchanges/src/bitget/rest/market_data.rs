@@ -46,8 +46,8 @@ impl Bitget {
 
         {
             let cache = self.base().market_cache.read().await;
-            if cache.loaded && !reload {
-                return Ok(cache.markets.clone());
+            if cache.is_loaded() && !reload {
+                return Ok(cache.markets());
             }
         }
 
@@ -55,7 +55,7 @@ impl Bitget {
         let _markets = self.fetch_markets().await?;
 
         let cache = self.base().market_cache.read().await;
-        Ok(cache.markets.clone())
+        Ok(cache.markets())
     }
 
     /// Fetch ticker for a single trading pair.
@@ -89,13 +89,18 @@ impl Bitget {
     /// Fetch tickers for multiple trading pairs.
     pub async fn fetch_tickers(&self, symbols: Option<Vec<String>>) -> Result<Vec<Ticker>> {
         let cache = self.base().market_cache.read().await;
-        if !cache.loaded {
+        if !cache.is_loaded() {
             drop(cache);
             return Err(Error::exchange(
                 "-1",
                 "Markets not loaded. Call load_markets() first.",
             ));
         }
+        // Build a snapshot of markets by ID for efficient lookup
+        let markets_snapshot: std::collections::HashMap<String, Arc<Market>> = cache
+            .iter_markets()
+            .map(|(_, m)| (m.id.clone(), m))
+            .collect();
         drop(cache);
 
         let path = self.build_api_path("/market/tickers");
@@ -115,12 +120,8 @@ impl Bitget {
         let mut tickers = Vec::new();
         for ticker_data in tickers_array {
             if let Some(bitget_symbol) = ticker_data["symbol"].as_str() {
-                let cache = self.base().market_cache.read().await;
-                if let Some(market) = cache.markets_by_id.get(bitget_symbol) {
-                    let market_clone = market.clone();
-                    drop(cache);
-
-                    match parser::parse_ticker(ticker_data, Some(&market_clone)) {
+                if let Some(market) = markets_snapshot.get(bitget_symbol) {
+                    match parser::parse_ticker(ticker_data, Some(market)) {
                         Ok(ticker) => {
                             if let Some(ref syms) = symbols {
                                 if syms.contains(&ticker.symbol) {
@@ -138,8 +139,6 @@ impl Bitget {
                             );
                         }
                     }
-                } else {
-                    drop(cache);
                 }
             }
         }

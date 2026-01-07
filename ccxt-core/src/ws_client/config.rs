@@ -89,6 +89,35 @@ pub const DEFAULT_MAX_SUBSCRIPTIONS: usize = 100;
 /// Default shutdown timeout in milliseconds.
 pub const DEFAULT_SHUTDOWN_TIMEOUT: u64 = 5000;
 
+/// Default message channel capacity.
+///
+/// This is the maximum number of messages that can be buffered before
+/// backpressure is applied. A value of 1000 provides a good balance
+/// between memory usage and handling burst traffic.
+pub const DEFAULT_MESSAGE_CHANNEL_CAPACITY: usize = 1000;
+
+/// Default write channel capacity.
+///
+/// This is the maximum number of outgoing messages that can be buffered.
+/// A smaller value (100) is used since writes are typically less frequent
+/// than incoming messages.
+pub const DEFAULT_WRITE_CHANNEL_CAPACITY: usize = 100;
+
+/// Backpressure strategy when message channel is full.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackpressureStrategy {
+    /// Drop the oldest message in the queue (default).
+    /// This ensures the most recent data is always available.
+    #[default]
+    DropOldest,
+    /// Drop the newest message (the one being sent).
+    /// This preserves message ordering but may lose recent updates.
+    DropNewest,
+    /// Block until space is available.
+    /// Warning: This can cause the WebSocket read loop to stall.
+    Block,
+}
+
 /// WebSocket connection configuration.
 #[derive(Debug, Clone)]
 pub struct WsConfig {
@@ -114,6 +143,19 @@ pub struct WsConfig {
     pub max_subscriptions: usize,
     /// Shutdown timeout in milliseconds.
     pub shutdown_timeout: u64,
+    /// Message channel capacity (incoming messages buffer size).
+    ///
+    /// When this limit is reached, backpressure is applied according to
+    /// `backpressure_strategy`. Default: 1000 messages.
+    pub message_channel_capacity: usize,
+    /// Write channel capacity (outgoing messages buffer size).
+    ///
+    /// Default: 100 messages.
+    pub write_channel_capacity: usize,
+    /// Strategy to use when message channel is full.
+    ///
+    /// Default: `DropOldest` to ensure most recent data is available.
+    pub backpressure_strategy: BackpressureStrategy,
 }
 
 impl Default for WsConfig {
@@ -130,6 +172,9 @@ impl Default for WsConfig {
             backoff_config: BackoffConfig::default(),
             max_subscriptions: DEFAULT_MAX_SUBSCRIPTIONS,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            message_channel_capacity: DEFAULT_MESSAGE_CHANNEL_CAPACITY,
+            write_channel_capacity: DEFAULT_WRITE_CHANNEL_CAPACITY,
+            backpressure_strategy: BackpressureStrategy::default(),
         }
     }
 }

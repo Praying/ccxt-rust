@@ -3,6 +3,9 @@
 //! These tests verify the correctness properties defined in the design document
 //! using the proptest framework.
 
+#![allow(clippy::disallowed_methods)] // unwrap() is acceptable in tests
+#![allow(clippy::unnecessary_to_owned)] // to_string() is acceptable in tests
+
 use ccxt_core::symbol::SymbolParser;
 use ccxt_core::types::symbol::{ContractType, ExpiryDate, ParsedSymbol, SymbolMarketType};
 use proptest::prelude::*;
