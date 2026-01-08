@@ -82,6 +82,7 @@ impl HashAlgorithm {
     // Lint: should_implement_trait
     // Reason: This method returns Result<Self> with custom error type, not compatible with FromStr trait
     #[allow(clippy::should_implement_trait)]
+    #[allow(deprecated)]
     pub fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "sha1" => Ok(HashAlgorithm::Sha1),
@@ -98,6 +99,7 @@ impl HashAlgorithm {
 }
 
 impl fmt::Display for HashAlgorithm {
+    #[allow(deprecated)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             HashAlgorithm::Sha1 => "sha1",
@@ -177,6 +179,7 @@ pub fn hmac_sign(
     algorithm: HashAlgorithm,
     digest: DigestFormat,
 ) -> Result<String> {
+    #[allow(deprecated)]
     let signature = match algorithm {
         HashAlgorithm::Sha256 => hmac_sha256(message.as_bytes(), secret.as_bytes()),
         HashAlgorithm::Sha512 => hmac_sha512(message.as_bytes(), secret.as_bytes()),
@@ -269,6 +272,7 @@ fn hmac_md5(data: &[u8], secret: &[u8]) -> Vec<u8> {
 /// let hashed = hash("test", HashAlgorithm::Sha256, DigestFormat::Hex).unwrap();
 /// ```
 pub fn hash(data: &str, algorithm: HashAlgorithm, digest: DigestFormat) -> Result<String> {
+    #[allow(deprecated)]
     let hash_bytes = match algorithm {
         HashAlgorithm::Sha256 => hash_sha256(data.as_bytes()),
         HashAlgorithm::Sha512 => hash_sha512(data.as_bytes()),
