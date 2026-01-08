@@ -141,10 +141,6 @@ url = { workspace = true }
 regex = { workspace = true }
 paste = { workspace = true }
 
-[[bin]]
-name = "test_u64_since"
-path = "test_u64_since.rs"
-
 [dev-dependencies]
 tokio-test = { workspace = true }
 criterion = { workspace = true }

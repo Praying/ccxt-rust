@@ -331,7 +331,7 @@ mod tests {
             None,
             None,
             None,
-            Some(1637008000000), // 8000秒后
+            Some(1637008000000), // 8000 seconds later
             None,
             1637000000000,
         );
@@ -342,7 +342,7 @@ mod tests {
     fn test_is_deviation_excessive() {
         let mark_price = MarkPrice::new(
             "BTC/USDT".to_string(),
-            dec!(50600), // 1.2% 偏离
+            dec!(50600), // 1.2% deviation
             Some(dec!(50000)),
             None,
             None,

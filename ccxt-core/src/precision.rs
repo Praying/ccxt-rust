@@ -169,7 +169,7 @@ pub fn truncate(value: Decimal, precision: i32) -> Decimal {
 ///
 /// let num = Decimal::from_str("123.456789").unwrap();
 ///
-/// // 保留2位小数，四舍五入
+/// // Round to 2 decimal places
 /// let result = decimal_to_precision(
 ///     num,
 ///     RoundingMode::Round,
@@ -179,7 +179,7 @@ pub fn truncate(value: Decimal, precision: i32) -> Decimal {
 /// ).unwrap();
 /// assert_eq!(result, "123.46");
 ///
-/// // 截断到2位小数
+/// // Truncate to 2 decimal places
 /// let result = decimal_to_precision(
 ///     num,
 ///     RoundingMode::RoundDown,

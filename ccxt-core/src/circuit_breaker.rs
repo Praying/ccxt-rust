@@ -511,40 +511,80 @@ impl CircuitBreaker {
     /// breaker.record_failure();
     /// ```
     pub fn record_failure(&self) {
-        let state = self.state();
+        // ATOMIC STATE TRANSITION with failure counting
+        // We use a CAS loop that combines state check and transition to avoid race conditions
+        // where multiple threads could update last_failure_time inconsistently.
+        let mut current_state = self.state.load(Ordering::Acquire);
 
-        match state {
-            CircuitState::Closed => {
-                let count = self.failure_count.fetch_add(1, Ordering::AcqRel) + 1;
+        loop {
+            if current_state == CircuitState::Open as u8 {
+                // Already Open - just increment failure count for monitoring, no state transition needed
+                let prev_failures = self.failure_count.fetch_add(1, Ordering::AcqRel);
+                let current_failures = prev_failures + 1;
+
                 debug!(
-                    failure_count = count,
+                    failure_count = current_failures,
                     threshold = self.config.failure_threshold,
-                    "Circuit breaker: Failure recorded in Closed state"
+                    "Circuit breaker: Failure recorded (already Open)"
                 );
 
-                self.emit_event(CircuitBreakerEvent::FailureRecorded { count });
+                self.emit_event(CircuitBreakerEvent::FailureRecorded {
+                    count: current_failures,
+                });
+                return;
+            }
 
-                if count >= self.config.failure_threshold {
-                    warn!(
-                        failure_count = count,
-                        "Circuit breaker: Failure threshold reached, transitioning to Open"
-                    );
-                    self.transition_to(CircuitState::Open);
-                    self.last_failure_time
-                        .store(chrono::Utc::now().timestamp_millis(), Ordering::Release);
+            // For Closed/HalfOpen states: atomically increment and check threshold
+            let prev_failures = self.failure_count.fetch_add(1, Ordering::AcqRel);
+            let current_failures = prev_failures + 1;
+
+            debug!(
+                failure_count = current_failures,
+                threshold = self.config.failure_threshold,
+                "Circuit breaker: Failure recorded"
+            );
+
+            self.emit_event(CircuitBreakerEvent::FailureRecorded {
+                count: current_failures,
+            });
+
+            // Check if we should transition to Open
+            if current_failures >= self.config.failure_threshold {
+                // CAS: Atomically check and transition state
+                // Only the thread that successfully transitions will update last_failure_time
+                match self.state.compare_exchange_weak(
+                    current_state,
+                    CircuitState::Open as u8,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        // Successfully transitioned to Open state - only this thread updates timestamp
+                        warn!(
+                            failure_count = current_failures,
+                            "Circuit breaker: Transitioned to Open state (atomic)"
+                        );
+                        self.last_failure_time
+                            .store(chrono::Utc::now().timestamp_millis(), Ordering::Release);
+                        return;
+                    }
+                    Err(actual) => {
+                        // CAS failed: another thread modified state
+                        // If it's now Open, we're done (another thread handled the transition)
+                        if actual == CircuitState::Open as u8 {
+                            return;
+                        }
+                        // Otherwise retry with the new state
+                        current_state = actual;
+                        // Note: failure_count was already incremented, which is correct
+                        // We just need to retry the state transition
+                        continue;
+                    }
                 }
             }
-            CircuitState::HalfOpen => {
-                warn!("Circuit breaker: Failure in HalfOpen state, transitioning back to Open");
-                self.transition_to(CircuitState::Open);
-                self.last_failure_time
-                    .store(chrono::Utc::now().timestamp_millis(), Ordering::Release);
-                self.success_count.store(0, Ordering::Release);
-            }
-            CircuitState::Open => {
-                // No effect in Open state
-                debug!("Circuit breaker: Failure recorded in Open state (no effect)");
-            }
+
+            // Threshold not reached, we're done
+            return;
         }
     }
 

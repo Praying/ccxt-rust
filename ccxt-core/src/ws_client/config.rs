@@ -168,7 +168,7 @@ impl Default for WsConfig {
             max_reconnect_attempts: 5,
             auto_reconnect: true,
             enable_compression: false,
-            pong_timeout: 90000,
+            pong_timeout: 30000, // 30 seconds default (detects zombie connections faster)
             backoff_config: BackoffConfig::default(),
             max_subscriptions: DEFAULT_MAX_SUBSCRIPTIONS,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,

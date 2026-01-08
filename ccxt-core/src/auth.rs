@@ -23,18 +23,50 @@ use sha3::Keccak256;
 use std::fmt;
 
 /// Supported cryptographic hash algorithms.
+///
+/// # Security Warning
+///
+/// **MD5 and SHA-1 are deprecated** due to known cryptographic vulnerabilities.
+/// Use [Sha256](Self::Sha256) or stronger algorithms for new implementations.
+/// The deprecated variants are maintained only for backward compatibility with
+/// legacy exchanges that still require them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlgorithm {
     /// SHA-1 hash algorithm
+    ///
+    /// # Security Warning
+    ///
+    /// **DEPRECATED** - SHA-1 has been cryptographically broken since 2017.
+    /// Collision attacks are practical. Do NOT use for new implementations.
+    /// Use [Sha256](Self::Sha256) instead.
+    #[deprecated(
+        since = "0.1.3",
+        note = "SHA-1 is cryptographically broken, use Sha256 instead"
+    )]
     Sha1,
-    /// SHA-256 hash algorithm
+
+    /// SHA-256 hash algorithm (recommended)
     Sha256,
+
     /// SHA-384 hash algorithm
     Sha384,
+
     /// SHA-512 hash algorithm
     Sha512,
+
     /// MD5 hash algorithm
+    ///
+    /// # Security Warning
+    ///
+    /// **DEPRECATED** - MD5 has been cryptographically broken since 2004.
+    /// Collision attacks are practical. Do NOT use for new implementations.
+    /// Use [Sha256](Self::Sha256) instead.
+    #[deprecated(
+        since = "0.1.3",
+        note = "MD5 is cryptographically broken, use Sha256 instead"
+    )]
     Md5,
+
     /// Keccak-256 (SHA-3) hash algorithm
     Keccak,
 }
@@ -386,7 +418,7 @@ pub fn eddsa_sign(data: &str, secret_key: &[u8]) -> Result<String> {
 ///
 /// # Arguments
 /// * `payload` - JWT payload as JSON object
-/// * `secret` - Secret key for signing
+/// * `secret` - Secret key for signing (must be at least 32 characters for security)
 /// * `algorithm` - Hash algorithm for HMAC (supports Sha256, Sha384, Sha512)
 /// * `header_options` - Optional additional header fields
 ///
@@ -398,6 +430,14 @@ pub fn eddsa_sign(data: &str, secret_key: &[u8]) -> Result<String> {
 /// - JSON serialization fails
 /// - Signing fails
 /// - Unsupported algorithm is provided (only HS256, HS384, HS512 are supported)
+/// - Secret key is less than 32 characters (security requirement)
+///
+/// # Security
+///
+/// **Minimum secret length: 32 characters**
+///
+/// Short secrets are vulnerable to brute-force attacks. The minimum 32-character
+/// requirement ensures sufficient entropy for secure HMAC signatures.
 ///
 /// # Examples
 /// ```
@@ -409,11 +449,21 @@ pub fn eddsa_sign(data: &str, secret_key: &[u8]) -> Result<String> {
 ///     "exp": 1234567890
 /// });
 ///
-/// // Using HS256
-/// let token = jwt_sign(&payload, "secret", HashAlgorithm::Sha256, None).unwrap();
+/// // Using HS256 with a strong secret (at least 32 characters)
+/// let token = jwt_sign(
+///     &payload,
+///     "my-very-secure-secret-key-at-least-32-chars",
+///     HashAlgorithm::Sha256,
+///     None
+/// ).unwrap();
 ///
 /// // Using HS512
-/// let token_512 = jwt_sign(&payload, "secret", HashAlgorithm::Sha512, None).unwrap();
+/// let token_512 = jwt_sign(
+///     &payload,
+///     "my-very-secure-secret-key-at-least-32-chars",
+///     HashAlgorithm::Sha512,
+///     None
+/// ).unwrap();
 /// ```
 pub fn jwt_sign(
     payload: &serde_json::Value,
@@ -421,6 +471,18 @@ pub fn jwt_sign(
     algorithm: HashAlgorithm,
     header_options: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> Result<String> {
+    // Validate secret key strength (minimum 32 characters for security)
+    const MIN_SECRET_LENGTH: usize = 32;
+
+    if secret.len() < MIN_SECRET_LENGTH {
+        return Err(Error::invalid_argument(format!(
+            "JWT secret must be at least {MIN_SECRET_LENGTH} characters for security. \
+            Provided: {} characters. \
+            Use a longer secret to protect against brute-force attacks.",
+            secret.len()
+        )));
+    }
+
     // Map HashAlgorithm to JWT algorithm string
     let alg_str = match algorithm {
         HashAlgorithm::Sha256 => "HS256",
@@ -552,7 +614,7 @@ mod tests {
     #[test]
     fn test_hash_keccak() {
         let result = hash("test", HashAlgorithm::Keccak, DigestFormat::Hex).unwrap();
-        assert_eq!(result.len(), 64); // Keccak256输出32字节=64个hex字符
+        assert_eq!(result.len(), 64); // Keccak256 outputs 32 bytes = 64 hex characters
     }
 
     #[test]
@@ -578,9 +640,16 @@ mod tests {
             "exp": 1234567890
         });
 
-        let token = jwt_sign(&payload, "secret", HashAlgorithm::Sha256, None).unwrap();
+        // Use a strong secret (at least 32 characters)
+        let token = jwt_sign(
+            &payload,
+            "my-very-secure-secret-key-at-least-32-chars",
+            HashAlgorithm::Sha256,
+            None,
+        )
+        .unwrap();
 
-        // JWT应该有3部分，用.分隔
+        // JWT should have 3 parts separated by .
         let parts: Vec<&str> = token.split('.').collect();
         assert_eq!(parts.len(), 3);
 
@@ -599,20 +668,22 @@ mod tests {
             "exp": 1234567890
         });
 
+        let strong_secret = "my-very-secure-secret-key-at-least-32-chars";
+
         // Test HS256
-        let token_256 = jwt_sign(&payload, "secret", HashAlgorithm::Sha256, None).unwrap();
+        let token_256 = jwt_sign(&payload, strong_secret, HashAlgorithm::Sha256, None).unwrap();
         let parts_256: Vec<&str> = token_256.split('.').collect();
         let header_256 = String::from_utf8(base64url_decode(parts_256[0]).unwrap()).unwrap();
         assert!(header_256.contains("HS256"));
 
         // Test HS384
-        let token_384 = jwt_sign(&payload, "secret", HashAlgorithm::Sha384, None).unwrap();
+        let token_384 = jwt_sign(&payload, strong_secret, HashAlgorithm::Sha384, None).unwrap();
         let parts_384: Vec<&str> = token_384.split('.').collect();
         let header_384 = String::from_utf8(base64url_decode(parts_384[0]).unwrap()).unwrap();
         assert!(header_384.contains("HS384"));
 
         // Test HS512
-        let token_512 = jwt_sign(&payload, "secret", HashAlgorithm::Sha512, None).unwrap();
+        let token_512 = jwt_sign(&payload, strong_secret, HashAlgorithm::Sha512, None).unwrap();
         let parts_512: Vec<&str> = token_512.split('.').collect();
         let header_512 = String::from_utf8(base64url_decode(parts_512[0]).unwrap()).unwrap();
         assert!(header_512.contains("HS512"));
@@ -628,16 +699,31 @@ mod tests {
         });
 
         // SHA1 is not supported for JWT
-        let result = jwt_sign(&payload, "secret", HashAlgorithm::Sha1, None);
+        let result = jwt_sign(
+            &payload,
+            "my-very-secure-secret-key-at-least-32-chars",
+            HashAlgorithm::Sha1,
+            None,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("does not support"));
 
         // MD5 is not supported for JWT
-        let result = jwt_sign(&payload, "secret", HashAlgorithm::Md5, None);
+        let result = jwt_sign(
+            &payload,
+            "my-very-secure-secret-key-at-least-32-chars",
+            HashAlgorithm::Md5,
+            None,
+        );
         assert!(result.is_err());
 
         // Keccak is not supported for JWT
-        let result = jwt_sign(&payload, "secret", HashAlgorithm::Keccak, None);
+        let result = jwt_sign(
+            &payload,
+            "my-very-secure-secret-key-at-least-32-chars",
+            HashAlgorithm::Keccak,
+            None,
+        );
         assert!(result.is_err());
     }
 
@@ -659,18 +745,115 @@ mod tests {
         assert_eq!(DigestFormat::from_str("hex"), DigestFormat::Hex);
         assert_eq!(DigestFormat::from_str("base64"), DigestFormat::Base64);
         assert_eq!(DigestFormat::from_str("binary"), DigestFormat::Binary);
-        assert_eq!(DigestFormat::from_str("unknown"), DigestFormat::Hex); // 默认
+        assert_eq!(DigestFormat::from_str("unknown"), DigestFormat::Hex); // defaults to Hex
     }
 
     #[test]
     fn test_hmac_sha512() {
         let result = hmac_sign("test", "secret", HashAlgorithm::Sha512, DigestFormat::Hex).unwrap();
-        assert_eq!(result.len(), 128); // SHA512输出64字节=128个hex字符
+        assert_eq!(result.len(), 128); // SHA512 outputs 64 bytes = 128 hex characters
     }
 
     #[test]
     fn test_hash_md5() {
         let result = hash("test", HashAlgorithm::Md5, DigestFormat::Hex).unwrap();
-        assert_eq!(result.len(), 32); // MD5输出16字节=32个hex字符
+        assert_eq!(result.len(), 32); // MD5 outputs 16 bytes = 32 hex characters
+    }
+
+    #[test]
+    fn test_jwt_sign_weak_secret_rejected() {
+        use serde_json::json;
+
+        let payload = json!({
+            "user_id": "123",
+            "exp": 1234567890
+        });
+
+        // Test various weak secrets (less than 32 characters)
+        let weak_secrets = vec![
+            "",                            // empty
+            "a",                           // 1 character
+            "short",                       // 5 characters
+            "this-is-still-too-short-123", // 31 characters (just below threshold)
+        ];
+
+        for weak_secret in weak_secrets {
+            let result = jwt_sign(&payload, weak_secret, HashAlgorithm::Sha256, None);
+            assert!(
+                result.is_err(),
+                "Secret with {} characters should be rejected",
+                weak_secret.len()
+            );
+
+            if let Err(e) = result {
+                let error_msg = e.to_string();
+                assert!(
+                    error_msg.contains("32 characters"),
+                    "Error message should mention 32 character requirement"
+                );
+                assert!(
+                    error_msg.contains("security"),
+                    "Error message should mention security"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_jwt_sign_minimum_valid_secret() {
+        use serde_json::json;
+
+        let payload = json!({
+            "user_id": "123",
+            "exp": 1234567890
+        });
+
+        // Test exactly 32 characters (should succeed)
+        let exactly_32_chars = "12345678901234567890123456789012"; // exactly 32 chars
+        let result = jwt_sign(&payload, exactly_32_chars, HashAlgorithm::Sha256, None);
+        assert!(
+            result.is_ok(),
+            "Secret with exactly 32 characters should be accepted"
+        );
+
+        // Test 33 characters (should succeed)
+        let exactly_33_chars = "123456789012345678901234567890123"; // exactly 33 chars
+        let result = jwt_sign(&payload, exactly_33_chars, HashAlgorithm::Sha256, None);
+        assert!(
+            result.is_ok(),
+            "Secret with 33 characters should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_jwt_sign_with_custom_header_and_strong_secret() {
+        use serde_json::json;
+
+        let payload = json!({
+            "user_id": "123",
+            "exp": 1234567890
+        });
+
+        let mut custom_header = serde_json::Map::new();
+        custom_header.insert(
+            "kid".to_string(),
+            serde_json::Value::String("key-123".to_string()),
+        );
+
+        let strong_secret = "my-very-secure-secret-key-at-least-32-chars";
+        let token = jwt_sign(
+            &payload,
+            strong_secret,
+            HashAlgorithm::Sha256,
+            Some(custom_header),
+        )
+        .unwrap();
+
+        let parts: Vec<&str> = token.split('.').collect();
+        assert_eq!(parts.len(), 3);
+
+        let header_bytes = base64url_decode(parts[0]).unwrap();
+        let header_str = String::from_utf8(header_bytes).unwrap();
+        assert!(header_str.contains("\"kid\":\"key-123\""));
     }
 }

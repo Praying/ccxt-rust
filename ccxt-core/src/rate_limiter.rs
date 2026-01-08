@@ -177,38 +177,32 @@ impl RateLimiterState {
     ///
     /// The `remainder_nanos` field tracks fractional periods that haven't yet
     /// accumulated to a full refill period, ensuring no time is lost between refills.
-    #[allow(clippy::cast_possible_truncation)]
+    ///
+    /// Uses u128 for all intermediate calculations to prevent overflow for 10+ years of uptime.
     fn refill(&mut self) {
         let now = Instant::now();
-        // Note: as_nanos() returns u128, but for practical durations (< 584 years),
-        // u64 is sufficient. We use saturating conversion to handle edge cases.
-        let elapsed_nanos = now
-            .duration_since(self.last_refill)
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
-        let period_nanos = self
-            .config
-            .refill_period
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        // Use u128 for all time calculations (prevents overflow for 10+ years)
+        let elapsed_nanos = now.duration_since(self.last_refill).as_nanos(); // u128
+        let period_nanos = self.config.refill_period.as_nanos(); // u128
 
         // Avoid division by zero (should not happen with valid config)
         if period_nanos == 0 {
             return;
         }
 
-        // Add elapsed time to accumulated remainder
-        let total_nanos = self.remainder_nanos.saturating_add(elapsed_nanos);
+        // Add elapsed time to accumulated remainder using saturating_add to prevent overflow
+        // Even though u128 is very large, using saturating_add ensures safety in extreme edge cases
+        let total_nanos = u128::from(self.remainder_nanos).saturating_add(elapsed_nanos);
 
         // Calculate complete periods using integer division
         let complete_periods = total_nanos / period_nanos;
 
         if complete_periods > 0 {
-            // Calculate tokens to add using integer arithmetic
-            // Use u64 for intermediate calculation to avoid overflow
-            let tokens_to_add = complete_periods
-                .saturating_mul(u64::from(self.config.refill_amount))
-                .min(u64::from(u32::MAX)) as u32;
+            // Calculate tokens to add using u128 arithmetic (prevents overflow)
+            // Truncation is safe here because we explicitly cap at u32::MAX
+            #[allow(clippy::cast_possible_truncation)]
+            let tokens_to_add = (complete_periods * u128::from(self.config.refill_amount))
+                .min(u128::from(u32::MAX)) as u32;
 
             // Add tokens up to capacity
             self.tokens = self
@@ -217,7 +211,11 @@ impl RateLimiterState {
                 .min(self.config.capacity);
 
             // Store remainder for next refill (preserves fractional periods)
-            self.remainder_nanos = total_nanos % period_nanos;
+            // Truncation is safe: remainder is always < period_nanos, which fits in u64
+            // (period_nanos comes from Duration::as_nanos() which is typically < u64::MAX)
+            #[allow(clippy::cast_possible_truncation)]
+            let remainder = (total_nanos % period_nanos) as u64;
+            self.remainder_nanos = remainder;
             self.last_refill = now;
         }
     }
