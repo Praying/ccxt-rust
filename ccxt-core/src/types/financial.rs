@@ -852,7 +852,7 @@ mod tests {
         let doubled = price * dec!(2);
         assert_eq!(doubled.as_decimal(), dec!(100000.0));
 
-        // 测试交换律
+        // test commutativity
         let doubled2 = dec!(2) * price;
         assert_eq!(doubled2.as_decimal(), dec!(100000.0));
     }

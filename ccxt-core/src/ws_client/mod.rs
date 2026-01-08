@@ -714,7 +714,18 @@ impl WsClient {
                         let elapsed = now - last_pong;
                         #[allow(clippy::cast_possible_wrap)]
                         if elapsed > pong_timeout_ms as i64 {
+                            // Pong timeout detected - log detailed diagnostics
+                            error!(
+                                pong_timeout_ms = pong_timeout_ms,
+                                elapsed_ms = elapsed,
+                                last_pong_time = last_pong,
+                                current_time = now,
+                                "WebSocket pong timeout detected - connection appears unresponsive (zombie connection)"
+                            );
                             ping_state.store(WsConnectionState::Error.as_u8(), Ordering::Release);
+                            debug!(
+                                "WebSocket state set to Error due to pong timeout - AutoReconnectCoordinator will trigger reconnection if enabled"
+                            );
                             break;
                         }
                     }
@@ -726,6 +737,7 @@ impl WsClient {
                         .try_send(Message::Ping(vec![].into()))
                         .is_err()
                     {
+                        debug!("WebSocket write channel closed, stopping ping loop");
                         break;
                     }
                 }

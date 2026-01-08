@@ -56,6 +56,12 @@ pub struct HttpConfig {
     /// This protects against malicious or abnormal responses that could exhaust memory.
     pub max_response_size: usize,
 
+    /// Maximum request body size in bytes (default: 10MB)
+    ///
+    /// Request bodies exceeding this limit will be rejected BEFORE serialization.
+    /// This protects against DoS attacks via oversized request payloads.
+    pub max_request_size: usize,
+
     /// Optional circuit breaker configuration.
     ///
     /// When enabled, the circuit breaker will track request failures and
@@ -97,6 +103,7 @@ impl Default for HttpConfig {
             enable_rate_limit: true,
             retry_config: None, // Uses default retry configuration
             max_response_size: 10 * 1024 * 1024, // 10MB default
+            max_request_size: 10 * 1024 * 1024, // 10MB default
             circuit_breaker: None, // Disabled by default for backward compatibility
             pool_max_idle_per_host: 10, // Default: 10 idle connections per host
             pool_idle_timeout: Duration::from_secs(90), // Default: 90 seconds
@@ -137,6 +144,9 @@ impl HttpConfig {
     /// assert!(result.is_err());
     /// ```
     pub fn validate(&self) -> std::result::Result<ValidationResult, ConfigValidationError> {
+        // Maximum reasonable request size (100MB) - defined at the start to satisfy clippy
+        const MAX_REASONABLE_REQUEST_SIZE: usize = 100 * 1024 * 1024;
+
         let mut warnings = Vec::new();
 
         // Validate timeout <= 5 minutes
@@ -154,6 +164,23 @@ impl HttpConfig {
             warnings.push(format!(
                 "timeout {:?} is very short, may cause frequent timeouts",
                 self.timeout
+            ));
+        }
+
+        // Validate max_request_size > 0
+        if self.max_request_size == 0 {
+            return Err(ConfigValidationError::invalid(
+                "max_request_size",
+                "max_request_size cannot be zero",
+            ));
+        }
+
+        // Validate max_request_size <= 100MB (prevent memory exhaustion attacks)
+        if self.max_request_size > MAX_REASONABLE_REQUEST_SIZE {
+            return Err(ConfigValidationError::too_high(
+                "max_request_size",
+                format!("{}", self.max_request_size),
+                "100MB (104857600 bytes)",
             ));
         }
 
@@ -457,7 +484,19 @@ impl HttpClient {
         }
 
         if let Some(ref body) = body {
-            request = request.json(&body);
+            // Validate request body size BEFORE serialization (DoS protection)
+            let body_str = serde_json::to_string(body)
+                .map_err(|e| Error::invalid_request(format!("JSON serialization failed: {e}")))?;
+
+            if body_str.len() > self.config.max_request_size {
+                return Err(Error::invalid_request(format!(
+                    "Request body {} bytes exceeds limit {} bytes",
+                    body_str.len(),
+                    self.config.max_request_size
+                )));
+            }
+
+            request = request.body(body_str);
         }
 
         if self.config.verbose {
@@ -1221,6 +1260,50 @@ mod tests {
         let result = config.validate();
         assert!(result.is_ok());
         assert!(!result.unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn test_http_config_validate_max_request_size_zero() {
+        let config = HttpConfig {
+            max_request_size: 0,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.field_name(), "max_request_size");
+    }
+
+    #[test]
+    fn test_http_config_validate_max_request_size_too_large() {
+        // max_request_size > 100MB should be rejected
+        let config = HttpConfig {
+            max_request_size: 101 * 1024 * 1024, // 101MB
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.field_name(), "max_request_size");
+    }
+
+    #[test]
+    fn test_http_config_validate_max_request_size_boundary() {
+        // max_request_size = 100MB should be valid
+        let config = HttpConfig {
+            max_request_size: 100 * 1024 * 1024, // 100MB
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_ok());
+
+        // max_request_size = 100MB + 1 byte should be rejected
+        let config = HttpConfig {
+            max_request_size: 100 * 1024 * 1024 + 1,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
     }
 
     #[test]

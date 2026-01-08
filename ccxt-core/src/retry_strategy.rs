@@ -693,7 +693,7 @@ mod tests {
     fn test_rate_limit_error_minimum_delay() {
         let config = RetryConfig {
             strategy_type: RetryStrategyType::Fixed,
-            base_delay_ms: 100, // 很短的基础延迟
+            base_delay_ms: 100, // very short base delay
             jitter_factor: 0.0,
             ..Default::default()
         };

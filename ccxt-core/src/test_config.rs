@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_from_env_with_defaults() {
-        // 测试在没有环境变量时使用默认值
+        // test using defaults when no env vars are set
         let config = TestConfig::from_env().unwrap();
         assert_eq!(config.test_timeout_ms, 30000);
         assert_eq!(config.test_data.fixtures_dir, "tests/fixtures");
