@@ -59,7 +59,7 @@ pub struct WsClient {
     subscription_manager: SubscriptionManager,
     message_tx: mpsc::Sender<Value>,
     message_rx: Arc<RwLock<mpsc::Receiver<Value>>>,
-    write_tx: Arc<Mutex<Option<mpsc::Sender<Message>>>>,
+    write_tx: Arc<RwLock<Option<mpsc::Sender<Message>>>>,
     pub(crate) reconnect_count: AtomicU32,
     shutdown_tx: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
     stats: Arc<WsStats>,
@@ -84,7 +84,7 @@ impl WsClient {
             subscription_manager: SubscriptionManager::new(max_subscriptions),
             message_tx,
             message_rx: Arc::new(RwLock::new(message_rx)),
-            write_tx: Arc::new(Mutex::new(None)),
+            write_tx: Arc::new(RwLock::new(None)),
             reconnect_count: AtomicU32::new(0),
             shutdown_tx: Arc::new(Mutex::new(None)),
             stats: Arc::new(WsStats::new()),
@@ -256,7 +256,7 @@ impl WsClient {
             let _ = tx.send(());
         }
 
-        *self.write_tx.lock().await = None;
+        *self.write_tx.write().await = None;
         self.set_state(WsConnectionState::Disconnected);
 
         info!("WebSocket disconnected");
@@ -278,7 +278,7 @@ impl WsClient {
         self.set_state(WsConnectionState::Disconnected);
 
         {
-            let write_tx_guard = self.write_tx.lock().await;
+            let write_tx_guard = self.write_tx.read().await;
             if let Some(ref tx) = *write_tx_guard {
                 // Ignore send result - we're shutting down anyway
                 drop(tx.send(Message::Close(None)).await);
@@ -295,7 +295,7 @@ impl WsClient {
         .await;
 
         {
-            *self.write_tx.lock().await = None;
+            *self.write_tx.write().await = None;
             *self.shutdown_tx.lock().await = None;
             self.subscription_manager.clear();
             self.reconnect_count.store(0, Ordering::Release);
@@ -552,7 +552,7 @@ impl WsClient {
     /// it will wait until space is available.
     #[instrument(name = "ws_send", skip(self, message))]
     pub async fn send(&self, message: Message) -> Result<()> {
-        let tx = self.write_tx.lock().await;
+        let tx = self.write_tx.read().await;
 
         if let Some(sender) = tx.as_ref() {
             sender
@@ -571,8 +571,8 @@ impl WsClient {
     #[instrument(name = "ws_try_send", skip(self, message))]
     pub fn try_send(&self, message: Message) -> Result<()> {
         // Note: This is a sync method, so we can't use async lock
-        // We use try_lock to avoid blocking
-        if let Ok(tx) = self.write_tx.try_lock() {
+        // We use try_read to avoid blocking
+        if let Ok(tx) = self.write_tx.try_read() {
             if let Some(sender) = tx.as_ref() {
                 sender.try_send(message).map_err(|e| match e {
                     mpsc::error::TrySendError::Full(_) => {
@@ -616,7 +616,7 @@ impl WsClient {
 
         // Use bounded channel for write operations to prevent memory exhaustion
         let (write_tx, mut write_rx) = mpsc::channel::<Message>(self.config.write_channel_capacity);
-        *self.write_tx.lock().await = Some(write_tx.clone());
+        *self.write_tx.write().await = Some(write_tx.clone());
 
         // Shutdown channel remains unbounded as it's only used for signaling
         let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();

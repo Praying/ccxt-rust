@@ -71,6 +71,22 @@ pub struct Ticker {
     #[serde(rename = "quoteVolume")]
     pub quote_volume: Option<Amount>,
 
+    /// Funding rate (for derivatives)
+    #[serde(rename = "fundingRate")]
+    pub funding_rate: Option<Decimal>,
+
+    /// Open interest (for derivatives)
+    #[serde(rename = "openInterest")]
+    pub open_interest: Option<Decimal>,
+
+    /// Index price (for derivatives)
+    #[serde(rename = "indexPrice")]
+    pub index_price: Option<Price>,
+
+    /// Mark price (for derivatives)
+    #[serde(rename = "markPrice")]
+    pub mark_price: Option<Price>,
+
     /// Raw exchange info
     #[serde(flatten)]
     pub info: HashMap<String, serde_json::Value>,
@@ -104,6 +120,10 @@ impl Ticker {
             average: None,
             base_volume: None,
             quote_volume: None,
+            funding_rate: None,
+            open_interest: None,
+            index_price: None,
+            mark_price: None,
             info: HashMap::new(),
         }
     }

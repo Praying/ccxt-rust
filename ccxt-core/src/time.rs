@@ -46,6 +46,7 @@
 use crate::error::{Error, ParseError, Result};
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 
 /// Returns the current time in milliseconds since the Unix epoch
 ///
@@ -439,18 +440,18 @@ impl TimestampUtils {
     /// assert!(now > 1_600_000_000_000); // After 2020
     /// ```
     pub fn now_ms() -> i64 {
-        // SAFETY: SystemTime::now().duration_since(UNIX_EPOCH) can only fail if the system
-        // clock is set to a time before January 1, 1970 (Unix epoch). This is an extremely
-        // rare edge case that would indicate a severely misconfigured system. In practice,
-        // no modern operating system allows the clock to be set before 1970, and any system
-        // running cryptocurrency trading software would have a properly configured clock.
-        // The panic here is intentional to fail fast on such misconfigured systems.
+        // SAFETY: SystemTime::now().duration_since(UNIX_EPOCH) can fail if the system
+        // clock is set to a time before January 1, 1970 (Unix epoch).
+        // Instead of panicking, we return the negative timestamp to avoid crashing.
         #[allow(clippy::cast_possible_truncation)]
-        let ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock is set before UNIX_EPOCH (1970); this indicates a severely misconfigured system")
-            .as_millis() as i64;
-        ms
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_millis() as i64,
+            Err(e) => {
+                warn!("System clock is set before UNIX_EPOCH (1970); returning negative timestamp");
+                // e.duration() returns the difference, so we negate it
+                -(e.duration().as_millis() as i64)
+            }
+        }
     }
 
     /// Convert seconds to milliseconds

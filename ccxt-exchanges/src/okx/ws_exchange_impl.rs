@@ -53,11 +53,13 @@ impl WsExchange for Okx {
         ws.watch_ticker(&okx_symbol, market).await
     }
 
-    async fn watch_tickers(&self, _symbols: &[String]) -> Result<MessageStream<Vec<Ticker>>> {
-        // TODO: Implement multi-symbol ticker watching
-        Err(Error::not_implemented(
-            "watch_tickers not yet implemented for OKX",
-        ))
+    async fn watch_tickers(&self, symbols: &[String]) -> Result<MessageStream<Vec<Ticker>>> {
+        let ws = self.create_ws();
+
+        // Convert unified symbols (BTC/USDT) to OKX format (BTC-USDT)
+        let okx_symbols: Vec<String> = symbols.iter().map(|s| s.replace('/', "-")).collect();
+
+        ws.watch_tickers(&okx_symbols).await
     }
 
     async fn watch_order_book(

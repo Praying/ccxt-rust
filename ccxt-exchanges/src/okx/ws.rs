@@ -111,11 +111,100 @@ impl OkxWs {
         Ok(())
     }
 
-    /// Subscribes to an orderbook stream.
+    /// Subscribes to multiple ticker streams.
     ///
     /// # Arguments
     ///
-    /// * `symbol` - Trading pair symbol in OKX format (e.g., "BTC-USDT")
+    /// * `symbols` - List of trading pair symbols (e.g., ["BTC-USDT", "ETH-USDT"])
+    pub async fn subscribe_tickers(&self, symbols: &[String]) -> Result<()> {
+        let mut args = Vec::new();
+        for symbol in symbols {
+            let mut arg_map = serde_json::Map::new();
+            arg_map.insert(
+                "channel".to_string(),
+                serde_json::Value::String("tickers".to_string()),
+            );
+            arg_map.insert(
+                "instId".to_string(),
+                serde_json::Value::String(symbol.to_string()),
+            );
+            args.push(serde_json::Value::Object(arg_map));
+        }
+
+        // json! macro with literal values is infallible
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "subscribe",
+            "args": args
+        });
+
+        self.client.send_json(&msg).await?;
+
+        let mut subs = self.subscriptions.write().await;
+        for symbol in symbols {
+            subs.push(format!("ticker:{}", symbol));
+        }
+
+        Ok(())
+    }
+
+    /// Watches ticker updates for multiple symbols.
+    ///
+    /// Returns a stream of `Vec<Ticker>` updates for the specified symbols.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbols` - List of trading pair symbols (e.g., ["BTC-USDT", "ETH-USDT"])
+    ///
+    /// # Returns
+    ///
+    /// A `MessageStream<Vec<Ticker>>` that yields ticker updates.
+    pub async fn watch_tickers(&self, symbols: &[String]) -> Result<MessageStream<Vec<Ticker>>> {
+        // Ensure connected
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        // Subscribe to ticker channels
+        self.subscribe_tickers(symbols).await?;
+
+        // Create channel for ticker updates
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Vec<Ticker>>>();
+        let symbols_owned: Vec<String> = symbols.to_vec();
+        let client = Arc::clone(&self.client);
+
+        // Spawn task to process messages and filter ticker updates
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                // Check if this is a ticker message for ANY of our symbols
+                if let Some(arg) = msg.get("arg") {
+                    let channel = arg.get("channel").and_then(|c| c.as_str());
+                    let inst_id = arg.get("instId").and_then(|i| i.as_str());
+
+                    if channel == Some("tickers") {
+                        if let Some(id) = inst_id {
+                            if symbols_owned.iter().any(|s| s == id) {
+                                match parse_ws_ticker(&msg, None) {
+                                    Ok(ticker) => {
+                                        if tx.send(Ok(vec![ticker])).is_err() {
+                                            break; // Receiver dropped
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if tx.send(Err(e)).is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
     /// * `depth` - Orderbook depth (5, 50, or 400)
     pub async fn subscribe_orderbook(&self, symbol: &str, depth: u32) -> Result<()> {
         // OKX supports orderbook depths: books5, books, books50-l2

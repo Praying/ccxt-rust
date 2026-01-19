@@ -124,6 +124,10 @@ pub fn parse_ticker(symbol: &str, mid_price: Decimal, _market: Option<&Market>) 
         average: None,
         base_volume: None,
         quote_volume: None,
+        funding_rate: None,
+        open_interest: None,
+        index_price: None,
+        mark_price: None,
         info: HashMap::new(),
     })
 }

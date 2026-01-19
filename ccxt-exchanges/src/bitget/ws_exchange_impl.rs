@@ -79,11 +79,13 @@ impl WsExchange for Bitget {
         ws.watch_ticker(&bitget_symbol, market).await
     }
 
-    async fn watch_tickers(&self, _symbols: &[String]) -> Result<MessageStream<Vec<Ticker>>> {
-        // TODO: Implement multi-symbol ticker watching
-        Err(Error::not_implemented(
-            "watch_tickers not yet implemented for Bitget",
-        ))
+    async fn watch_tickers(&self, symbols: &[String]) -> Result<MessageStream<Vec<Ticker>>> {
+        let ws = self.create_ws();
+
+        // Convert unified symbols (BTC/USDT) to Bitget format (BTCUSDT)
+        let bitget_symbols: Vec<String> = symbols.iter().map(|s| s.replace('/', "")).collect();
+
+        ws.watch_tickers(&bitget_symbols).await
     }
 
     async fn watch_order_book(

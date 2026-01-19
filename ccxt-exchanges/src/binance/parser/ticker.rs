@@ -46,6 +46,10 @@ pub fn parse_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> {
         average: None,
         base_volume: parse_decimal(data, "volume").map(Amount::new),
         quote_volume: parse_decimal(data, "quoteVolume").map(Amount::new),
+        funding_rate: None,
+        open_interest: None,
+        index_price: None,
+        mark_price: None,
         info: value_to_hashmap(data),
     })
 }
@@ -91,6 +95,10 @@ pub fn parse_ws_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> 
             average: None,
             base_volume: None,
             quote_volume: None,
+            funding_rate: parse_decimal(data, "r"),
+            open_interest: None,
+            index_price: parse_decimal(data, "i").map(Price::from),
+            mark_price: parse_decimal(data, "p").map(Price::from),
             info: value_to_hashmap(data),
         });
     }
@@ -134,6 +142,10 @@ pub fn parse_ws_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> 
         average: None,
         base_volume: parse_decimal(data, "v").map(Amount::from),
         quote_volume: parse_decimal(data, "q").map(Amount::from),
+        funding_rate: None,
+        open_interest: None,
+        index_price: None,
+        mark_price: None,
         info: value_to_hashmap(data),
     })
 }

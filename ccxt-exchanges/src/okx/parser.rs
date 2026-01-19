@@ -233,6 +233,10 @@ pub fn parse_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> {
             .or_else(|| parse_decimal(data, "volCcy24h"))
             .map(Amount::new),
         quote_volume: parse_decimal(data, "volCcy24h").map(Amount::new),
+        funding_rate: None,
+        open_interest: None,
+        index_price: None,
+        mark_price: None,
         info: value_to_hashmap(data),
     })
 }

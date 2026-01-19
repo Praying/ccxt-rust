@@ -41,6 +41,7 @@ go/
 specs/
 .claude/
 .gemini/
+.micode/
 .opencode/
 _bmad/
 _bmad-output/

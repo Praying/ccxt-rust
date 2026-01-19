@@ -250,6 +250,10 @@ pub fn parse_ticker(data: &Value, market: Option<&Market>) -> Result<Ticker> {
         average: None,
         base_volume: parse_decimal(data, "volume24h").map(Amount::new),
         quote_volume: parse_decimal(data, "turnover24h").map(Amount::new),
+        funding_rate: parse_decimal(data, "fundingRate"),
+        open_interest: parse_decimal(data, "openInterest"),
+        index_price: parse_decimal(data, "indexPrice").map(Price::new),
+        mark_price: parse_decimal(data, "markPrice").map(Price::new),
         info: value_to_hashmap(data),
     })
 }

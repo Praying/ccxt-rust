@@ -110,11 +110,83 @@ impl BybitWs {
         Ok(())
     }
 
-    /// Subscribes to an orderbook stream.
+    /// Subscribes to multiple ticker streams.
     ///
     /// # Arguments
     ///
-    /// * `symbol` - Trading pair symbol (e.g., "BTCUSDT")
+    /// * `symbols` - List of trading pair symbols (e.g., ["BTCUSDT", "ETHUSDT"])
+    pub async fn subscribe_tickers(&self, symbols: &[String]) -> Result<()> {
+        let topics: Vec<String> = symbols.iter().map(|s| format!("tickers.{}", s)).collect();
+
+        // json! macro with literal values is infallible
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "subscribe",
+            "args": topics
+        });
+
+        self.client.send_json(&msg).await?;
+
+        let mut subs = self.subscriptions.write().await;
+        for symbol in symbols {
+            subs.push(format!("ticker:{}", symbol));
+        }
+
+        Ok(())
+    }
+
+    /// Watches ticker updates for multiple symbols.
+    ///
+    /// Returns a stream of `Vec<Ticker>` updates for the specified symbols.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbols` - List of trading pair symbols (e.g., ["BTCUSDT", "ETHUSDT"])
+    ///
+    /// # Returns
+    ///
+    /// A `MessageStream<Vec<Ticker>>` that yields ticker updates.
+    pub async fn watch_tickers(&self, symbols: &[String]) -> Result<MessageStream<Vec<Ticker>>> {
+        // Ensure connected
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        // Subscribe to ticker channels
+        self.subscribe_tickers(symbols).await?;
+
+        // Create channel for ticker updates
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Vec<Ticker>>>();
+        let symbols_owned: Vec<String> = symbols.to_vec();
+        let client = Arc::clone(&self.client);
+
+        // Spawn task to process messages and filter ticker updates
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                // Check if this is a ticker message for ANY of our symbols
+                if let Some(topic) = msg.get("topic").and_then(|t| t.as_str()) {
+                    if let Some(symbol_part) = topic.strip_prefix("tickers.") {
+                        if symbols_owned.iter().any(|s| s == symbol_part) {
+                            match parse_ws_ticker(&msg, None) {
+                                Ok(ticker) => {
+                                    if tx.send(Ok(vec![ticker])).is_err() {
+                                        break; // Receiver dropped
+                                    }
+                                }
+                                Err(e) => {
+                                    if tx.send(Err(e)).is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
     /// * `depth` - Orderbook depth (1, 50, 200, or 500)
     pub async fn subscribe_orderbook(&self, symbol: &str, depth: u32) -> Result<()> {
         // Bybit supports orderbook depths: 1, 50, 200, 500

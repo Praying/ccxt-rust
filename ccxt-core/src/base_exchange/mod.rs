@@ -320,6 +320,10 @@ impl BaseExchange {
             quote_volume: self
                 .safe_decimal(ticker_data, "quoteVolume")
                 .map(Amount::new),
+            funding_rate: self.safe_decimal(ticker_data, "fundingRate"),
+            open_interest: self.safe_decimal(ticker_data, "openInterest"),
+            index_price: self.safe_decimal(ticker_data, "indexPrice").map(Price::new),
+            mark_price: self.safe_decimal(ticker_data, "markPrice").map(Price::new),
             info: HashMap::new(),
         })
     }
