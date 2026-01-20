@@ -394,6 +394,10 @@ pub fn create_test_ticker(symbol: &str) -> Ticker {
         percentage: None,
         average: None,
         vwap: None,
+        funding_rate: None,
+        open_interest: None,
+        index_price: None,
+        mark_price: None,
         info: HashMap::new(),
     }
 }
@@ -561,6 +565,10 @@ mod tests {
             percentage: None,
             average: None,
             vwap: None,
+            funding_rate: None,
+            open_interest: None,
+            index_price: None,
+            mark_price: None,
             info: HashMap::new(),
         };
 

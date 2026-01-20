@@ -126,7 +126,7 @@ impl BitgetWs {
     ///
     /// # Arguments
     ///
-    /// * `symbols` - List of trading pair symbols (e.g., ["BTCUSDT", "ETHUSDT"])
+    /// * `symbols` - List of trading pair symbols (e.g., `["BTCUSDT", "ETHUSDT"]`)
     pub async fn subscribe_tickers(&self, symbols: &[String]) -> Result<()> {
         let mut args = Vec::new();
         for symbol in symbols {
@@ -141,7 +141,7 @@ impl BitgetWs {
             );
             arg_map.insert(
                 "instId".to_string(),
-                serde_json::Value::String(symbol.to_string()),
+                serde_json::Value::String(symbol.clone()),
             );
             args.push(serde_json::Value::Object(arg_map));
         }
@@ -170,7 +170,7 @@ impl BitgetWs {
     ///
     /// # Arguments
     ///
-    /// * `symbols` - List of trading pair symbols (e.g., ["BTCUSDT", "ETHUSDT"])
+    /// * `symbols` - List of trading pair symbols (e.g., `["BTCUSDT", "ETHUSDT"]`)
     ///
     /// # Returns
     ///

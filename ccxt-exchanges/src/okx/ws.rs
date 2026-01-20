@@ -115,7 +115,7 @@ impl OkxWs {
     ///
     /// # Arguments
     ///
-    /// * `symbols` - List of trading pair symbols (e.g., ["BTC-USDT", "ETH-USDT"])
+    /// * `symbols` - List of trading pair symbols (e.g., `["BTC-USDT", "ETH-USDT"]`)
     pub async fn subscribe_tickers(&self, symbols: &[String]) -> Result<()> {
         let mut args = Vec::new();
         for symbol in symbols {
@@ -126,7 +126,7 @@ impl OkxWs {
             );
             arg_map.insert(
                 "instId".to_string(),
-                serde_json::Value::String(symbol.to_string()),
+                serde_json::Value::String(symbol.clone()),
             );
             args.push(serde_json::Value::Object(arg_map));
         }
@@ -154,7 +154,7 @@ impl OkxWs {
     ///
     /// # Arguments
     ///
-    /// * `symbols` - List of trading pair symbols (e.g., ["BTC-USDT", "ETH-USDT"])
+    /// * `symbols` - List of trading pair symbols (e.g., `["BTC-USDT", "ETH-USDT"]`)
     ///
     /// # Returns
     ///
