@@ -114,7 +114,7 @@ impl BybitWs {
     ///
     /// # Arguments
     ///
-    /// * `symbols` - List of trading pair symbols (e.g., ["BTCUSDT", "ETHUSDT"])
+    /// * `symbols` - List of trading pair symbols (e.g., `["BTCUSDT", "ETHUSDT"]`)
     pub async fn subscribe_tickers(&self, symbols: &[String]) -> Result<()> {
         let topics: Vec<String> = symbols.iter().map(|s| format!("tickers.{}", s)).collect();
 
@@ -141,7 +141,7 @@ impl BybitWs {
     ///
     /// # Arguments
     ///
-    /// * `symbols` - List of trading pair symbols (e.g., ["BTCUSDT", "ETHUSDT"])
+    /// * `symbols` - List of trading pair symbols (e.g., `["BTCUSDT", "ETHUSDT"]`)
     ///
     /// # Returns
     ///
