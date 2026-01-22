@@ -73,6 +73,8 @@ pub struct HyperLiquid {
     options: HyperLiquidOptions,
     /// Authentication instance (optional, for private API).
     auth: Option<HyperLiquidAuth>,
+    /// Persistent WebSocket connection reference.
+    pub(crate) ws_connection: std::sync::Arc<tokio::sync::RwLock<Option<ws::HyperLiquidWs>>>,
 }
 
 /// HyperLiquid-specific options.
@@ -146,6 +148,7 @@ impl HyperLiquid {
             base,
             options,
             auth,
+            ws_connection: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -289,12 +292,11 @@ impl HyperLiquid {
             .map(auth::HyperLiquidAuth::wallet_address)
     }
 
-    // TODO: Implement in task 11 (WebSocket Implementation)
-    // /// Creates a public WebSocket client.
-    // pub fn create_ws(&self) -> ws::HyperLiquidWs {
-    //     let urls = self.urls();
-    //     ws::HyperLiquidWs::new(urls.ws)
-    // }
+    /// Creates a WebSocket client for public data streams.
+    pub fn create_ws(&self) -> ws::HyperLiquidWs {
+        let urls = self.urls();
+        ws::HyperLiquidWs::new(urls.ws)
+    }
 }
 
 /// HyperLiquid API URLs.

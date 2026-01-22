@@ -259,4 +259,31 @@ impl AutoReconnectCoordinator {
 
         info!("Auto-reconnect loop terminated");
     }
+
+    /// Convert into a stream (requires `tokio-stream`).
+    #[cfg(feature = "websocket")]
+    pub fn into_stream(self) -> impl futures::Stream<Item = serde_json::Value> {
+        let client = self.client.clone();
+        let coordinator = Arc::new(self);
+
+        async_stream::stream! {
+            // Start reconnection in background
+            coordinator.start().await;
+
+            loop {
+                if let Some(msg) = client.receive().await {
+                    yield msg;
+                } else {
+                    // Check if we should stop
+                    if !coordinator.is_enabled() {
+                        break;
+                    }
+                    // Wait a bit before retry if channel closed (shouldn't happen with reconnect)
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+
+            coordinator.stop().await;
+        }
+    }
 }
