@@ -517,6 +517,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 If the project is profitable, consider donating as showing gratitude for its development:
 
 **USDT or USDC Binance Smart Chain BEP20**:
+
 `0x8e5d858f92938b028065d39450421d0e080d15f7`
 
 ---
