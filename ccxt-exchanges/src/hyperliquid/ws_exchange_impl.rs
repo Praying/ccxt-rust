@@ -26,8 +26,9 @@ async fn get_ws(exchange: &HyperLiquid) -> Result<super::ws::HyperLiquidWs> {
     }
     let ws = exchange.create_ws();
     ws.connect().await?;
+    let ws_clone = ws.clone();
     *guard = Some(ws);
-    Ok(guard.as_ref().unwrap().clone())
+    Ok(ws_clone)
 }
 
 async fn resolve_market(
@@ -111,6 +112,7 @@ impl WsExchange for HyperLiquid {
                     let _ = ws.connect().await;
                 }
 
+                #[allow(clippy::manual_unwrap_or_default)]
                 let msg = match timeout(Duration::from_secs(2), ws.receive()).await {
                     Ok(msg) => msg,
                     Err(_) => None,
@@ -220,6 +222,7 @@ impl WsExchange for HyperLiquid {
                     let _ = ws.connect().await;
                 }
 
+                #[allow(clippy::manual_unwrap_or_default)]
                 let msg = match timeout(Duration::from_secs(2), ws.receive()).await {
                     Ok(msg) => msg,
                     Err(_) => None,
@@ -268,6 +271,7 @@ impl WsExchange for HyperLiquid {
                     let _ = ws.connect().await;
                 }
 
+                #[allow(clippy::manual_unwrap_or_default)]
                 let msg = match timeout(Duration::from_secs(2), ws.receive()).await {
                     Ok(msg) => msg,
                     Err(_) => None,
@@ -326,7 +330,7 @@ impl WsExchange for HyperLiquid {
 
         let (tx, rx) = mpsc::unbounded_channel::<Result<Order>>();
         let ws = ws.clone();
-        let symbol_filter = _symbol.map(|s| s.to_string());
+        let symbol_filter = _symbol.map(ToString::to_string);
         let market_cache = self.base().market_cache.clone();
         tokio::spawn(async move {
             loop {
@@ -334,6 +338,7 @@ impl WsExchange for HyperLiquid {
                     let _ = ws.connect().await;
                 }
 
+                #[allow(clippy::manual_unwrap_or_default)]
                 let msg = match timeout(Duration::from_secs(2), ws.receive()).await {
                     Ok(msg) => msg,
                     Err(_) => None,
@@ -397,7 +402,7 @@ impl WsExchange for HyperLiquid {
 
         let (tx, rx) = mpsc::unbounded_channel::<Result<Trade>>();
         let ws = ws.clone();
-        let symbol_filter = _symbol.map(|s| s.to_string());
+        let symbol_filter = _symbol.map(ToString::to_string);
         let market_cache = self.base().market_cache.clone();
         tokio::spawn(async move {
             loop {
@@ -405,6 +410,7 @@ impl WsExchange for HyperLiquid {
                     let _ = ws.connect().await;
                 }
 
+                #[allow(clippy::manual_unwrap_or_default)]
                 let msg = match timeout(Duration::from_secs(2), ws.receive()).await {
                     Ok(msg) => msg,
                     Err(_) => None,

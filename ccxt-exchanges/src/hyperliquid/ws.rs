@@ -84,14 +84,6 @@ impl HyperLiquidWs {
             ..Default::default()
         };
 
-        // Initialize ping handler to maintain connection
-        let mut config = config;
-        config.ping_interval = DEFAULT_PING_INTERVAL_MS;
-
-        // TODO: HyperLiquid uses {"method": "ping"} format
-        // This requires custom ping handler in WsClient or message hook
-        // For now relying on standard ping/pong frames or server keepalive
-
         Self {
             client: Arc::new(WsClient::new(config)),
             subscriptions: Arc::new(RwLock::new(Vec::new())),
@@ -202,9 +194,7 @@ impl HyperLiquidWs {
         self.send_subscription(SubscriptionType::OrderUpdates, Some(address.to_string()))
             .await
     }
-}
 
-impl HyperLiquidWs {
     /// Returns a reference to the WebSocket client.
     pub fn client(&self) -> &Arc<WsClient> {
         &self.client
@@ -214,9 +204,7 @@ impl HyperLiquidWs {
     pub fn subscriptions(&self) -> &Arc<RwLock<Vec<Subscription>>> {
         &self.subscriptions
     }
-}
 
-impl HyperLiquidWs {
     async fn send_subscription(
         &self,
         sub_type: SubscriptionType,
@@ -229,7 +217,8 @@ impl HyperLiquidWs {
         {
             return Ok(());
         }
-        let msg = self.build_subscription_message(&sub_type, symbol.as_deref())?;
+        #[allow(clippy::disallowed_methods)]
+        let msg = Self::build_subscription_message(&sub_type, symbol.as_deref());
         self.client.send_json(&msg).await?;
         subs.push(Subscription { sub_type, symbol });
         Ok(())
@@ -247,6 +236,7 @@ impl HyperLiquidWs {
         subscription_map.insert("type".to_string(), Value::String("candle".to_string()));
         subscription_map.insert("coin".to_string(), Value::String(symbol.to_string()));
         subscription_map.insert("interval".to_string(), Value::String(interval.to_string()));
+        #[allow(clippy::disallowed_methods)]
         let msg = json!({"method": "subscribe", "subscription": subscription_map});
         self.client.send_json(&msg).await?;
         subs.push(Subscription {
@@ -256,11 +246,8 @@ impl HyperLiquidWs {
         Ok(())
     }
 
-    fn build_subscription_message(
-        &self,
-        sub_type: &SubscriptionType,
-        symbol: Option<&str>,
-    ) -> Result<Value> {
+    #[allow(clippy::disallowed_methods)]
+    fn build_subscription_message(sub_type: &SubscriptionType, symbol: Option<&str>) -> Value {
         let mut subscription_map = serde_json::Map::new();
         match sub_type {
             SubscriptionType::AllMids => {
@@ -302,7 +289,7 @@ impl HyperLiquidWs {
             }
             SubscriptionType::Candle => {}
         }
-        Ok(json!({"method": "subscribe", "subscription": subscription_map}))
+        json!({"method": "subscribe", "subscription": subscription_map})
     }
 
     async fn resubscribe_all(&self) -> Result<()> {
@@ -318,13 +305,15 @@ impl HyperLiquidWs {
                             .insert("coin".to_string(), Value::String(coin.to_string()));
                         subscription_map
                             .insert("interval".to_string(), Value::String(interval.to_string()));
+                        #[allow(clippy::disallowed_methods)]
                         let msg = json!({"method": "subscribe", "subscription": subscription_map});
                         self.client.send_json(&msg).await?;
                         continue;
                     }
                 }
             }
-            let msg = self.build_subscription_message(&sub.sub_type, sub.symbol.as_deref())?;
+            #[allow(clippy::disallowed_methods)]
+            let msg = Self::build_subscription_message(&sub.sub_type, sub.symbol.as_deref());
             self.client.send_json(&msg).await?;
         }
         Ok(())
@@ -344,6 +333,7 @@ impl HyperLiquidWs {
                 if !active.load(Ordering::SeqCst) {
                     break;
                 }
+                #[allow(clippy::disallowed_methods)]
                 let _ = client.send_json(&json!({"method": "ping"})).await;
             }
         }));
