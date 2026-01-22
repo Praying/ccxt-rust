@@ -55,6 +55,7 @@ futures-util = { workspace = true }
 
 # Security
 zeroize = { workspace = true }
+tokio-stream = "0.1.18"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

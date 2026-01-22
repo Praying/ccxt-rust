@@ -24,6 +24,7 @@ pub use state::{WsConnectionState, WsStats, WsStatsSnapshot};
 pub use subscription::{Subscription, SubscriptionManager};
 
 use crate::error::{Error, Result};
+use derive_more::Debug;
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -53,6 +54,7 @@ type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 /// - `DropOldest`: Removes the oldest message to make room (default)
 /// - `DropNewest`: Discards the incoming message
 /// - `Block`: Waits until space is available (may stall the read loop)
+#[derive(Debug)]
 pub struct WsClient {
     config: WsConfig,
     state: Arc<AtomicU8>,
@@ -64,6 +66,7 @@ pub struct WsClient {
     shutdown_tx: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
     stats: Arc<WsStats>,
     cancel_token: Arc<Mutex<Option<CancellationToken>>>,
+    #[debug(skip)]
     event_callback: Arc<Mutex<Option<WsEventCallback>>>,
     /// Counter for dropped messages due to backpressure
     dropped_messages: Arc<AtomicU32>,

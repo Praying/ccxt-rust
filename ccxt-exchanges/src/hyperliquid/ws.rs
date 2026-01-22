@@ -8,12 +8,15 @@ use ccxt_core::{
     error::Result,
     ws_client::{WsClient, WsConfig, WsConnectionState},
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinHandle;
+use tokio::time::{Duration, interval};
 
 /// Default ping interval for HyperLiquid WebSocket (30 seconds).
-const DEFAULT_PING_INTERVAL_MS: u64 = 30000;
+const DEFAULT_PING_INTERVAL_MS: u64 = 50000;
 
 /// Default reconnect delay (5 seconds).
 const DEFAULT_RECONNECT_INTERVAL_MS: u64 = 5000;
@@ -24,11 +27,14 @@ const MAX_RECONNECT_ATTEMPTS: u32 = 10;
 /// HyperLiquid WebSocket client.
 ///
 /// Provides real-time data streaming for HyperLiquid exchange.
+#[derive(Debug, Clone)]
 pub struct HyperLiquidWs {
     /// WebSocket client instance.
     client: Arc<WsClient>,
     /// Active subscriptions.
     subscriptions: Arc<RwLock<Vec<Subscription>>>,
+    ping_active: Arc<AtomicBool>,
+    ping_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 /// Subscription information.
@@ -78,19 +84,33 @@ impl HyperLiquidWs {
             ..Default::default()
         };
 
+        // Initialize ping handler to maintain connection
+        let mut config = config;
+        config.ping_interval = DEFAULT_PING_INTERVAL_MS;
+
+        // TODO: HyperLiquid uses {"method": "ping"} format
+        // This requires custom ping handler in WsClient or message hook
+        // For now relying on standard ping/pong frames or server keepalive
+
         Self {
             client: Arc::new(WsClient::new(config)),
             subscriptions: Arc::new(RwLock::new(Vec::new())),
+            ping_active: Arc::new(AtomicBool::new(false)),
+            ping_task: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Connects to the WebSocket server.
     pub async fn connect(&self) -> Result<()> {
-        self.client.connect().await
+        self.client.connect().await?;
+        self.start_ping_loop().await;
+        self.resubscribe_all().await?;
+        Ok(())
     }
 
     /// Disconnects from the WebSocket server.
     pub async fn disconnect(&self) -> Result<()> {
+        self.stop_ping_loop().await;
         self.client.disconnect().await
     }
 
@@ -115,33 +135,8 @@ impl HyperLiquidWs {
 
     /// Subscribes to all mid prices.
     pub async fn subscribe_all_mids(&self) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("allMids".to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::AllMids,
-            symbol: None,
-        });
-
-        Ok(())
+        self.send_subscription(SubscriptionType::AllMids, None)
+            .await
     }
 
     /// Subscribes to L2 order book updates.
@@ -150,37 +145,8 @@ impl HyperLiquidWs {
     ///
     /// * `symbol` - Trading pair symbol (e.g., "BTC")
     pub async fn subscribe_l2_book(&self, symbol: &str) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("l2Book".to_string()),
-        );
-        subscription_map.insert(
-            "coin".to_string(),
-            serde_json::Value::String(symbol.to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::L2Book,
-            symbol: Some(symbol.to_string()),
-        });
-
-        Ok(())
+        self.send_subscription(SubscriptionType::L2Book, Some(symbol.to_string()))
+            .await
     }
 
     /// Subscribes to trade updates.
@@ -189,37 +155,8 @@ impl HyperLiquidWs {
     ///
     /// * `symbol` - Trading pair symbol (e.g., "BTC")
     pub async fn subscribe_trades(&self, symbol: &str) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("trades".to_string()),
-        );
-        subscription_map.insert(
-            "coin".to_string(),
-            serde_json::Value::String(symbol.to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::Trades,
-            symbol: Some(symbol.to_string()),
-        });
-
-        Ok(())
+        self.send_subscription(SubscriptionType::Trades, Some(symbol.to_string()))
+            .await
     }
 
     /// Subscribes to candle updates.
@@ -229,41 +166,7 @@ impl HyperLiquidWs {
     /// * `symbol` - Trading pair symbol (e.g., "BTC")
     /// * `interval` - Candle interval (e.g., "1m", "1h")
     pub async fn subscribe_candle(&self, symbol: &str, interval: &str) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("candle".to_string()),
-        );
-        subscription_map.insert(
-            "coin".to_string(),
-            serde_json::Value::String(symbol.to_string()),
-        );
-        subscription_map.insert(
-            "interval".to_string(),
-            serde_json::Value::String(interval.to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::Candle,
-            symbol: Some(symbol.to_string()),
-        });
-
-        Ok(())
+        self.send_candle_subscription(symbol, interval).await
     }
 
     // ========================================================================
@@ -276,37 +179,8 @@ impl HyperLiquidWs {
     ///
     /// * `address` - User's Ethereum address
     pub async fn subscribe_user_events(&self, address: &str) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("userEvents".to_string()),
-        );
-        subscription_map.insert(
-            "user".to_string(),
-            serde_json::Value::String(address.to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::UserEvents,
-            symbol: None,
-        });
-
-        Ok(())
+        self.send_subscription(SubscriptionType::UserEvents, Some(address.to_string()))
+            .await
     }
 
     /// Subscribes to user fills.
@@ -315,37 +189,8 @@ impl HyperLiquidWs {
     ///
     /// * `address` - User's Ethereum address
     pub async fn subscribe_user_fills(&self, address: &str) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("userFills".to_string()),
-        );
-        subscription_map.insert(
-            "user".to_string(),
-            serde_json::Value::String(address.to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::UserFills,
-            symbol: None,
-        });
-
-        Ok(())
+        self.send_subscription(SubscriptionType::UserFills, Some(address.to_string()))
+            .await
     }
 
     /// Subscribes to order updates.
@@ -354,37 +199,8 @@ impl HyperLiquidWs {
     ///
     /// * `address` - User's Ethereum address
     pub async fn subscribe_order_updates(&self, address: &str) -> Result<()> {
-        let mut subscription_map = serde_json::Map::new();
-        subscription_map.insert(
-            "type".to_string(),
-            serde_json::Value::String("orderUpdates".to_string()),
-        );
-        subscription_map.insert(
-            "user".to_string(),
-            serde_json::Value::String(address.to_string()),
-        );
-
-        let mut msg_map = serde_json::Map::new();
-        msg_map.insert(
-            "method".to_string(),
-            serde_json::Value::String("subscribe".to_string()),
-        );
-        msg_map.insert(
-            "subscription".to_string(),
-            serde_json::Value::Object(subscription_map),
-        );
-
-        let msg = serde_json::Value::Object(msg_map);
-
-        self.client.send_json(&msg).await?;
-
-        let mut subs = self.subscriptions.write().await;
-        subs.push(Subscription {
-            sub_type: SubscriptionType::OrderUpdates,
-            symbol: None,
-        });
-
-        Ok(())
+        self.send_subscription(SubscriptionType::OrderUpdates, Some(address.to_string()))
+            .await
     }
 }
 
@@ -397,6 +213,147 @@ impl HyperLiquidWs {
     /// Returns a reference to the subscriptions.
     pub fn subscriptions(&self) -> &Arc<RwLock<Vec<Subscription>>> {
         &self.subscriptions
+    }
+}
+
+impl HyperLiquidWs {
+    async fn send_subscription(
+        &self,
+        sub_type: SubscriptionType,
+        symbol: Option<String>,
+    ) -> Result<()> {
+        let mut subs = self.subscriptions.write().await;
+        if subs
+            .iter()
+            .any(|sub| sub.sub_type == sub_type && sub.symbol == symbol)
+        {
+            return Ok(());
+        }
+        let msg = self.build_subscription_message(&sub_type, symbol.as_deref())?;
+        self.client.send_json(&msg).await?;
+        subs.push(Subscription { sub_type, symbol });
+        Ok(())
+    }
+
+    async fn send_candle_subscription(&self, symbol: &str, interval: &str) -> Result<()> {
+        let mut subs = self.subscriptions.write().await;
+        let key = format!("{}:{}", symbol, interval);
+        if subs.iter().any(|sub| {
+            sub.sub_type == SubscriptionType::Candle && sub.symbol.as_deref() == Some(&key)
+        }) {
+            return Ok(());
+        }
+        let mut subscription_map = serde_json::Map::new();
+        subscription_map.insert("type".to_string(), Value::String("candle".to_string()));
+        subscription_map.insert("coin".to_string(), Value::String(symbol.to_string()));
+        subscription_map.insert("interval".to_string(), Value::String(interval.to_string()));
+        let msg = json!({"method": "subscribe", "subscription": subscription_map});
+        self.client.send_json(&msg).await?;
+        subs.push(Subscription {
+            sub_type: SubscriptionType::Candle,
+            symbol: Some(key),
+        });
+        Ok(())
+    }
+
+    fn build_subscription_message(
+        &self,
+        sub_type: &SubscriptionType,
+        symbol: Option<&str>,
+    ) -> Result<Value> {
+        let mut subscription_map = serde_json::Map::new();
+        match sub_type {
+            SubscriptionType::AllMids => {
+                subscription_map.insert("type".to_string(), Value::String("allMids".to_string()));
+            }
+            SubscriptionType::L2Book => {
+                subscription_map.insert("type".to_string(), Value::String("l2Book".to_string()));
+                if let Some(symbol) = symbol {
+                    subscription_map.insert("coin".to_string(), Value::String(symbol.to_string()));
+                }
+            }
+            SubscriptionType::Trades => {
+                subscription_map.insert("type".to_string(), Value::String("trades".to_string()));
+                if let Some(symbol) = symbol {
+                    subscription_map.insert("coin".to_string(), Value::String(symbol.to_string()));
+                }
+            }
+            SubscriptionType::UserEvents => {
+                subscription_map
+                    .insert("type".to_string(), Value::String("userEvents".to_string()));
+                if let Some(address) = symbol {
+                    subscription_map.insert("user".to_string(), Value::String(address.to_string()));
+                }
+            }
+            SubscriptionType::UserFills => {
+                subscription_map.insert("type".to_string(), Value::String("userFills".to_string()));
+                if let Some(address) = symbol {
+                    subscription_map.insert("user".to_string(), Value::String(address.to_string()));
+                }
+            }
+            SubscriptionType::OrderUpdates => {
+                subscription_map.insert(
+                    "type".to_string(),
+                    Value::String("orderUpdates".to_string()),
+                );
+                if let Some(address) = symbol {
+                    subscription_map.insert("user".to_string(), Value::String(address.to_string()));
+                }
+            }
+            SubscriptionType::Candle => {}
+        }
+        Ok(json!({"method": "subscribe", "subscription": subscription_map}))
+    }
+
+    async fn resubscribe_all(&self) -> Result<()> {
+        let subs = self.subscriptions.read().await.clone();
+        for sub in subs {
+            if sub.sub_type == SubscriptionType::Candle {
+                if let Some(symbol) = sub.symbol.as_deref() {
+                    if let Some((coin, interval)) = symbol.split_once(':') {
+                        let mut subscription_map = serde_json::Map::new();
+                        subscription_map
+                            .insert("type".to_string(), Value::String("candle".to_string()));
+                        subscription_map
+                            .insert("coin".to_string(), Value::String(coin.to_string()));
+                        subscription_map
+                            .insert("interval".to_string(), Value::String(interval.to_string()));
+                        let msg = json!({"method": "subscribe", "subscription": subscription_map});
+                        self.client.send_json(&msg).await?;
+                        continue;
+                    }
+                }
+            }
+            let msg = self.build_subscription_message(&sub.sub_type, sub.symbol.as_deref())?;
+            self.client.send_json(&msg).await?;
+        }
+        Ok(())
+    }
+
+    async fn start_ping_loop(&self) {
+        if self.ping_active.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let client = Arc::clone(&self.client);
+        let active = Arc::clone(&self.ping_active);
+        let mut guard = self.ping_task.lock().await;
+        *guard = Some(tokio::spawn(async move {
+            let mut interval = interval(Duration::from_millis(DEFAULT_PING_INTERVAL_MS));
+            loop {
+                interval.tick().await;
+                if !active.load(Ordering::SeqCst) {
+                    break;
+                }
+                let _ = client.send_json(&json!({"method": "ping"})).await;
+            }
+        }));
+    }
+
+    async fn stop_ping_loop(&self) {
+        self.ping_active.store(false, Ordering::SeqCst);
+        if let Some(handle) = self.ping_task.lock().await.take() {
+            handle.abort();
+        }
     }
 }
 

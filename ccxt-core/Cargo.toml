@@ -71,6 +71,8 @@ zeroize = { workspace = true }
 # Test configuration (optional, enabled by test-utils feature)
 dotenvy = { workspace = true, optional = true }
 envy = { workspace = true, optional = true }
+async-stream = "0.3.6"
+derive_more = { version = "2.1.1", features = ["debug"] }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
