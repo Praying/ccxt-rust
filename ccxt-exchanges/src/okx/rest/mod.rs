@@ -306,6 +306,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_timestamp() {
         let _okx = Okx::builder().build().unwrap();
         let ts = Okx::get_timestamp();

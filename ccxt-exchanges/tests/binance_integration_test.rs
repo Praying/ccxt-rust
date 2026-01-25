@@ -157,6 +157,7 @@ async fn test_fetch_trades_real() {
 }
 
 /// Test fetching OHLCV (candlestick) data from the real API.
+#[allow(deprecated)]
 #[tokio::test]
 #[ignore]
 async fn test_fetch_ohlcv_real() {
@@ -195,6 +196,7 @@ async fn test_invalid_symbol() {
 }
 
 /// Test handling of unsupported timeframe (2h is not supported by Binance).
+#[allow(deprecated)]
 #[tokio::test]
 #[ignore]
 async fn test_unsupported_timeframe() {

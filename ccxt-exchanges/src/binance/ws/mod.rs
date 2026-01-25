@@ -23,6 +23,7 @@ use ccxt_core::ws_client::{WsClient, WsConfig};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
 
@@ -55,6 +56,33 @@ impl std::fmt::Debug for BinanceWs {
 }
 
 impl BinanceWs {
+    fn configure_client(client: &mut WsClient) {
+        let request_id = Arc::new(AtomicU64::new(1));
+
+        let subscribe_builder = {
+            let request_id = Arc::clone(&request_id);
+            Arc::new(
+                move |channel: String,
+                      _symbol: Option<String>,
+                      _params: Option<HashMap<String, Value>>| {
+                    let id = request_id.fetch_add(1, Ordering::SeqCst);
+                    Ok(build_binance_subscribe_payload(vec![channel], id))
+                },
+            )
+        };
+
+        let unsubscribe_builder = {
+            let request_id = Arc::clone(&request_id);
+            Arc::new(move |channel: String, _symbol: Option<String>| {
+                let id = request_id.fetch_add(1, Ordering::SeqCst);
+                Ok(build_binance_unsubscribe_payload(vec![channel], id))
+            })
+        };
+
+        client.set_subscribe_message_builder(subscribe_builder);
+        client.set_unsubscribe_message_builder(unsubscribe_builder);
+    }
+
     /// Creates a new Binance WebSocket client
     pub fn new(url: String) -> Self {
         let config = WsConfig {
@@ -69,8 +97,11 @@ impl BinanceWs {
             ..Default::default()
         };
 
+        let mut client = WsClient::new(config);
+        Self::configure_client(&mut client);
+
         Self {
-            client: Arc::new(WsClient::new(config)),
+            client: Arc::new(client),
             listen_key: Arc::new(RwLock::new(None)),
             listen_key_manager: None,
             auto_reconnect_coordinator: Arc::new(Mutex::new(None)),
@@ -101,8 +132,11 @@ impl BinanceWs {
             ..Default::default()
         };
 
+        let mut client = WsClient::new(config);
+        Self::configure_client(&mut client);
+
         Self {
-            client: Arc::new(WsClient::new(config)),
+            client: Arc::new(client),
             listen_key: Arc::new(RwLock::new(None)),
             listen_key_manager: Some(Arc::new(ListenKeyManager::new(binance))),
             auto_reconnect_coordinator: Arc::new(Mutex::new(None)),
@@ -713,6 +747,24 @@ impl BinanceWs {
 // Include Binance impl methods in a separate file to keep mod.rs manageable
 include!("binance_impl.rs");
 
+#[allow(clippy::disallowed_methods)]
+fn build_binance_subscribe_payload(streams: Vec<String>, id: u64) -> Value {
+    serde_json::json!({
+        "method": "SUBSCRIBE",
+        "params": streams,
+        "id": id
+    })
+}
+
+#[allow(clippy::disallowed_methods)]
+fn build_binance_unsubscribe_payload(streams: Vec<String>, id: u64) -> Value {
+    serde_json::json!({
+        "method": "UNSUBSCRIBE",
+        "params": streams,
+        "id": id
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -738,6 +790,36 @@ mod tests {
 
         let kline_stream = format!("{}@kline_1m", symbol);
         assert_eq!(kline_stream, "btcusdt@kline_1m");
+    }
+
+    #[test]
+    fn test_binance_subscribe_payload() {
+        let payload =
+            build_binance_subscribe_payload(vec!["btcusdt@fundingRate".to_string()], 12345);
+
+        #[allow(clippy::disallowed_methods)]
+        let expected = serde_json::json!({
+            "method": "SUBSCRIBE",
+            "params": ["btcusdt@fundingRate"],
+            "id": 12345
+        });
+
+        assert_eq!(payload, expected);
+    }
+
+    #[test]
+    fn test_binance_unsubscribe_payload() {
+        let payload =
+            build_binance_unsubscribe_payload(vec!["btcusdt@fundingRate".to_string()], 67890);
+
+        #[allow(clippy::disallowed_methods)]
+        let expected = serde_json::json!({
+            "method": "UNSUBSCRIBE",
+            "params": ["btcusdt@fundingRate"],
+            "id": 67890
+        });
+
+        assert_eq!(payload, expected);
     }
 
     #[tokio::test]
