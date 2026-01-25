@@ -58,13 +58,14 @@ impl MessageRouter {
     }
 
     /// Starts the message router
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self, url_override: Option<String>) -> Result<()> {
         if self.is_connected() {
             self.stop().await?;
         }
 
+        let url = url_override.unwrap_or_else(|| self.ws_url.clone());
         let config = ccxt_core::ws_client::WsConfig {
-            url: self.ws_url.clone(),
+            url: url.clone(),
             ..Default::default()
         };
         let client = ccxt_core::ws_client::WsClient::new(config);
@@ -79,7 +80,8 @@ impl MessageRouter {
         let subscription_manager = self.subscription_manager.clone();
         let is_connected = self.is_connected.clone();
         let reconnect_config = self.reconnect_config.clone();
-        let ws_url = self.ws_url.clone();
+
+        let ws_url = url;
 
         let handle = tokio::spawn(async move {
             Self::message_loop(
@@ -119,7 +121,12 @@ impl MessageRouter {
     pub async fn restart(&self) -> Result<()> {
         self.stop().await?;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        self.start().await
+        self.start(None).await
+    }
+
+    /// Returns the configured WebSocket URL
+    pub fn get_url(&self) -> String {
+        self.ws_url.clone()
     }
 
     /// Returns the current connection state
@@ -296,6 +303,19 @@ impl MessageRouter {
         }
 
         if let Some(event_type) = message.get("e").and_then(|e| e.as_str()) {
+            match event_type {
+                "outboundAccountPosition"
+                | "balanceUpdate"
+                | "executionReport"
+                | "listStatus"
+                | "ACCOUNT_UPDATE"
+                | "ORDER_TRADE_UPDATE"
+                | "listenKeyExpired" => {
+                    return Ok("!userData".to_string());
+                }
+                _ => {}
+            }
+
             if let Some(symbol) = message.get("s").and_then(|s| s.as_str()) {
                 let stream = match event_type {
                     "24hrTicker" => format!("{}@ticker", symbol.to_lowercase()),
