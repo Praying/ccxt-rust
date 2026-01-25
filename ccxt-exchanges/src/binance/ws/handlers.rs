@@ -152,12 +152,7 @@ impl MessageRouter {
             .request_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        #[allow(clippy::disallowed_methods)]
-        let request = serde_json::json!({
-            "method": "SUBSCRIBE",
-            "params": streams,
-            "id": id
-        });
+        let request = super::build_binance_subscribe_payload(streams, id);
 
         client
             .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
@@ -183,12 +178,7 @@ impl MessageRouter {
             .request_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        #[allow(clippy::disallowed_methods)]
-        let request = serde_json::json!({
-            "method": "UNSUBSCRIBE",
-            "params": streams,
-            "id": id
-        });
+        let request = super::build_binance_unsubscribe_payload(streams, id);
 
         client
             .send(tokio_tungstenite::tungstenite::protocol::Message::Text(

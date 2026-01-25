@@ -43,6 +43,15 @@ use tracing::{debug, error, info, instrument, warn};
 #[allow(dead_code)]
 type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
+/// Builder for custom subscribe messages.
+pub type SubscribeMessageBuilder = Arc<
+    dyn Fn(String, Option<String>, Option<HashMap<String, Value>>) -> Result<Value> + Send + Sync,
+>;
+
+/// Builder for custom unsubscribe messages.
+pub type UnsubscribeMessageBuilder =
+    Arc<dyn Fn(String, Option<String>) -> Result<Value> + Send + Sync>;
+
 /// Async WebSocket client for exchange streaming APIs.
 ///
 /// # Backpressure Handling
@@ -68,6 +77,10 @@ pub struct WsClient {
     cancel_token: Arc<Mutex<Option<CancellationToken>>>,
     #[debug(skip)]
     event_callback: Arc<Mutex<Option<WsEventCallback>>>,
+    #[debug(skip)]
+    subscribe_message_builder: Option<SubscribeMessageBuilder>,
+    #[debug(skip)]
+    unsubscribe_message_builder: Option<UnsubscribeMessageBuilder>,
     /// Counter for dropped messages due to backpressure
     dropped_messages: Arc<AtomicU32>,
 }
@@ -93,6 +106,8 @@ impl WsClient {
             stats: Arc::new(WsStats::new()),
             cancel_token: Arc::new(Mutex::new(None)),
             event_callback: Arc::new(Mutex::new(None)),
+            subscribe_message_builder: None,
+            unsubscribe_message_builder: None,
             dropped_messages: Arc::new(AtomicU32::new(0)),
         }
     }
@@ -107,6 +122,26 @@ impl WsClient {
     pub async fn clear_event_callback(&self) {
         *self.event_callback.lock().await = None;
         debug!("Event callback cleared");
+    }
+
+    /// Sets a custom builder for subscribe messages.
+    pub fn set_subscribe_message_builder(&mut self, builder: SubscribeMessageBuilder) {
+        self.subscribe_message_builder = Some(builder);
+    }
+
+    /// Clears the custom subscribe message builder.
+    pub fn clear_subscribe_message_builder(&mut self) {
+        self.subscribe_message_builder = None;
+    }
+
+    /// Sets a custom builder for unsubscribe messages.
+    pub fn set_unsubscribe_message_builder(&mut self, builder: UnsubscribeMessageBuilder) {
+        self.unsubscribe_message_builder = Some(builder);
+    }
+
+    /// Clears the custom unsubscribe message builder.
+    pub fn clear_unsubscribe_message_builder(&mut self) {
+        self.unsubscribe_message_builder = None;
     }
 
     async fn emit_event(&self, event: WsEvent) {
@@ -823,12 +858,16 @@ impl WsClient {
         symbol: Option<String>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<()> {
-        let msg = WsMessage::Subscribe {
-            channel,
-            symbol,
-            params,
+        let json = if let Some(builder) = self.subscribe_message_builder.as_ref() {
+            builder(channel, symbol, params)?
+        } else {
+            let msg = WsMessage::Subscribe {
+                channel,
+                symbol,
+                params,
+            };
+            serde_json::to_value(&msg).map_err(Error::from)?
         };
-        let json = serde_json::to_value(&msg).map_err(Error::from)?;
         self.send_json(&json).await
     }
 
@@ -837,8 +876,12 @@ impl WsClient {
         channel: String,
         symbol: Option<String>,
     ) -> Result<()> {
-        let msg = WsMessage::Unsubscribe { channel, symbol };
-        let json = serde_json::to_value(&msg).map_err(Error::from)?;
+        let json = if let Some(builder) = self.unsubscribe_message_builder.as_ref() {
+            builder(channel, symbol)?
+        } else {
+            let msg = WsMessage::Unsubscribe { channel, symbol };
+            serde_json::to_value(&msg).map_err(Error::from)?
+        };
         self.send_json(&json).await
     }
 

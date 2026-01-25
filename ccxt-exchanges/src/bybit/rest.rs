@@ -1285,6 +1285,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_timestamp() {
         let _bybit = Bybit::builder().build().unwrap();
         let ts = Bybit::get_timestamp();

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use ccxt_core::types::financial::{Amount, Price};
 use ccxt_core::{ExchangeConfig, Order, OrderSide, OrderStatus, OrderType};
 use ccxt_exchanges::binance::Binance;

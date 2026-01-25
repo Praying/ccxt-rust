@@ -82,9 +82,12 @@ pub use ccxt_core;
 ///
 /// This module is deprecated. Use `ccxt_core::Exchange` and
 /// `ccxt_core::ExchangeCapabilities` directly instead.
-#[deprecated(
-    since = "0.2.0",
-    note = "Use `ccxt_core::Exchange` and `ccxt_core::ExchangeCapabilities` directly instead."
+#[cfg_attr(
+    not(test),
+    deprecated(
+        since = "0.2.0",
+        note = "Use `ccxt_core::Exchange` and `ccxt_core::ExchangeCapabilities` directly instead."
+    )
 )]
 pub mod exchange;
 

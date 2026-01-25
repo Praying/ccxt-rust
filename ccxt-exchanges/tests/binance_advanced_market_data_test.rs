@@ -7,7 +7,6 @@
 
 use ccxt_core::ExchangeConfig;
 use ccxt_exchanges::binance::Binance;
-use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 /// Create Binance client for testing.
@@ -44,6 +43,7 @@ fn create_authenticated_binance_client() -> Binance {
 mod ohlcv_tests {
     use super::*;
 
+    #[allow(deprecated)]
     #[tokio::test]
     #[ignore] // Requires network connection
     async fn test_fetch_ohlcv_basic() {
@@ -76,6 +76,7 @@ mod ohlcv_tests {
         assert!(first.low <= first.close, "Low should be <= close");
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     #[ignore] // Requires network connection
     async fn test_fetch_ohlcv_different_timeframes() {
@@ -98,6 +99,7 @@ mod ohlcv_tests {
         }
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     #[ignore] // Requires network connection
     async fn test_fetch_ohlcv_with_since() {

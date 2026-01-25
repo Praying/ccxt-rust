@@ -269,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_timestamp() {
         let _bitget = Bitget::builder().build().unwrap();
         let ts = Bitget::get_timestamp();

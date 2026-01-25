@@ -17,18 +17,6 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// Create a Binance instance for testing.
-    fn create_test_binance() -> Result<Arc<Binance>> {
-        let config = ExchangeConfig {
-            id: "binance".to_string(),
-            name: "Binance".to_string(),
-            api_key: Some(ccxt_core::SecretString::new("test_api_key")),
-            secret: Some(ccxt_core::SecretString::new("test_api_secret")),
-            ..Default::default()
-        };
-        Ok(Arc::new(Binance::new(config)?))
-    }
-
     #[tokio::test]
     #[ignore]
     async fn test_watch_my_trades_all_symbols() -> Result<()> {

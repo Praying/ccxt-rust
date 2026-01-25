@@ -267,6 +267,7 @@ async fn test_fetch_trades() {
 
 /// Test fetching OHLCV (candlestick) data from real API.
 /// _Requirements: 5.1_
+#[allow(deprecated)]
 #[tokio::test]
 #[ignore] // Requires network access
 async fn test_fetch_ohlcv() {
