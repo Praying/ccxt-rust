@@ -2,13 +2,16 @@
 //!
 //! Provides WebSocket real-time data stream subscriptions for the Binance exchange
 
+/// Connection manager module
+pub mod connection_manager;
 mod handlers;
 mod listen_key;
 mod streams;
 mod subscriptions;
-mod user_data;
+pub(crate) mod user_data;
 
 // Re-export public types for backward compatibility
+pub use connection_manager::BinanceConnectionManager;
 pub use handlers::MessageRouter;
 pub use listen_key::ListenKeyManager;
 pub use streams::*;
@@ -24,6 +27,9 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
+
+const MAX_TRADES: usize = 1000;
+const MAX_OHLCVS: usize = 1000;
 
 /// Binance WebSocket client wrapper
 pub struct BinanceWs {
@@ -366,7 +372,7 @@ impl BinanceWs {
     }
 
     /// Receives the next available message
-    pub async fn receive(&self) -> Option<Value> {
+    pub fn receive(&self) -> Option<Value> {
         None
     }
 
@@ -812,8 +818,6 @@ impl BinanceWs {
                         .entry(symbol.to_string())
                         .or_insert_with(VecDeque::new);
 
-                    // Constants from binance_impl.rs
-                    const MAX_TRADES: usize = 1000;
                     if trades.len() >= MAX_TRADES {
                         trades.pop_front();
                     }
@@ -873,7 +877,6 @@ impl BinanceWs {
                     let mut ohlcvs_map = self.ohlcvs.lock().await;
                     let ohlcvs = ohlcvs_map.entry(cache_key).or_insert_with(VecDeque::new);
 
-                    const MAX_OHLCVS: usize = 1000;
                     if ohlcvs.len() >= MAX_OHLCVS {
                         ohlcvs.pop_front();
                     }
@@ -1261,8 +1264,8 @@ include!("binance_impl.rs");
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_binance_ws_creation() {
+    #[tokio::test]
+    async fn test_binance_ws_creation() {
         let ws = BinanceWs::new(WS_BASE_URL.to_string());
         assert!(ws.listen_key.try_read().is_ok());
     }

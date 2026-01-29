@@ -174,7 +174,7 @@ impl RetryConfig {
 }
 
 /// Retry strategy.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RetryStrategy {
     config: RetryConfig,
 }

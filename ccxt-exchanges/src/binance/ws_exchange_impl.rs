@@ -16,6 +16,7 @@ use ccxt_core::{
 
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use super::Binance;
@@ -47,44 +48,25 @@ impl WsExchange for Binance {
     // ==================== Connection Management ====================
 
     async fn ws_connect(&self) -> Result<()> {
-        // Create a public WebSocket connection
-        let ws = self.create_ws();
-        ws.connect().await?;
-
-        // Store the connected WebSocket instance for state tracking
-        let mut conn = self.ws_connection.write().await;
-        *conn = Some(ws);
-
+        // Ensure at least one public connection is active
+        let _ = self.connection_manager.get_public_connection().await?;
         Ok(())
     }
 
     async fn ws_disconnect(&self) -> Result<()> {
-        // Get and clear the stored WebSocket connection
-        let mut conn = self.ws_connection.write().await;
-        if let Some(ws) = conn.take() {
-            ws.disconnect().await?;
-        }
-        Ok(())
+        self.connection_manager.disconnect_all().await
     }
 
     fn ws_is_connected(&self) -> bool {
-        // Use try_read to avoid blocking
-        if let Ok(conn) = self.ws_connection.try_read() {
-            if let Some(ref ws) = *conn {
-                return ws.is_connected();
-            }
-        }
-        false
+        self.connection_manager.is_connected()
     }
 
     fn ws_state(&self) -> WsConnectionState {
-        // Use try_read to avoid blocking
-        if let Ok(conn) = self.ws_connection.try_read() {
-            if let Some(ref ws) = *conn {
-                return ws.state();
-            }
+        if self.connection_manager.is_connected() {
+            WsConnectionState::Connected
+        } else {
+            WsConnectionState::Disconnected
         }
-        WsConnectionState::Disconnected
     }
 
     // ==================== Public Data Streams ====================
@@ -96,44 +78,49 @@ impl WsExchange for Binance {
         // Get market info
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
+        let stream = format!("{}@ticker", binance_symbol);
 
-        // Create WebSocket and connect
-        let ws = self.create_ws();
-        ws.connect().await?;
+        // Get shared public connection
+        let ws = self.connection_manager.get_public_connection().await?;
 
-        // Subscribe to ticker stream
-        ws.subscribe_ticker(&binance_symbol).await?;
+        // Create subscription channel
+        let (tx, mut rx) = mpsc::unbounded_channel();
 
-        // Create a channel for streaming data
-        let (tx, rx) = mpsc::unbounded_channel::<Result<Ticker>>();
+        // Register with manager
+        ws.subscription_manager
+            .add_subscription(
+                stream.clone(),
+                symbol.to_string(),
+                super::ws::SubscriptionType::Ticker,
+                tx,
+            )
+            .await?;
 
-        // Spawn a task to receive messages and forward them
+        // Send subscribe command
+        ws.message_router.subscribe(vec![stream]).await?;
+
+        // Create user channel
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Ticker>>();
+
+        // Spawn parser task
         let market_clone = market.clone();
         tokio::spawn(async move {
-            loop {
-                if let Some(msg) = ws.receive().await {
-                    // Skip subscription confirmations
-                    if msg.get("result").is_some() || msg.get("id").is_some() {
-                        continue;
+            while let Some(msg) = rx.recv().await {
+                match super::parser::parse_ws_ticker(&msg, Some(&market_clone)) {
+                    Ok(ticker) => {
+                        if user_tx.send(Ok(ticker)).is_err() {
+                            break;
+                        }
                     }
-
-                    // Parse ticker
-                    match super::parser::parse_ws_ticker(&msg, Some(&market_clone)) {
-                        Ok(ticker) => {
-                            if tx.send(Ok(ticker)).is_err() {
-                                break; // Receiver dropped
-                            }
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Err(e));
-                        }
+                    Err(e) => {
+                        let _ = user_tx.send(Err(e));
                     }
                 }
             }
         });
 
         // Convert receiver to stream
-        let stream = ReceiverStream::new(rx);
+        let stream = ReceiverStream::new(user_rx);
         Ok(Box::pin(stream))
     }
 
@@ -141,54 +128,66 @@ impl WsExchange for Binance {
         // Load markets
         self.load_markets(false).await?;
 
-        // Create WebSocket and connect
-        let ws = self.create_ws();
-        ws.connect().await?;
+        // Create aggregator channel
+        let (agg_tx, mut agg_rx) = mpsc::unbounded_channel::<Ticker>();
 
-        // Subscribe to all requested symbols
+        // Subscribe to all requested symbols (potentially across shards)
         let mut markets = HashMap::new();
         for symbol in symbols {
             let market = self.base.market(symbol).await?;
             let binance_symbol = market.id.to_lowercase();
-            ws.subscribe_ticker(&binance_symbol).await?;
-            markets.insert(binance_symbol, market);
+            let stream = format!("{}@ticker", binance_symbol);
+
+            markets.insert(binance_symbol.clone(), market);
+
+            // Get connection (might be different for each symbol if sharding active)
+            let ws = self.connection_manager.get_public_connection().await?;
+            let (tx, mut rx) = mpsc::unbounded_channel();
+
+            ws.subscription_manager
+                .add_subscription(
+                    stream.clone(),
+                    symbol.clone(),
+                    super::ws::SubscriptionType::Ticker,
+                    tx,
+                )
+                .await?;
+
+            ws.message_router.subscribe(vec![stream]).await?;
+
+            // Spawn parser task for this symbol
+            let agg_tx_clone = agg_tx.clone();
+            let market_clone = self.base.market(symbol).await?;
+
+            tokio::spawn(async move {
+                while let Some(msg) = rx.recv().await {
+                    if let Ok(ticker) = super::parser::parse_ws_ticker(&msg, Some(&market_clone)) {
+                        let _ = agg_tx_clone.send(ticker);
+                    }
+                }
+            });
         }
 
-        // Create channel for streaming
-        let (tx, rx) = mpsc::unbounded_channel::<Result<Vec<Ticker>>>();
+        drop(agg_tx);
 
-        // Spawn receiver task
-        let markets_clone = markets;
+        // Create user channel
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Vec<Ticker>>>();
+
+        // Spawn aggregator task
         tokio::spawn(async move {
             let mut tickers: HashMap<String, Ticker> = HashMap::new();
 
-            loop {
-                if let Some(msg) = ws.receive().await {
-                    // Skip subscription confirmations
-                    if msg.get("result").is_some() || msg.get("id").is_some() {
-                        continue;
-                    }
+            while let Some(ticker) = agg_rx.recv().await {
+                tickers.insert(ticker.symbol.clone(), ticker);
 
-                    // Get symbol from message
-                    if let Some(symbol_str) = msg.get("s").and_then(|s| s.as_str()) {
-                        let binance_symbol = symbol_str.to_lowercase();
-                        if let Some(market) = markets_clone.get(&binance_symbol) {
-                            if let Ok(ticker) = super::parser::parse_ws_ticker(&msg, Some(market)) {
-                                tickers.insert(ticker.symbol.clone(), ticker);
-
-                                // Send current state of all tickers
-                                let ticker_vec: Vec<Ticker> = tickers.values().cloned().collect();
-                                if tx.send(Ok(ticker_vec)).is_err() {
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                let ticker_vec: Vec<Ticker> = tickers.values().cloned().collect();
+                if user_tx.send(Ok(ticker_vec)).is_err() {
+                    break;
                 }
             }
         });
 
-        let stream = ReceiverStream::new(rx);
+        let stream = ReceiverStream::new(user_rx);
         Ok(Box::pin(stream))
     }
 
@@ -204,44 +203,50 @@ impl WsExchange for Binance {
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // Create WebSocket and connect
-        let ws = self.create_ws();
-        ws.connect().await?;
-
         // Subscribe to orderbook stream
         let levels = limit.unwrap_or(20);
-        ws.subscribe_orderbook(&binance_symbol, levels, "100ms")
+        let stream = format!("{}@depth{}@100ms", binance_symbol, levels);
+
+        // Get shared public connection
+        let ws = self.connection_manager.get_public_connection().await?;
+
+        // Create subscription channel
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        // Register with manager
+        ws.subscription_manager
+            .add_subscription(
+                stream.clone(),
+                symbol.to_string(),
+                super::ws::SubscriptionType::OrderBook,
+                tx,
+            )
             .await?;
 
-        // Create channel
-        let (tx, rx) = mpsc::unbounded_channel::<Result<OrderBook>>();
+        // Send subscribe command
+        ws.message_router.subscribe(vec![stream]).await?;
 
-        // Spawn receiver task
+        // Create user channel
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<OrderBook>>();
+
+        // Spawn parser task
         let symbol_clone = symbol.to_string();
         tokio::spawn(async move {
-            loop {
-                if let Some(msg) = ws.receive().await {
-                    // Skip subscription confirmations
-                    if msg.get("result").is_some() || msg.get("id").is_some() {
-                        continue;
+            while let Some(msg) = rx.recv().await {
+                match super::parser::parse_ws_orderbook(&msg, symbol_clone.clone()) {
+                    Ok(orderbook) => {
+                        if user_tx.send(Ok(orderbook)).is_err() {
+                            break;
+                        }
                     }
-
-                    // Parse orderbook - pass String as required by the parser
-                    match super::parser::parse_ws_orderbook(&msg, symbol_clone.clone()) {
-                        Ok(orderbook) => {
-                            if tx.send(Ok(orderbook)).is_err() {
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Err(e));
-                        }
+                    Err(e) => {
+                        let _ = user_tx.send(Err(e));
                     }
                 }
             }
         });
 
-        let stream = ReceiverStream::new(rx);
+        let stream = ReceiverStream::new(user_rx);
         Ok(Box::pin(stream))
     }
 
@@ -252,43 +257,49 @@ impl WsExchange for Binance {
         // Get market info
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
+        let stream = format!("{}@trade", binance_symbol);
 
-        // Create WebSocket and connect
-        let ws = self.create_ws();
-        ws.connect().await?;
+        // Get shared public connection
+        let ws = self.connection_manager.get_public_connection().await?;
 
-        // Subscribe to trades stream
-        ws.subscribe_trades(&binance_symbol).await?;
+        // Create subscription channel
+        let (tx, mut rx) = mpsc::unbounded_channel();
 
-        // Create channel
-        let (tx, rx) = mpsc::unbounded_channel::<Result<Vec<Trade>>>();
+        // Register with manager
+        ws.subscription_manager
+            .add_subscription(
+                stream.clone(),
+                symbol.to_string(),
+                super::ws::SubscriptionType::Trades,
+                tx,
+            )
+            .await?;
 
-        // Spawn receiver task
+        // Send subscribe command
+        ws.message_router.subscribe(vec![stream]).await?;
+
+        // Create user channel
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Vec<Trade>>>();
+
+        // Spawn parser task
         let market_clone = market.clone();
         tokio::spawn(async move {
-            loop {
-                if let Some(msg) = ws.receive().await {
-                    // Skip subscription confirmations
-                    if msg.get("result").is_some() || msg.get("id").is_some() {
-                        continue;
+            while let Some(msg) = rx.recv().await {
+                match super::parser::parse_ws_trade(&msg, Some(&market_clone)) {
+                    Ok(trade) => {
+                        if user_tx.send(Ok(vec![trade])).is_err() {
+                            break;
+                        }
                     }
-
-                    // Parse trade
-                    match super::parser::parse_ws_trade(&msg, Some(&market_clone)) {
-                        Ok(trade) => {
-                            if tx.send(Ok(vec![trade])).is_err() {
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Err(e));
-                        }
+                    Err(e) => {
+                        let _ = user_tx.send(Err(e));
                     }
                 }
             }
         });
 
-        let stream = ReceiverStream::new(rx);
+        // Convert receiver to stream
+        let stream = ReceiverStream::new(user_rx);
         Ok(Box::pin(stream))
     }
 
@@ -306,102 +317,249 @@ impl WsExchange for Binance {
 
         // Convert timeframe to Binance format
         let interval = timeframe.to_string();
+        let stream = format!("{}@kline_{}", binance_symbol, interval);
 
-        // Create WebSocket and connect
-        let ws = self.create_ws();
-        ws.connect().await?;
+        // Get shared public connection
+        let ws = self.connection_manager.get_public_connection().await?;
 
-        // Subscribe to kline stream
-        ws.subscribe_kline(&binance_symbol, &interval).await?;
+        // Create subscription channel
+        let (tx, mut rx) = mpsc::unbounded_channel();
 
-        // Create channel
-        let (tx, rx) = mpsc::unbounded_channel::<Result<Ohlcv>>();
+        // Register with manager
+        ws.subscription_manager
+            .add_subscription(
+                stream.clone(),
+                symbol.to_string(),
+                super::ws::SubscriptionType::Kline(interval),
+                tx,
+            )
+            .await?;
 
-        // Spawn receiver task
+        // Send subscribe command
+        ws.message_router.subscribe(vec![stream]).await?;
+
+        // Create user channel
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Ohlcv>>();
+
+        // Spawn parser task
         tokio::spawn(async move {
-            loop {
-                if let Some(msg) = ws.receive().await {
-                    // Skip subscription confirmations
-                    if msg.get("result").is_some() || msg.get("id").is_some() {
-                        continue;
+            while let Some(msg) = rx.recv().await {
+                // Parse OHLCV from kline message
+                match super::parser::parse_ws_ohlcv(&msg) {
+                    Ok(ohlcv_f64) => {
+                        // Convert OHLCV (f64) to Ohlcv (Decimal)
+                        let ohlcv = Ohlcv {
+                            timestamp: ohlcv_f64.timestamp,
+                            open: Price::from(
+                                Decimal::try_from(ohlcv_f64.open).unwrap_or_default(),
+                            ),
+                            high: Price::from(
+                                Decimal::try_from(ohlcv_f64.high).unwrap_or_default(),
+                            ),
+                            low: Price::from(Decimal::try_from(ohlcv_f64.low).unwrap_or_default()),
+                            close: Price::from(
+                                Decimal::try_from(ohlcv_f64.close).unwrap_or_default(),
+                            ),
+                            volume: Amount::from(
+                                Decimal::try_from(ohlcv_f64.volume).unwrap_or_default(),
+                            ),
+                        };
+                        if user_tx.send(Ok(ohlcv)).is_err() {
+                            break;
+                        }
                     }
-
-                    // Parse OHLCV from kline message
-                    match super::parser::parse_ws_ohlcv(&msg) {
-                        Ok(ohlcv_f64) => {
-                            // Convert OHLCV (f64) to Ohlcv (Decimal)
-                            let ohlcv = Ohlcv {
-                                timestamp: ohlcv_f64.timestamp,
-                                open: Price::from(
-                                    Decimal::try_from(ohlcv_f64.open).unwrap_or_default(),
-                                ),
-                                high: Price::from(
-                                    Decimal::try_from(ohlcv_f64.high).unwrap_or_default(),
-                                ),
-                                low: Price::from(
-                                    Decimal::try_from(ohlcv_f64.low).unwrap_or_default(),
-                                ),
-                                close: Price::from(
-                                    Decimal::try_from(ohlcv_f64.close).unwrap_or_default(),
-                                ),
-                                volume: Amount::from(
-                                    Decimal::try_from(ohlcv_f64.volume).unwrap_or_default(),
-                                ),
-                            };
-                            if tx.send(Ok(ohlcv)).is_err() {
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Err(e));
-                        }
+                    Err(e) => {
+                        let _ = user_tx.send(Err(e));
                     }
                 }
             }
         });
 
-        let stream = ReceiverStream::new(rx);
+        let stream = ReceiverStream::new(user_rx);
         Ok(Box::pin(stream))
     }
 
     // ==================== Private Data Streams ====================
 
     async fn watch_balance(&self) -> Result<MessageStream<Balance>> {
-        // Check credentials
         self.base
             .check_required_credentials()
             .map_err(|_| Error::authentication("API credentials required for watch_balance"))?;
 
-        // For user data streams, we need an Arc<Binance> to create authenticated WS
-        // This is a limitation of the current design
-        Err(Error::not_implemented(
-            "watch_balance requires Arc<Binance> for authenticated WebSocket. \
-             Use create_authenticated_ws() directly for now.",
-        ))
+        let binance_arc = Arc::new(self.clone());
+        let ws = self
+            .connection_manager
+            .get_private_connection(&binance_arc)
+            .await?;
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        ws.subscription_manager
+            .add_subscription(
+                "!userData".to_string(),
+                "user".to_string(),
+                super::ws::SubscriptionType::Balance,
+                tx,
+            )
+            .await?;
+
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Balance>>();
+        let account_type = self.options.default_type.to_string();
+        let balances_cache = ws.balances.clone();
+
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
+                    if matches!(
+                        event_type,
+                        "balanceUpdate" | "outboundAccountPosition" | "ACCOUNT_UPDATE"
+                    ) {
+                        if let Ok(()) = super::ws::user_data::handle_balance_message(
+                            &msg,
+                            &account_type,
+                            &balances_cache,
+                        )
+                        .await
+                        {
+                            let balances = balances_cache.read().await;
+                            if let Some(balance) = balances.get(&account_type) {
+                                if user_tx.send(Ok(balance.clone())).is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let stream = ReceiverStream::new(user_rx);
+        Ok(Box::pin(stream))
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> Result<MessageStream<Order>> {
-        // Check credentials
+    async fn watch_orders(&self, symbol: Option<&str>) -> Result<MessageStream<Order>> {
         self.base
             .check_required_credentials()
             .map_err(|_| Error::authentication("API credentials required for watch_orders"))?;
 
-        Err(Error::not_implemented(
-            "watch_orders requires Arc<Binance> for authenticated WebSocket. \
-             Use create_authenticated_ws() directly for now.",
-        ))
+        let binance_arc = Arc::new(self.clone());
+        let ws = self
+            .connection_manager
+            .get_private_connection(&binance_arc)
+            .await?;
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        ws.subscription_manager
+            .add_subscription(
+                "!userData".to_string(),
+                "user".to_string(),
+                super::ws::SubscriptionType::Orders,
+                tx,
+            )
+            .await?;
+
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Order>>();
+        let symbol_filter = symbol.map(ToString::to_string);
+        let orders_cache = ws.orders.clone();
+
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let Some(data) = msg.as_object() {
+                    if let Some(event_type) = data.get("e").and_then(|e| e.as_str()) {
+                        if event_type == "executionReport" {
+                            let order = super::ws::user_data::parse_ws_order(data);
+
+                            // Update cache
+                            {
+                                let mut orders = orders_cache.write().await;
+                                let symbol_orders = orders
+                                    .entry(order.symbol.clone())
+                                    .or_insert_with(HashMap::new);
+                                symbol_orders.insert(order.id.clone(), order.clone());
+                            }
+
+                            // Filter and send
+                            if let Some(s) = &symbol_filter {
+                                if &order.symbol != s {
+                                    continue;
+                                }
+                            }
+
+                            if user_tx.send(Ok(order)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let stream = ReceiverStream::new(user_rx);
+        Ok(Box::pin(stream))
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> Result<MessageStream<Trade>> {
-        // Check credentials
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> Result<MessageStream<Trade>> {
         self.base
             .check_required_credentials()
             .map_err(|_| Error::authentication("API credentials required for watch_my_trades"))?;
 
-        Err(Error::not_implemented(
-            "watch_my_trades requires Arc<Binance> for authenticated WebSocket. \
-             Use create_authenticated_ws() directly for now.",
-        ))
+        let binance_arc = Arc::new(self.clone());
+        let ws = self
+            .connection_manager
+            .get_private_connection(&binance_arc)
+            .await?;
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        ws.subscription_manager
+            .add_subscription(
+                "!userData".to_string(),
+                "user".to_string(),
+                super::ws::SubscriptionType::MyTrades,
+                tx,
+            )
+            .await?;
+
+        let (user_tx, user_rx) = mpsc::unbounded_channel::<Result<Trade>>();
+        let symbol_filter = symbol.map(ToString::to_string);
+        let trades_cache = ws.my_trades.clone();
+
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
+                    if event_type == "executionReport" {
+                        if let Ok(trade) = super::ws::user_data::parse_ws_trade(&msg) {
+                            // Update cache
+                            {
+                                let mut trades = trades_cache.write().await;
+                                let symbol_trades = trades
+                                    .entry(trade.symbol.clone())
+                                    .or_insert_with(std::collections::VecDeque::new);
+                                symbol_trades.push_front(trade.clone());
+                                if symbol_trades.len() > 1000 {
+                                    symbol_trades.pop_back();
+                                }
+                            }
+
+                            // Filter and send
+                            if let Some(s) = &symbol_filter {
+                                if &trade.symbol != s {
+                                    continue;
+                                }
+                            }
+
+                            if user_tx.send(Ok(trade)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let stream = ReceiverStream::new(user_rx);
+        Ok(Box::pin(stream))
     }
 
     // ==================== Subscription Management ====================
@@ -459,13 +617,7 @@ impl WsExchange for Binance {
     }
 
     fn subscriptions(&self) -> Vec<String> {
-        // Use try_read to avoid blocking
-        if let Ok(conn) = self.ws_connection.try_read() {
-            if let Some(ref ws) = *conn {
-                return ws.subscriptions();
-            }
-        }
-        Vec::new()
+        self.connection_manager.get_all_subscriptions()
     }
 }
 

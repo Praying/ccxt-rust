@@ -285,8 +285,15 @@ impl MessageRouter {
     ) -> Result<()> {
         let stream_name = Self::extract_stream_name(&message)?;
 
+        // Check for "data" field (Combined Stream format) and unwrap if present
+        let payload = if message.get("stream").is_some() && message.get("data").is_some() {
+            message.get("data").cloned().unwrap_or(message)
+        } else {
+            message
+        };
+
         let sent = subscription_manager
-            .send_to_stream(&stream_name, message)
+            .send_to_stream(&stream_name, payload)
             .await;
 
         if sent {
@@ -531,5 +538,71 @@ pub async fn watch_ticker_internal(
                 return Ok(ticker);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_extract_stream_name_combined() {
+        let message = json!({
+            "stream": "btcusdt@ticker",
+            "data": {
+                "e": "24hrTicker",
+                "s": "BTCUSDT"
+            }
+        });
+
+        let stream = MessageRouter::extract_stream_name(&message).unwrap();
+        assert_eq!(stream, "btcusdt@ticker");
+    }
+
+    #[test]
+    fn test_extract_stream_name_raw() {
+        let message = json!({
+            "e": "24hrTicker",
+            "s": "BTCUSDT"
+        });
+
+        let stream = MessageRouter::extract_stream_name(&message).unwrap();
+        assert_eq!(stream, "btcusdt@ticker");
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_unwrapping() {
+        let manager = Arc::new(crate::binance::ws::subscriptions::SubscriptionManager::new());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        manager
+            .add_subscription(
+                "btcusdt@ticker".to_string(),
+                "BTCUSDT".to_string(),
+                crate::binance::ws::subscriptions::SubscriptionType::Ticker,
+                tx,
+            )
+            .await
+            .unwrap();
+
+        let message = json!({
+            "stream": "btcusdt@ticker",
+            "data": {
+                "e": "24hrTicker",
+                "s": "BTCUSDT",
+                "c": "50000.00"
+            }
+        });
+
+        MessageRouter::handle_message(message, manager)
+            .await
+            .unwrap();
+
+        let received = rx.recv().await.unwrap();
+        assert!(received.get("stream").is_none());
+        assert_eq!(received["e"], "24hrTicker");
+        assert_eq!(received["c"], "50000.00");
     }
 }

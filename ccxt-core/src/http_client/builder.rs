@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::config::HttpConfig;
 
 /// HTTP client with retry and rate limiting support
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
     config: HttpConfig,
