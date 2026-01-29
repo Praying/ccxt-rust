@@ -32,7 +32,7 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
 
 /// Base exchange implementation
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BaseExchange {
     /// Exchange configuration
     pub config: ExchangeConfig,

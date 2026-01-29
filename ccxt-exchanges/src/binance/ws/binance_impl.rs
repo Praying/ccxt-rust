@@ -276,9 +276,6 @@ impl Binance {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Trade>> {
-        const MAX_RETRIES: u32 = 50;
-        const MAX_TRADES: usize = 1000;
-
         self.base.load_markets(false).await?;
 
         let market = self.base.market(symbol).await?;
@@ -287,48 +284,8 @@ impl Binance {
         let ws = self.create_ws();
         ws.connect().await?;
 
-        ws.subscribe_trades(&binance_symbol).await?;
-
-        let mut retries = 0;
-
-        while retries < MAX_RETRIES {
-            if let Some(msg) = ws.client.receive().await {
-                if msg.get("result").is_some() || msg.get("id").is_some() {
-                    continue;
-                }
-
-                if let Ok(trade) = parser::parse_ws_trade(&msg, Some(&market)) {
-                    let mut trades_map = ws.trades.lock().await;
-                    let trades = trades_map
-                        .entry(symbol.to_string())
-                        .or_insert_with(VecDeque::new);
-
-                    if trades.len() >= MAX_TRADES {
-                        trades.pop_front();
-                    }
-                    trades.push_back(trade);
-
-                    let mut result: Vec<Trade> = trades.iter().cloned().collect();
-
-                    if let Some(since_ts) = since {
-                        result.retain(|t| t.timestamp >= since_ts);
-                    }
-
-                    if let Some(limit_size) = limit {
-                        if result.len() > limit_size {
-                            result = result.split_off(result.len() - limit_size);
-                        }
-                    }
-
-                    return Ok(result);
-                }
-            }
-
-            retries += 1;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-
-        Err(Error::network("Timeout waiting for trade data"))
+        ws.watch_trades_internal(symbol, &binance_symbol, since, limit, Some(&market))
+            .await
     }
 
     /// Streams OHLCV data for a unified symbol
@@ -339,9 +296,6 @@ impl Binance {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<OHLCV>> {
-        const MAX_RETRIES: u32 = 50;
-        const MAX_OHLCVS: usize = 1000;
-
         self.base.load_markets(false).await?;
 
         let market = self.base.market(symbol).await?;
@@ -350,53 +304,12 @@ impl Binance {
         let ws = self.create_ws();
         ws.connect().await?;
 
-        ws.subscribe_kline(&binance_symbol, timeframe).await?;
-
-        let mut retries = 0;
-
-        while retries < MAX_RETRIES {
-            if let Some(msg) = ws.client.receive().await {
-                if msg.get("result").is_some() || msg.get("id").is_some() {
-                    continue;
-                }
-
-                if let Ok(ohlcv) = parser::parse_ws_ohlcv(&msg) {
-                    let cache_key = format!("{}:{}", symbol, timeframe);
-                    let mut ohlcvs_map = ws.ohlcvs.lock().await;
-                    let ohlcvs = ohlcvs_map.entry(cache_key).or_insert_with(VecDeque::new);
-
-                    if ohlcvs.len() >= MAX_OHLCVS {
-                        ohlcvs.pop_front();
-                    }
-                    ohlcvs.push_back(ohlcv);
-
-                    let mut result: Vec<OHLCV> = ohlcvs.iter().cloned().collect();
-
-                    if let Some(since_ts) = since {
-                        result.retain(|o| o.timestamp >= since_ts);
-                    }
-
-                    if let Some(limit_size) = limit {
-                        if result.len() > limit_size {
-                            result = result.split_off(result.len() - limit_size);
-                        }
-                    }
-
-                    return Ok(result);
-                }
-            }
-
-            retries += 1;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-
-        Err(Error::network("Timeout waiting for OHLCV data"))
+        ws.watch_ohlcv_internal(symbol, &binance_symbol, timeframe, since, limit)
+            .await
     }
 
     /// Streams the best bid/ask data for a unified symbol
     pub async fn watch_bids_asks(&self, symbol: &str) -> Result<BidAsk> {
-        const MAX_RETRIES: u32 = 50;
-
         self.base.load_markets(false).await?;
 
         let market = self.base.market(symbol).await?;
@@ -405,32 +318,7 @@ impl Binance {
         let ws = self.create_ws();
         ws.connect().await?;
 
-        let stream_name = format!("{}@bookTicker", binance_symbol);
-        ws.client
-            .subscribe(stream_name, Some(symbol.to_string()), None)
-            .await?;
-
-        let mut retries = 0;
-
-        while retries < MAX_RETRIES {
-            if let Some(msg) = ws.client.receive().await {
-                if msg.get("result").is_some() || msg.get("id").is_some() {
-                    continue;
-                }
-
-                if let Ok(bid_ask) = parser::parse_ws_bid_ask(&msg) {
-                    let mut bids_asks_map = ws.bids_asks.lock().await;
-                    bids_asks_map.insert(symbol.to_string(), bid_ask.clone());
-
-                    return Ok(bid_ask);
-                }
-            }
-
-            retries += 1;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-
-        Err(Error::network("Timeout waiting for BidAsk data"))
+        ws.watch_bids_asks_internal(symbol, &binance_symbol).await
     }
 
     /// Streams account balance changes (private user data stream)
@@ -438,8 +326,6 @@ impl Binance {
         self: Arc<Self>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<Balance> {
-        const MAX_RETRIES: u32 = 100;
-
         self.base.load_markets(false).await?;
 
         let account_type = if let Some(p) = &params {
@@ -467,7 +353,6 @@ impl Binance {
         };
 
         let ws = self.create_authenticated_ws();
-        ws.connect().await?;
 
         if fetch_snapshot {
             let account_type_enum = account_type.parse::<ccxt_core::types::AccountType>().ok();
@@ -481,34 +366,7 @@ impl Binance {
             }
         }
 
-        let mut retries = 0;
-
-        while retries < MAX_RETRIES {
-            if let Some(msg) = ws.client.receive().await {
-                if msg.get("result").is_some() || msg.get("id").is_some() {
-                    continue;
-                }
-
-                if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    if matches!(
-                        event_type,
-                        "balanceUpdate" | "outboundAccountPosition" | "ACCOUNT_UPDATE"
-                    ) {
-                        if let Ok(()) = ws.handle_balance_message(&msg, account_type).await {
-                            let balances = ws.balances.read().await;
-                            if let Some(balance) = balances.get(account_type) {
-                                return Ok(balance.clone());
-                            }
-                        }
-                    }
-                }
-            }
-
-            retries += 1;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-
-        Err(Error::network("Timeout waiting for balance data"))
+        ws.watch_balance_internal(account_type).await
     }
 
     /// Watches authenticated order updates via the user data stream
@@ -522,89 +380,7 @@ impl Binance {
         self.base.load_markets(false).await?;
 
         let ws = self.create_authenticated_ws();
-        ws.connect().await?;
-
-        loop {
-            if let Some(msg) = ws.client.receive().await {
-                if let Value::Object(data) = msg {
-                    if let Some(event_type) = data.get("e").and_then(serde_json::Value::as_str) {
-                        if event_type == "executionReport" {
-                            let order = user_data::parse_ws_order(&data);
-
-                            let mut orders = ws.orders.write().await;
-                            let symbol_orders = orders
-                                .entry(order.symbol.clone())
-                                .or_insert_with(HashMap::new);
-                            symbol_orders.insert(order.id.clone(), order.clone());
-                            drop(orders);
-
-                            if let Some(exec_type) =
-                                data.get("x").and_then(serde_json::Value::as_str)
-                            {
-                                if exec_type == "TRADE" {
-                                    if let Ok(trade) =
-                                        BinanceWs::parse_ws_trade(&Value::Object(data.clone()))
-                                    {
-                                        let mut trades = ws.my_trades.write().await;
-                                        let symbol_trades = trades
-                                            .entry(trade.symbol.clone())
-                                            .or_insert_with(VecDeque::new);
-
-                                        symbol_trades.push_front(trade);
-                                        if symbol_trades.len() > 1000 {
-                                            symbol_trades.pop_back();
-                                        }
-                                    }
-                                }
-                            }
-
-                            return self.filter_orders(&ws, symbol, since, limit).await;
-                        }
-                    }
-                }
-            } else {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    }
-
-    /// Filters cached orders by symbol, time range, and limit
-    async fn filter_orders(
-        &self,
-        ws: &BinanceWs,
-        symbol: Option<&str>,
-        since: Option<i64>,
-        limit: Option<usize>,
-    ) -> Result<Vec<Order>> {
-        let orders_map = ws.orders.read().await;
-
-        let mut orders: Vec<Order> = if let Some(sym) = symbol {
-            orders_map
-                .get(sym)
-                .map(|symbol_orders| symbol_orders.values().cloned().collect())
-                .unwrap_or_default()
-        } else {
-            orders_map
-                .values()
-                .flat_map(|symbol_orders| symbol_orders.values().cloned())
-                .collect()
-        };
-
-        if let Some(since_ts) = since {
-            orders.retain(|order| order.timestamp.is_some_and(|ts| ts >= since_ts));
-        }
-
-        orders.sort_by(|a, b| {
-            let ts_a = a.timestamp.unwrap_or(0);
-            let ts_b = b.timestamp.unwrap_or(0);
-            ts_b.cmp(&ts_a)
-        });
-
-        if let Some(lim) = limit {
-            orders.truncate(lim);
-        }
-
-        Ok(orders)
+        ws.watch_orders_internal(symbol, since, limit).await
     }
 
     /// Watches authenticated user trade updates
@@ -615,43 +391,8 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Trade>> {
-        const MAX_RETRIES: u32 = 100;
-
         let ws = self.create_authenticated_ws();
-        ws.connect().await?;
-
-        let mut retries = 0;
-
-        while retries < MAX_RETRIES {
-            if let Some(msg) = ws.client.receive().await {
-                if msg.get("result").is_some() || msg.get("id").is_some() {
-                    continue;
-                }
-
-                if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    if event_type == "executionReport" {
-                        if let Ok(trade) = BinanceWs::parse_ws_trade(&msg) {
-                            let symbol_key = trade.symbol.clone();
-
-                            let mut trades_map = ws.my_trades.write().await;
-                            let symbol_trades =
-                                trades_map.entry(symbol_key).or_insert_with(VecDeque::new);
-
-                            symbol_trades.push_front(trade);
-                            if symbol_trades.len() > 1000 {
-                                symbol_trades.pop_back();
-                            }
-                        }
-                    }
-                }
-            } else {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-
-            retries += 1;
-        }
-
-        ws.filter_my_trades(symbol, since, limit).await
+        ws.watch_my_trades_internal(symbol, since, limit).await
     }
 
     /// Watches authenticated futures position updates
@@ -662,62 +403,7 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Position>> {
-        const MAX_RETRIES: u32 = 100;
-
         let ws = self.create_authenticated_ws();
-        ws.connect().await?;
-
-        let mut retries = 0;
-
-        while retries < MAX_RETRIES {
-            if let Some(msg) = ws.client.receive().await {
-                if msg.get("result").is_some() || msg.get("id").is_some() {
-                    continue;
-                }
-
-                if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    if event_type == "ACCOUNT_UPDATE" {
-                        if let Some(account_data) = msg.get("a") {
-                            if let Some(positions_array) =
-                                account_data.get("P").and_then(|p| p.as_array())
-                            {
-                                for position_data in positions_array {
-                                    if let Ok(position) =
-                                        BinanceWs::parse_ws_position(position_data)
-                                    {
-                                        let symbol_key = position.symbol.clone();
-                                        let side_key = position
-                                            .side
-                                            .clone()
-                                            .unwrap_or_else(|| "both".to_string());
-
-                                        let mut positions_map = ws.positions.write().await;
-                                        let symbol_positions = positions_map
-                                            .entry(symbol_key)
-                                            .or_insert_with(HashMap::new);
-
-                                        if position.contracts.unwrap_or(0.0).abs() < 0.000001 {
-                                            symbol_positions.remove(&side_key);
-                                            if symbol_positions.is_empty() {
-                                                positions_map.remove(&position.symbol);
-                                            }
-                                        } else {
-                                            symbol_positions.insert(side_key, position);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-
-            retries += 1;
-        }
-
-        let symbols_ref = symbols.as_deref();
-        ws.filter_positions(symbols_ref, since, limit).await
+        ws.watch_positions_internal(symbols, since, limit).await
     }
 }

@@ -4,9 +4,9 @@
 
 use crate::binance::Binance;
 use ccxt_core::error::{Error, Result};
+use ccxt_core::types::OrderBook;
 use ccxt_core::types::financial::{Amount, Price};
 use ccxt_core::types::orderbook::{OrderBookDelta, OrderBookEntry};
-use ccxt_core::types::{OrderBook, Ticker};
 use rust_decimal::Decimal;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -58,13 +58,14 @@ impl MessageRouter {
     }
 
     /// Starts the message router
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self, url_override: Option<String>) -> Result<()> {
         if self.is_connected() {
             self.stop().await?;
         }
 
+        let url = url_override.unwrap_or_else(|| self.ws_url.clone());
         let config = ccxt_core::ws_client::WsConfig {
-            url: self.ws_url.clone(),
+            url: url.clone(),
             ..Default::default()
         };
         let client = ccxt_core::ws_client::WsClient::new(config);
@@ -79,7 +80,8 @@ impl MessageRouter {
         let subscription_manager = self.subscription_manager.clone();
         let is_connected = self.is_connected.clone();
         let reconnect_config = self.reconnect_config.clone();
-        let ws_url = self.ws_url.clone();
+
+        let ws_url = url;
 
         let handle = tokio::spawn(async move {
             Self::message_loop(
@@ -119,7 +121,12 @@ impl MessageRouter {
     pub async fn restart(&self) -> Result<()> {
         self.stop().await?;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        self.start().await
+        self.start(None).await
+    }
+
+    /// Returns the configured WebSocket URL
+    pub fn get_url(&self) -> String {
+        self.ws_url.clone()
     }
 
     /// Returns the current connection state
@@ -278,8 +285,15 @@ impl MessageRouter {
     ) -> Result<()> {
         let stream_name = Self::extract_stream_name(&message)?;
 
+        // Check for "data" field (Combined Stream format) and unwrap if present
+        let payload = if message.get("stream").is_some() && message.get("data").is_some() {
+            message.get("data").cloned().unwrap_or(message)
+        } else {
+            message
+        };
+
         let sent = subscription_manager
-            .send_to_stream(&stream_name, message)
+            .send_to_stream(&stream_name, payload)
             .await;
 
         if sent {
@@ -296,6 +310,19 @@ impl MessageRouter {
         }
 
         if let Some(event_type) = message.get("e").and_then(|e| e.as_str()) {
+            match event_type {
+                "outboundAccountPosition"
+                | "balanceUpdate"
+                | "executionReport"
+                | "listStatus"
+                | "ACCOUNT_UPDATE"
+                | "ORDER_TRADE_UPDATE"
+                | "listenKeyExpired" => {
+                    return Ok("!userData".to_string());
+                }
+                _ => {}
+            }
+
             if let Some(symbol) = message.get("s").and_then(|s| s.as_str()) {
                 let stream = match event_type {
                     "24hrTicker" => format!("{}@ticker", symbol.to_lowercase()),
@@ -484,32 +511,68 @@ pub async fn fetch_orderbook_snapshot(
     Ok(snapshot)
 }
 
-/// Watches a single ticker stream
-pub async fn watch_ticker_internal(
-    ws_client: &ccxt_core::ws_client::WsClient,
-    symbol: &str,
-    channel_name: &str,
-    tickers: &Mutex<HashMap<String, Ticker>>,
-    parser: &dyn Fn(&Value, Option<&ccxt_core::types::Market>) -> Result<Ticker>,
-) -> Result<Ticker> {
-    let stream = format!("{}@{}", symbol.to_lowercase(), channel_name);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::Arc;
 
-    ws_client
-        .subscribe(stream.clone(), Some(symbol.to_string()), None)
-        .await?;
-
-    loop {
-        if let Some(message) = ws_client.receive().await {
-            if message.get("result").is_some() {
-                continue;
+    #[test]
+    fn test_extract_stream_name_combined() {
+        let message = json!({
+            "stream": "btcusdt@ticker",
+            "data": {
+                "e": "24hrTicker",
+                "s": "BTCUSDT"
             }
+        });
 
-            if let Ok(ticker) = parser(&message, None) {
-                let mut tickers_map = tickers.lock().await;
-                tickers_map.insert(ticker.symbol.clone(), ticker.clone());
+        let stream = MessageRouter::extract_stream_name(&message).unwrap();
+        assert_eq!(stream, "btcusdt@ticker");
+    }
 
-                return Ok(ticker);
+    #[test]
+    fn test_extract_stream_name_raw() {
+        let message = json!({
+            "e": "24hrTicker",
+            "s": "BTCUSDT"
+        });
+
+        let stream = MessageRouter::extract_stream_name(&message).unwrap();
+        assert_eq!(stream, "btcusdt@ticker");
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_unwrapping() {
+        let manager = Arc::new(crate::binance::ws::subscriptions::SubscriptionManager::new());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        manager
+            .add_subscription(
+                "btcusdt@ticker".to_string(),
+                "BTCUSDT".to_string(),
+                crate::binance::ws::subscriptions::SubscriptionType::Ticker,
+                tx,
+            )
+            .await
+            .unwrap();
+
+        let message = json!({
+            "stream": "btcusdt@ticker",
+            "data": {
+                "e": "24hrTicker",
+                "s": "BTCUSDT",
+                "c": "50000.00"
             }
-        }
+        });
+
+        MessageRouter::handle_message(message, manager)
+            .await
+            .unwrap();
+
+        let received = rx.recv().await.unwrap();
+        assert!(received.get("stream").is_none());
+        assert_eq!(received["e"], "24hrTicker");
+        assert_eq!(received["c"], "50000.00");
     }
 }

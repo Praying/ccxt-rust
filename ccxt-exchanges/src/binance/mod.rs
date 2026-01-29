@@ -33,7 +33,7 @@ pub use signed_request::{HttpMethod, SignedRequestBuilder};
 pub use time_sync::{TimeSyncConfig, TimeSyncManager};
 pub use urls::BinanceUrls;
 /// Binance exchange structure.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Binance {
     /// Base exchange instance.
     base: BaseExchange,
@@ -42,9 +42,13 @@ pub struct Binance {
     /// Time synchronization manager for caching server time offset.
     time_sync: Arc<TimeSyncManager>,
     /// Persistent WebSocket connection reference for state tracking.
+    #[deprecated(note = "Use connection_manager instead")]
     ws_connection: Arc<RwLock<Option<ws::BinanceWs>>>,
+    /// Centralized WebSocket connection manager
+    pub connection_manager: Arc<ws::BinanceConnectionManager>,
 }
 
+#[allow(deprecated)]
 impl Binance {
     /// Creates a new Binance instance using the builder pattern.
     ///
@@ -93,11 +97,27 @@ impl Binance {
         let options = BinanceOptions::default();
         let time_sync = Arc::new(TimeSyncManager::new());
 
+        // Determine WS URL for ConnectionManager
+        let urls = if base.config.sandbox {
+            BinanceUrls::testnet()
+        } else {
+            BinanceUrls::production()
+        };
+        // Apply overrides logic similar to self.urls()
+        let ws_url = if let Some(url) = base.config.url_overrides.get("ws") {
+            url.clone()
+        } else {
+            urls.ws.clone()
+        };
+
+        let connection_manager = Arc::new(ws::BinanceConnectionManager::new(ws_url));
+
         Ok(Self {
             base,
             options,
             time_sync,
             ws_connection: Arc::new(RwLock::new(None)),
+            connection_manager,
         })
     }
 
@@ -136,11 +156,44 @@ impl Binance {
         };
         let time_sync = Arc::new(TimeSyncManager::with_config(time_sync_config));
 
+        // Determine WS URL
+        let mut urls = if base.config.sandbox {
+            BinanceUrls::testnet()
+        } else {
+            BinanceUrls::production()
+        };
+
+        // Apply overrides
+        if let Some(ws_url) = base.config.url_overrides.get("ws") {
+            urls.ws.clone_from(ws_url);
+        }
+        if let Some(ws_fapi_url) = base.config.url_overrides.get("wsFapi") {
+            urls.ws_fapi.clone_from(ws_fapi_url);
+        }
+        if let Some(ws_dapi_url) = base.config.url_overrides.get("wsDapi") {
+            urls.ws_dapi.clone_from(ws_dapi_url);
+        }
+        if let Some(ws_eapi_url) = base.config.url_overrides.get("wsEapi") {
+            urls.ws_eapi.clone_from(ws_eapi_url);
+        }
+
+        let ws_url = match options.default_type {
+            DefaultType::Swap | DefaultType::Futures => match options.default_sub_type {
+                Some(DefaultSubType::Inverse) => urls.ws_dapi.clone(),
+                _ => urls.ws_fapi.clone(),
+            },
+            DefaultType::Option => urls.ws_eapi.clone(),
+            _ => urls.ws.clone(),
+        };
+
+        let connection_manager = Arc::new(ws::BinanceConnectionManager::new(ws_url));
+
         Ok(Self {
             base,
             options,
             time_sync,
             ws_connection: Arc::new(RwLock::new(None)),
+            connection_manager,
         })
     }
 
@@ -174,11 +227,28 @@ impl Binance {
         };
         let time_sync = Arc::new(TimeSyncManager::with_config(time_sync_config));
 
+        // Determine WS URL (Futures/Swap)
+        let mut urls = if base.config.sandbox {
+            BinanceUrls::testnet()
+        } else {
+            BinanceUrls::production()
+        };
+
+        if let Some(ws_fapi_url) = base.config.url_overrides.get("wsFapi") {
+            urls.ws_fapi.clone_from(ws_fapi_url);
+        }
+
+        // Default to FAPI/Linear for new_swap if not configured otherwise
+        let ws_url = urls.ws_fapi.clone();
+
+        let connection_manager = Arc::new(ws::BinanceConnectionManager::new(ws_url));
+
         Ok(Self {
             base,
             options,
             time_sync,
             ws_connection: Arc::new(RwLock::new(None)),
+            connection_manager,
         })
     }
 

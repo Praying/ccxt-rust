@@ -175,6 +175,15 @@ impl SubscriptionManager {
         subs.values().cloned().collect()
     }
 
+    /// Returns all registered subscriptions synchronously (non-blocking)
+    pub fn get_all_subscriptions_sync(&self) -> Vec<Subscription> {
+        if let Ok(subs) = self.subscriptions.try_read() {
+            subs.values().cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Returns all subscriptions associated with a symbol
     pub async fn get_subscriptions_by_symbol(&self, symbol: &str) -> Vec<Subscription> {
         let index = self.symbol_index.read().await;
