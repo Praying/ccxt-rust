@@ -4,9 +4,9 @@
 
 use crate::binance::Binance;
 use ccxt_core::error::{Error, Result};
+use ccxt_core::types::OrderBook;
 use ccxt_core::types::financial::{Amount, Price};
 use ccxt_core::types::orderbook::{OrderBookDelta, OrderBookEntry};
-use ccxt_core::types::{OrderBook, Ticker};
 use rust_decimal::Decimal;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -509,36 +509,6 @@ pub async fn fetch_orderbook_snapshot(
     orderbooks_map.insert(symbol.to_string(), snapshot.clone());
 
     Ok(snapshot)
-}
-
-/// Watches a single ticker stream
-pub async fn watch_ticker_internal(
-    ws_client: &ccxt_core::ws_client::WsClient,
-    symbol: &str,
-    channel_name: &str,
-    tickers: &Mutex<HashMap<String, Ticker>>,
-    parser: &dyn Fn(&Value, Option<&ccxt_core::types::Market>) -> Result<Ticker>,
-) -> Result<Ticker> {
-    let stream = format!("{}@{}", symbol.to_lowercase(), channel_name);
-
-    ws_client
-        .subscribe(stream.clone(), Some(symbol.to_string()), None)
-        .await?;
-
-    loop {
-        if let Some(message) = ws_client.receive().await {
-            if message.get("result").is_some() {
-                continue;
-            }
-
-            if let Ok(ticker) = parser(&message, None) {
-                let mut tickers_map = tickers.lock().await;
-                tickers_map.insert(ticker.symbol.clone(), ticker.clone());
-
-                return Ok(ticker);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
