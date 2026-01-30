@@ -42,7 +42,9 @@ specs/
 .claude/
 .gemini/
 .micode/
+.codex/
 .opencode/
+openspec/
 _bmad/
 _bmad-output/
 docs/

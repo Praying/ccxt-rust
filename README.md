@@ -122,4 +122,4 @@ financial losses or damages arising from the use of this software. Cryptocurrenc
 trade responsibly.
 
 ---
-**Status**: 🚧 Active Development (v0.1.3) | **Donations (BSC)**: `0x8e5d858f92938b028065d39450421d0e080d15f7`
+**Status**: 🚧 Active Development (v0.1.4) | **Donations (BSC)**: `0x8e5d858f92938b028065d39450421d0e080d15f7`
