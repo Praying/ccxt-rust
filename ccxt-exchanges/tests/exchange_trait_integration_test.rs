@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Exchange Trait Integration Tests
 //!
 //! These tests verify the unified Exchange trait implementation and trait object usage.

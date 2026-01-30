@@ -84,6 +84,12 @@ impl ListenKeyManager {
         }
     }
 
+    /// Regenerates the listen key (delete old, create new)
+    pub async fn regenerate(&self) -> Result<String> {
+        let _ = self.delete().await;
+        self.create_new().await
+    }
+
     /// Starts the auto-refresh task
     pub async fn start_auto_refresh(&self) {
         self.stop_auto_refresh().await;
@@ -103,10 +109,27 @@ impl ListenKeyManager {
                         Ok(()) => {
                             *created_at.write().await = Some(Instant::now());
                         }
-                        Err(_e) => {
-                            *listen_key.write().await = None;
-                            *created_at.write().await = None;
-                            break;
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to refresh listen key: {}. Attempting regeneration.",
+                                e
+                            );
+                            match binance.create_listen_key().await {
+                                Ok(new_key) => {
+                                    tracing::info!("Regenerated listen key successfully");
+                                    *listen_key.write().await = Some(new_key);
+                                    *created_at.write().await = Some(Instant::now());
+                                }
+                                Err(create_err) => {
+                                    tracing::error!(
+                                        "Failed to regenerate listen key: {}",
+                                        create_err
+                                    );
+                                    *listen_key.write().await = None;
+                                    *created_at.write().await = None;
+                                    break;
+                                }
+                            }
                         }
                     }
                 } else {

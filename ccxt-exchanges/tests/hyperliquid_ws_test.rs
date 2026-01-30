@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 use ccxt_core::{ExchangeConfig, ws_exchange::WsExchange};
 use ccxt_exchanges::hyperliquid::{HyperLiquid, HyperLiquidOptions};
 use futures_util::StreamExt;

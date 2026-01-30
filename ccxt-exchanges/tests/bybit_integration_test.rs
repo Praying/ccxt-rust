@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+#![allow(clippy::disallowed_methods)]
 //! Bybit Integration Tests
 //!
 //! These tests verify the Bybit exchange implementation against the real API.

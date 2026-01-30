@@ -1,3 +1,6 @@
+#![allow(deprecated)]
+#![allow(clippy::disallowed_methods)]
+#![allow(deprecated)]
 //! Binance Integration Tests
 //!
 //! These tests verify the Binance exchange implementation against the real API.
@@ -29,9 +32,11 @@ fn get_api_credentials() -> ExchangeConfig {
 /// Test creating a new Binance instance with default configuration.
 #[tokio::test]
 async fn test_new_binance_instance() {
-    let mut config = ExchangeConfig::default();
-    config.id = "binance".to_string();
-    config.name = "Binance".to_string();
+    let config = ExchangeConfig {
+        id: "binance".to_string(),
+        name: "Binance".to_string(),
+        ..Default::default()
+    };
 
     let exchange = Binance::new(config).unwrap();
     assert_eq!(exchange.id(), "binance");
@@ -401,9 +406,11 @@ async fn test_fetch_my_trades() {
 #[tokio::test]
 #[ignore]
 async fn test_invalid_api_key() {
-    let mut config = ExchangeConfig::default();
-    config.api_key = Some("invalid_key".to_string().into());
-    config.secret = Some("invalid_secret".to_string().into());
+    let config = ExchangeConfig {
+        api_key: Some("invalid_key".to_string().into()),
+        secret: Some("invalid_secret".to_string().into()),
+        ..Default::default()
+    };
     let exchange = Binance::new(config).unwrap();
     let result = exchange.fetch_balance(None).await;
 
@@ -438,9 +445,11 @@ async fn test_network_error_retry() {
 #[tokio::test]
 #[ignore]
 async fn test_signature_error() {
-    let mut config = ExchangeConfig::default();
-    config.api_key = Some("test_key".to_string().into());
-    config.secret = Some("wrong_secret".to_string().into());
+    let config = ExchangeConfig {
+        api_key: Some("test_key".to_string().into()),
+        secret: Some("wrong_secret".to_string().into()),
+        ..Default::default()
+    };
     let exchange = Binance::new(config).unwrap();
     let result = exchange.fetch_balance(None).await;
 

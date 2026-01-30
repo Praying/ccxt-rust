@@ -450,6 +450,7 @@ impl Default for TimeSyncManager {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
     use std::thread;
 
@@ -535,7 +536,7 @@ mod tests {
         assert!(manager.is_initialized());
         // Offset should be approximately 100 (may vary slightly due to timing)
         let offset = manager.get_offset();
-        assert!(offset >= 90 && offset <= 110, "Offset was: {}", offset);
+        assert!((90..=110).contains(&offset), "Offset was: {}", offset);
     }
 
     #[test]
@@ -673,7 +674,7 @@ mod tests {
 
         let offset = manager.get_offset();
         // Offset should be approximately -500
-        assert!(offset >= -600 && offset <= -400, "Offset was: {}", offset);
+        assert!((-600..=-400).contains(&offset), "Offset was: {}", offset);
     }
 
     #[test]

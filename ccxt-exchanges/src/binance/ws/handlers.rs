@@ -14,6 +14,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
+struct MessageLoopContext {
+    ws_client: Arc<tokio::sync::RwLock<Option<ccxt_core::ws_client::WsClient>>>,
+    subscription_manager: Arc<super::subscriptions::SubscriptionManager>,
+    is_connected: Arc<std::sync::atomic::AtomicBool>,
+    reconnect_config: Arc<tokio::sync::RwLock<super::subscriptions::ReconnectConfig>>,
+    request_id: Arc<std::sync::atomic::AtomicU64>,
+    listen_key_manager: Option<Arc<super::listen_key::ListenKeyManager>>,
+    base_url: String,
+    current_url: String,
+}
+
 /// Message router for handling WebSocket connections and message routing
 pub struct MessageRouter {
     /// WebSocket client instance
@@ -28,8 +39,14 @@ pub struct MessageRouter {
     /// Connection state flag
     is_connected: Arc<std::sync::atomic::AtomicBool>,
 
+    /// Connection lock to ensure idempotent start
+    connection_lock: Arc<Mutex<()>>,
+
     /// Configuration for reconnection behavior
     reconnect_config: Arc<tokio::sync::RwLock<super::subscriptions::ReconnectConfig>>,
+
+    /// Listen key manager for user data streams
+    listen_key_manager: Option<Arc<super::listen_key::ListenKeyManager>>,
 
     /// WebSocket endpoint URL
     ws_url: String,
@@ -43,15 +60,18 @@ impl MessageRouter {
     pub fn new(
         ws_url: String,
         subscription_manager: Arc<super::subscriptions::SubscriptionManager>,
+        listen_key_manager: Option<Arc<super::listen_key::ListenKeyManager>>,
     ) -> Self {
         Self {
             ws_client: Arc::new(tokio::sync::RwLock::new(None)),
             subscription_manager,
             router_task: Arc::new(Mutex::new(None)),
             is_connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            connection_lock: Arc::new(Mutex::new(())),
             reconnect_config: Arc::new(tokio::sync::RwLock::new(
                 super::subscriptions::ReconnectConfig::default(),
             )),
+            listen_key_manager,
             ws_url,
             request_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         }
@@ -59,8 +79,14 @@ impl MessageRouter {
 
     /// Starts the message router
     pub async fn start(&self, url_override: Option<String>) -> Result<()> {
+        let _lock = self.connection_lock.lock().await;
+
         if self.is_connected() {
-            self.stop().await?;
+            if url_override.is_some() {
+                self.stop().await?;
+            } else {
+                return Ok(());
+            }
         }
 
         let url = url_override.unwrap_or_else(|| self.ws_url.clone());
@@ -80,18 +106,25 @@ impl MessageRouter {
         let subscription_manager = self.subscription_manager.clone();
         let is_connected = self.is_connected.clone();
         let reconnect_config = self.reconnect_config.clone();
+        let request_id = self.request_id.clone();
+        let listen_key_manager = self.listen_key_manager.clone();
 
-        let ws_url = url;
+        let ws_url = self.ws_url.clone();
+        let current_url = url;
+
+        let ctx = MessageLoopContext {
+            ws_client,
+            subscription_manager,
+            is_connected,
+            reconnect_config,
+            request_id,
+            listen_key_manager,
+            base_url: ws_url,
+            current_url,
+        };
 
         let handle = tokio::spawn(async move {
-            Self::message_loop(
-                ws_client,
-                subscription_manager,
-                is_connected,
-                reconnect_config,
-                ws_url,
-            )
-            .await;
+            Self::message_loop(ctx).await;
         });
 
         *self.router_task.lock().await = Some(handle);
@@ -207,43 +240,53 @@ impl MessageRouter {
     }
 
     /// Message reception loop
-    async fn message_loop(
-        ws_client: Arc<tokio::sync::RwLock<Option<ccxt_core::ws_client::WsClient>>>,
-        subscription_manager: Arc<super::subscriptions::SubscriptionManager>,
-        is_connected: Arc<std::sync::atomic::AtomicBool>,
-        reconnect_config: Arc<tokio::sync::RwLock<super::subscriptions::ReconnectConfig>>,
-        ws_url: String,
-    ) {
+    async fn message_loop(ctx: MessageLoopContext) {
         let mut reconnect_attempt = 0;
 
+        Self::resubscribe_all(&ctx.ws_client, &ctx.subscription_manager, &ctx.request_id).await;
+
         loop {
-            if !is_connected.load(std::sync::atomic::Ordering::SeqCst) {
+            if !ctx.is_connected.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
             }
 
-            let has_client = ws_client.read().await.is_some();
+            let has_client = ctx.ws_client.read().await.is_some();
 
             if !has_client {
-                let config = reconnect_config.read().await;
+                let config = ctx.reconnect_config.read().await;
                 if config.should_retry(reconnect_attempt) {
                     let delay = config.calculate_delay(reconnect_attempt);
                     drop(config);
 
                     tokio::time::sleep(Duration::from_millis(delay)).await;
 
-                    if let Ok(()) = Self::reconnect(&ws_url, ws_client.clone()).await {
+                    if let Ok(()) = Self::reconnect(
+                        &ctx.base_url,
+                        &ctx.current_url,
+                        ctx.ws_client.clone(),
+                        ctx.listen_key_manager.clone(),
+                    )
+                    .await
+                    {
+                        Self::resubscribe_all(
+                            &ctx.ws_client,
+                            &ctx.subscription_manager,
+                            &ctx.request_id,
+                        )
+                        .await;
                         reconnect_attempt = 0;
                         continue;
                     }
                     reconnect_attempt += 1;
                     continue;
                 }
-                is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
+                ctx.is_connected
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
                 break;
             }
 
             let message_opt = {
-                let guard = ws_client.read().await;
+                let guard = ctx.ws_client.read().await;
                 if let Some(client) = guard.as_ref() {
                     client.receive().await
                 } else {
@@ -252,28 +295,83 @@ impl MessageRouter {
             };
 
             if let Some(value) = message_opt {
-                if let Err(_e) = Self::handle_message(value, subscription_manager.clone()).await {
+                if let Err(_e) = Self::handle_message(
+                    value,
+                    ctx.subscription_manager.clone(),
+                    ctx.listen_key_manager.clone(),
+                )
+                .await
+                {
                     continue;
                 }
 
                 reconnect_attempt = 0;
             } else {
-                let config = reconnect_config.read().await;
+                let config = ctx.reconnect_config.read().await;
                 if config.should_retry(reconnect_attempt) {
                     let delay = config.calculate_delay(reconnect_attempt);
                     drop(config);
 
                     tokio::time::sleep(Duration::from_millis(delay)).await;
 
-                    if let Ok(()) = Self::reconnect(&ws_url, ws_client.clone()).await {
+                    if let Ok(()) = Self::reconnect(
+                        &ctx.base_url,
+                        &ctx.current_url,
+                        ctx.ws_client.clone(),
+                        ctx.listen_key_manager.clone(),
+                    )
+                    .await
+                    {
+                        Self::resubscribe_all(
+                            &ctx.ws_client,
+                            &ctx.subscription_manager,
+                            &ctx.request_id,
+                        )
+                        .await;
                         reconnect_attempt = 0;
                         continue;
                     }
                     reconnect_attempt += 1;
                     continue;
                 }
-                is_connected.store(false, std::sync::atomic::Ordering::SeqCst);
+                ctx.is_connected
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
                 break;
+            }
+        }
+    }
+
+    /// Resubscribes to all active streams
+    async fn resubscribe_all(
+        ws_client: &Arc<tokio::sync::RwLock<Option<ccxt_core::ws_client::WsClient>>>,
+        subscription_manager: &Arc<super::subscriptions::SubscriptionManager>,
+        request_id: &Arc<std::sync::atomic::AtomicU64>,
+    ) {
+        let streams = subscription_manager.get_active_streams().await;
+        if streams.is_empty() {
+            return;
+        }
+
+        let client_opt = ws_client.read().await;
+        if let Some(client) = client_opt.as_ref() {
+            // Split into chunks of 10 to avoid hitting limits
+            for chunk in streams.chunks(10) {
+                let id = request_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                #[allow(clippy::disallowed_methods)]
+                let request = serde_json::json!({
+                    "method": "SUBSCRIBE",
+                    "params": chunk,
+                    "id": id
+                });
+
+                if let Err(e) = client
+                    .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
+                        request.to_string().into(),
+                    ))
+                    .await
+                {
+                    tracing::error!("Failed to resubscribe: {}", e);
+                }
             }
         }
     }
@@ -282,25 +380,64 @@ impl MessageRouter {
     async fn handle_message(
         message: Value,
         subscription_manager: Arc<super::subscriptions::SubscriptionManager>,
+        listen_key_manager: Option<Arc<super::listen_key::ListenKeyManager>>,
     ) -> Result<()> {
         let stream_name = Self::extract_stream_name(&message)?;
 
         // Check for "data" field (Combined Stream format) and unwrap if present
         let payload = if message.get("stream").is_some() && message.get("data").is_some() {
-            message.get("data").cloned().unwrap_or(message)
+            message.get("data").cloned().unwrap_or(message.clone())
         } else {
-            message
+            message.clone()
         };
 
+        // Handle listenKeyExpired event
+        if stream_name == "!userData" {
+            if let Some(event) = payload.get("e").and_then(|e| e.as_str()) {
+                if event == "listenKeyExpired" {
+                    if let Some(manager) = listen_key_manager {
+                        tracing::info!("Received listenKeyExpired event, regenerating key...");
+                        let _ = manager.regenerate().await;
+                    }
+                }
+            }
+        }
+
         let sent = subscription_manager
-            .send_to_stream(&stream_name, payload)
+            .send_to_stream(&stream_name, payload.clone())
             .await;
 
         if sent {
-            Ok(())
-        } else {
-            Err(Error::generic("No subscribers for stream"))
+            return Ok(());
         }
+
+        // Handle optional stream suffixes (e.g. @1s, @100ms)
+        // If exact match failed, try to find matches by symbol that start with the extracted stream name
+        let symbol_opt = payload.get("s").and_then(|s| s.as_str());
+
+        if let Some(symbol) = symbol_opt {
+            let active_streams = subscription_manager
+                .get_subscriptions_by_symbol(symbol)
+                .await;
+            let mut fallback_sent = false;
+
+            for sub in active_streams {
+                if sub.stream.starts_with(&stream_name) && sub.stream != stream_name {
+                    if subscription_manager
+                        .send_to_stream(&sub.stream, payload.clone())
+                        .await
+                    {
+                        fallback_sent = true;
+                    }
+                }
+            }
+
+            if fallback_sent {
+                return Ok(());
+            }
+        }
+
+        Err(Error::generic("No subscribers for stream"))
     }
 
     /// Extracts the stream name from an incoming message
@@ -362,8 +499,10 @@ impl MessageRouter {
 
     /// Reconnects the WebSocket client
     async fn reconnect(
-        ws_url: &str,
+        base_url: &str,
+        current_url: &str,
         ws_client: Arc<tokio::sync::RwLock<Option<ccxt_core::ws_client::WsClient>>>,
+        listen_key_manager: Option<Arc<super::listen_key::ListenKeyManager>>,
     ) -> Result<()> {
         {
             let mut client_opt = ws_client.write().await;
@@ -372,8 +511,26 @@ impl MessageRouter {
             }
         }
 
+        // Determine if we should refresh URL from listen key manager
+        let mut final_url = current_url.to_string();
+
+        if let Some(manager) = listen_key_manager {
+            // If current URL is different from base, we assume it's a private stream
+            // that might need a fresh listen key
+            if current_url != base_url {
+                if let Ok(key) = manager.get_or_create().await {
+                    let base = if let Some(stripped) = base_url.strip_suffix('/') {
+                        stripped
+                    } else {
+                        base_url
+                    };
+                    final_url = format!("{}/{}", base, key);
+                }
+            }
+        }
+
         let config = ccxt_core::ws_client::WsConfig {
-            url: ws_url.to_string(),
+            url: final_url,
             ..Default::default()
         };
         let new_client = ccxt_core::ws_client::WsClient::new(config);
@@ -484,14 +641,9 @@ pub async fn fetch_orderbook_snapshot(
     is_futures: bool,
     orderbooks: &Mutex<HashMap<String, OrderBook>>,
 ) -> Result<OrderBook> {
-    let mut params = HashMap::new();
-    if let Some(l) = limit {
-        #[allow(clippy::disallowed_methods)]
-        let limit_value = serde_json::json!(l);
-        params.insert("limit".to_string(), limit_value);
-    }
-
-    let mut snapshot = exchange.fetch_order_book(symbol, None).await?;
+    let mut snapshot = exchange
+        .fetch_order_book(symbol, limit.map(|l| l as u32))
+        .await?;
 
     snapshot.is_synced = true;
 
@@ -513,6 +665,7 @@ pub async fn fetch_orderbook_snapshot(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
     use serde_json::json;
     use std::sync::Arc;
@@ -545,7 +698,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_message_unwrapping() {
         let manager = Arc::new(crate::binance::ws::subscriptions::SubscriptionManager::new());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
         manager
             .add_subscription(
@@ -566,7 +719,7 @@ mod tests {
             }
         });
 
-        MessageRouter::handle_message(message, manager)
+        MessageRouter::handle_message(message, manager, None)
             .await
             .unwrap();
 

@@ -1,8 +1,8 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for Bitget exchange implementation.
 //!
 //! These tests verify correctness properties using proptest.
 
-use ccxt_core::SecretString;
 use proptest::prelude::*;
 
 /// **Feature: bitget-exchange, Property 1: Builder Configuration Preservation**
@@ -1370,6 +1370,10 @@ mod data_roundtrip_consistency {
                 base_volume: None,
                 quote_volume: None,
                 info: std::collections::HashMap::new(),
+                funding_rate: None,
+                index_price: None,
+                mark_price: None,
+                open_interest: None,
             };
 
             // Serialize to JSON
@@ -1668,11 +1672,12 @@ mod market_cache_consistency {
                 // Verify markets_by_id is consistent with markets
                 for market in &markets {
                     // Check markets index
-                    let by_symbol = cache.markets.get(&market.symbol);
+                    let markets_map = cache.markets();
+                    let by_symbol = markets_map.get(&market.symbol);
                     assert!(by_symbol.is_some(), "Market should be indexed by symbol");
 
                     // Check markets_by_id index
-                    let by_id = cache.markets_by_id.get(&market.id);
+                    let by_id = cache.get_market_by_id(&market.id);
                     assert!(by_id.is_some(), "Market should be indexed by ID");
 
                     // Both should point to the same market data
@@ -1702,7 +1707,7 @@ mod market_cache_consistency {
                 // Verify symbols list contains all market symbols
                 for market in &markets {
                     assert!(
-                        cache.symbols.contains(&market.symbol),
+                        cache.symbols().contains(&market.symbol),
                         "Symbols list should contain {}",
                         market.symbol
                     );
@@ -1714,7 +1719,7 @@ mod market_cache_consistency {
                     .map(|m| m.symbol.clone())
                     .collect();
                 assert_eq!(
-                    cache.symbols.len(),
+                    cache.symbols().len(),
                     unique_symbols.len(),
                     "Symbols list length should match unique market count"
                 );
@@ -1737,7 +1742,7 @@ mod market_cache_consistency {
                 // Verify first batch is loaded
                 {
                     let cache = bitget.base().market_cache.read().await;
-                    assert!(cache.loaded, "Cache should be loaded after first set");
+                    assert!(cache.is_loaded(), "Cache should be loaded after first set");
                 }
 
                 // Set second batch of markets (simulating reload)
@@ -1754,7 +1759,7 @@ mod market_cache_consistency {
 
                 for symbol in &unique_symbols2 {
                     assert!(
-                        cache.markets.contains_key(symbol),
+                        cache.markets().contains_key(symbol),
                         "New market {} should be in cache",
                         symbol
                     );
@@ -1768,7 +1773,7 @@ mod market_cache_consistency {
                 for symbol in &unique_symbols1 {
                     if !unique_symbols2.contains(symbol) {
                         assert!(
-                            !cache.markets.contains_key(symbol),
+                            !cache.markets().contains_key(symbol),
                             "Old market {} should NOT be in cache after reload",
                             symbol
                         );

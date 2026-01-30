@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Orderbook automatic resynchronization mechanism tests
 
 use ccxt_core::types::orderbook::{OrderBook, OrderBookDelta, OrderBookEntry};

@@ -648,6 +648,7 @@ fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
     use rust_decimal_macros::dec;
     use serde_json::json;

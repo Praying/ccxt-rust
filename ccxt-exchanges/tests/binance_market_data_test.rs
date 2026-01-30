@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance market data tests.
 //!
 //! Tests for market data methods including fetch_bids_asks, fetch_last_prices,

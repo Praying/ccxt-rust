@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+#![allow(clippy::disallowed_methods)]
 //! OKX Integration Tests
 //!
 //! These tests verify the OKX exchange implementation against the real API.

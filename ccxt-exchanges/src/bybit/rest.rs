@@ -1262,6 +1262,7 @@ impl Bybit {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
 
     #[test]
@@ -1285,6 +1286,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_timestamp() {
         let _bybit = Bybit::builder().build().unwrap();
         let ts = Bybit::get_timestamp();

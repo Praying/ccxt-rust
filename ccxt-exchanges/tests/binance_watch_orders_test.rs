@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance order update WebSocket integration tests
 
 use ccxt_core::ExchangeConfig;

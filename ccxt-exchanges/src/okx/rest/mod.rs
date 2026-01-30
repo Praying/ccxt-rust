@@ -245,6 +245,7 @@ impl Okx {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
 
     #[test]
@@ -306,6 +307,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_timestamp() {
         let _okx = Okx::builder().build().unwrap();
         let ts = Okx::get_timestamp();

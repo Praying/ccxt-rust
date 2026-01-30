@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance margin trading API integration tests.
 //!
 //! This test suite covers margin trading methods.

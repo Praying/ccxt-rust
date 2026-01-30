@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 use ccxt_exchanges::binance::ws::BinanceWs;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;

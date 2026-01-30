@@ -1,10 +1,12 @@
+#![allow(clippy::disallowed_methods)]
+#![allow(deprecated)]
 //! HyperLiquid exchange performance benchmarks.
 //!
 //! Benchmarks for HyperLiquid API calls, data parsing, and other operations.
 //!
 //! Run with: cargo bench --bench hyperliquid_benchmark
 
-use ccxt_exchanges::hyperliquid::{HyperLiquid, HyperLiquidBuilder};
+use ccxt_exchanges::hyperliquid::HyperLiquidBuilder;
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use serde_json::json;
 use tokio::runtime::Runtime;
@@ -21,12 +23,7 @@ fn bench_fetch_ticker(c: &mut Criterion) {
 
     c.bench_function("hyperliquid_fetch_ticker_btc_usdc", |b| {
         b.to_async(&rt).iter(|| async {
-            let _ = hyperliquid
-                .fetch_ticker(
-                    black_box("BTC/USDC:USDC"),
-                    ccxt_core::types::TickerParams::default(),
-                )
-                .await;
+            let _ = hyperliquid.fetch_ticker(black_box("BTC/USDC:USDC")).await;
         });
     });
 }
@@ -88,7 +85,7 @@ fn bench_fetch_ohlcv(c: &mut Criterion) {
             |b, timeframe| {
                 b.to_async(&rt).iter(|| async {
                     let _ = hyperliquid
-                        .fetch_ohlcv(black_box("BTC/USDC:USDC"), timeframe, None, Some(100), None)
+                        .fetch_ohlcv(black_box("BTC/USDC:USDC"), timeframe, None, Some(100))
                         .await;
                 });
             },
@@ -231,9 +228,7 @@ fn bench_concurrent_ticker_fetches(c: &mut Criterion) {
 
             let futures: Vec<_> = symbols
                 .into_iter()
-                .map(|symbol| {
-                    hyperliquid.fetch_ticker(symbol, ccxt_core::types::TickerParams::default())
-                })
+                .map(|symbol| hyperliquid.fetch_ticker(symbol))
                 .collect();
 
             let _ = futures::future::join_all(futures).await;

@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Stress test suite
 //!
 //! Tests concurrent performance, connection pool management, and memory leak detection.

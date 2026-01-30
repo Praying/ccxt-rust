@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for backward compatibility.
 //!
 //! This test module verifies that calling methods through the legacy `Exchange` trait

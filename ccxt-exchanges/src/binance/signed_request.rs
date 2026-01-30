@@ -491,7 +491,7 @@ mod tests {
         let builder =
             SignedRequestBuilder::new(&binance, "/test").optional_param("limit", none_value);
 
-        assert!(builder.params.get("limit").is_none());
+        assert!(!builder.params.contains_key("limit"));
     }
 
     #[test]
@@ -528,8 +528,8 @@ mod tests {
         assert_eq!(builder.params.get("fromId"), Some(&"67890".to_string()));
         assert_eq!(builder.params.get("active"), Some(&"true".to_string()));
         // Nested objects and arrays should be ignored
-        assert!(builder.params.get("nested").is_none());
-        assert!(builder.params.get("array").is_none());
+        assert!(!builder.params.contains_key("nested"));
+        assert!(!builder.params.contains_key("array"));
     }
 
     #[test]
@@ -640,39 +640,43 @@ mod property_tests {
             recv_window in 1000u64..60000u64
         ) {
             // Create a Binance instance with credentials
-            let mut config = ExchangeConfig::default();
-            config.api_key = Some("test_api_key".to_string().into());
-            config.secret = Some("test_secret_key".to_string().into());
+            let config = ExchangeConfig {
+                api_key: Some("test_api_key".to_string().into()),
+                secret: Some("test_secret_key".to_string().into()),
+                ..Default::default()
+            };
 
-            let mut options = super::super::BinanceOptions::default();
-            options.recv_window = recv_window;
+            let options = super::super::BinanceOptions {
+                recv_window,
+                ..Default::default()
+            };
 
-            let binance = super::super::Binance::new_with_options(config, options).unwrap();
+            let binance = super::super::Binance::new_with_options(config, options).expect("Failed to create Binance");
 
             // Get auth and sign parameters manually to verify the signing logic
-            let auth = binance.get_auth().unwrap();
+            let auth = binance.get_auth().expect("Failed to get auth");
             let timestamp = 1234567890000i64; // Fixed timestamp for testing
 
-            let signed_params = auth.sign_with_timestamp(&params, timestamp, Some(recv_window)).unwrap();
+            let signed_params = auth.sign_with_timestamp(&params, timestamp, Some(recv_window)).expect("Sign timestamp failed");
 
             // Property 1: timestamp field exists and matches
             prop_assert!(signed_params.contains_key("timestamp"));
-            prop_assert_eq!(signed_params.get("timestamp").unwrap(), &timestamp.to_string());
+            prop_assert_eq!(signed_params.get("timestamp").expect("Missing timestamp"), &timestamp.to_string());
 
             // Property 2: signature field exists and is 64 hex characters
             prop_assert!(signed_params.contains_key("signature"));
-            let signature = signed_params.get("signature").unwrap();
+            let signature = signed_params.get("signature").expect("Missing signature");
             prop_assert_eq!(signature.len(), 64, "Signature should be 64 hex characters");
             prop_assert!(signature.chars().all(|c| c.is_ascii_hexdigit()), "Signature should be hex");
 
             // Property 3: recvWindow field exists and matches configured value
             prop_assert!(signed_params.contains_key("recvWindow"));
-            prop_assert_eq!(signed_params.get("recvWindow").unwrap(), &recv_window.to_string());
+            prop_assert_eq!(signed_params.get("recvWindow").expect("Missing recvWindow"), &recv_window.to_string());
 
             // Property 4: All original parameters are preserved
             for (key, value) in &params {
                 prop_assert!(signed_params.contains_key(key), "Original param {} should be preserved", key);
-                prop_assert_eq!(signed_params.get(key).unwrap(), value, "Original param {} value should match", key);
+                prop_assert_eq!(signed_params.get(key).expect("Missing param"), value, "Original param {} value should match", key);
             }
         }
 
@@ -694,7 +698,7 @@ mod property_tests {
             prop_assume!(key != other_key);
 
             let config = ExchangeConfig::default();
-            let binance = super::super::Binance::new(config).unwrap();
+            let binance = super::super::Binance::new(config).expect("Failed to create Binance");
 
             // Build with optional parameter
             let builder = SignedRequestBuilder::new(&binance, "/test")
@@ -711,7 +715,7 @@ mod property_tests {
                         key
                     );
                     prop_assert_eq!(
-                        builder.params.get(&key).unwrap(),
+                        builder.params.get(&key).expect("Missing param"),
                         &v,
                         "Parameter {} should have correct value",
                         key
@@ -736,7 +740,7 @@ mod property_tests {
                 other_key
             );
             prop_assert_eq!(
-                builder.params.get(&other_key).unwrap(),
+                builder.params.get(&other_key).expect("Missing other param"),
                 &other_value,
                 "Other parameter {} should have correct value",
                 other_key

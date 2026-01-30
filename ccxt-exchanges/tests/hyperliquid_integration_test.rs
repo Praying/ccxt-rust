@@ -1,10 +1,11 @@
+#![allow(clippy::disallowed_methods)]
 //! Integration tests for HyperLiquid exchange.
 //!
 //! These tests require network access and use the HyperLiquid testnet.
 //! Run with: cargo test --test hyperliquid_integration_test -- --ignored
 
 use ccxt_core::exchange::Exchange;
-use ccxt_exchanges::hyperliquid::{HyperLiquid, HyperLiquidBuilder};
+use ccxt_exchanges::hyperliquid::HyperLiquidBuilder;
 
 /// Test creating a HyperLiquid instance without authentication.
 #[test]

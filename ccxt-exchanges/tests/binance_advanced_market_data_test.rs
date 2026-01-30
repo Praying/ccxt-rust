@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+#![allow(clippy::disallowed_methods)]
 //! Binance advanced market data integration tests.
 //!
 //! Test coverage:
@@ -7,7 +9,6 @@
 
 use ccxt_core::ExchangeConfig;
 use ccxt_exchanges::binance::Binance;
-use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 /// Create Binance client for testing.

@@ -492,7 +492,11 @@ mod tests {
     fn test_builder_api_key() {
         let builder = BinanceBuilder::new().api_key("test-key");
         assert_eq!(
-            builder.config.api_key.as_ref().map(|s| s.expose_secret()),
+            builder
+                .config
+                .api_key
+                .as_ref()
+                .map(ccxt_core::SecretString::expose_secret),
             Some("test-key")
         );
     }
@@ -501,7 +505,11 @@ mod tests {
     fn test_builder_secret() {
         let builder = BinanceBuilder::new().secret("test-secret");
         assert_eq!(
-            builder.config.secret.as_ref().map(|s| s.expose_secret()),
+            builder
+                .config
+                .secret
+                .as_ref()
+                .map(ccxt_core::SecretString::expose_secret),
             Some("test-secret")
         );
     }
@@ -580,11 +588,19 @@ mod tests {
             .default_type(DefaultType::Spot);
 
         assert_eq!(
-            builder.config.api_key.as_ref().map(|s| s.expose_secret()),
+            builder
+                .config
+                .api_key
+                .as_ref()
+                .map(ccxt_core::SecretString::expose_secret),
             Some("key")
         );
         assert_eq!(
-            builder.config.secret.as_ref().map(|s| s.expose_secret()),
+            builder
+                .config
+                .secret
+                .as_ref()
+                .map(ccxt_core::SecretString::expose_secret),
             Some("secret")
         );
         assert!(builder.config.sandbox);
@@ -598,7 +614,7 @@ mod tests {
         let result = BinanceBuilder::new().build();
         assert!(result.is_ok());
 
-        let binance = result.unwrap();
+        let binance = result.expect("Failed to build Binance");
         assert_eq!(binance.id(), "binance");
         assert_eq!(binance.name(), "Binance");
     }
@@ -643,7 +659,7 @@ mod tests {
             .build();
 
         assert!(result.is_ok());
-        let binance = result.unwrap();
+        let binance = result.expect("Failed to build Binance");
 
         // Verify the TimeSyncManager was created with correct config
         let time_sync = binance.time_sync();
@@ -659,7 +675,7 @@ mod tests {
         let result = BinanceBuilder::new().auto_time_sync(false).build();
 
         assert!(result.is_ok());
-        let binance = result.unwrap();
+        let binance = result.expect("Failed to build Binance");
 
         // Verify auto_sync is disabled
         let time_sync = binance.time_sync();

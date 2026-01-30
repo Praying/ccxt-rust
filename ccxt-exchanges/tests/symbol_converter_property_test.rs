@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for exchange-specific symbol converters.
 //!
 //! These tests verify the correctness properties defined in the design document

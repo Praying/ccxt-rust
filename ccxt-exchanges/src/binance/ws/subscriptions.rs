@@ -69,7 +69,7 @@ pub struct Subscription {
     /// Timestamp when the subscription was created
     pub subscribed_at: Instant,
     /// Sender for forwarding WebSocket messages to consumers
-    pub sender: tokio::sync::mpsc::UnboundedSender<Value>,
+    pub sender: tokio::sync::mpsc::Sender<Value>,
 }
 
 impl Subscription {
@@ -78,7 +78,7 @@ impl Subscription {
         stream: String,
         symbol: String,
         sub_type: SubscriptionType,
-        sender: tokio::sync::mpsc::UnboundedSender<Value>,
+        sender: tokio::sync::mpsc::Sender<Value>,
     ) -> Self {
         Self {
             stream,
@@ -91,7 +91,8 @@ impl Subscription {
 
     /// Sends a message to the subscriber
     pub fn send(&self, message: Value) -> bool {
-        self.sender.send(message).is_ok()
+        // Use try_send to avoid blocking if channel is full (drop strategy)
+        self.sender.try_send(message).is_ok()
     }
 }
 
@@ -121,7 +122,7 @@ impl SubscriptionManager {
         stream: String,
         symbol: String,
         sub_type: SubscriptionType,
-        sender: tokio::sync::mpsc::UnboundedSender<Value>,
+        sender: tokio::sync::mpsc::Sender<Value>,
     ) -> ccxt_core::error::Result<()> {
         let subscription = Subscription::new(stream.clone(), symbol.clone(), sub_type, sender);
 
@@ -219,10 +220,16 @@ impl SubscriptionManager {
     pub async fn send_to_stream(&self, stream: &str, message: Value) -> bool {
         let subs = self.subscriptions.read().await;
         if let Some(subscription) = subs.get(stream) {
-            subscription.send(message)
+            if subscription.send(message) {
+                return true;
+            }
         } else {
-            false
+            return false;
         }
+        drop(subs);
+
+        let _ = self.remove_subscription(stream).await;
+        false
     }
 
     /// Sends a message to all subscribers of a symbol
@@ -231,18 +238,33 @@ impl SubscriptionManager {
         let subs = self.subscriptions.read().await;
 
         let mut sent_count = 0;
+        let mut streams_to_remove = Vec::new();
 
         if let Some(streams) = index.get(symbol) {
             for stream in streams {
                 if let Some(subscription) = subs.get(stream) {
                     if subscription.send(message.clone()) {
                         sent_count += 1;
+                    } else {
+                        streams_to_remove.push(stream.clone());
                     }
                 }
             }
         }
+        drop(subs);
+        drop(index);
+
+        for stream in streams_to_remove {
+            let _ = self.remove_subscription(&stream).await;
+        }
 
         sent_count
+    }
+
+    /// Returns a list of all active stream names for resubscription
+    pub async fn get_active_streams(&self) -> Vec<String> {
+        let subs = self.subscriptions.read().await;
+        subs.keys().cloned().collect()
     }
 }
 

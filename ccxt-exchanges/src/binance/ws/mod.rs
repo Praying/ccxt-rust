@@ -62,7 +62,7 @@ impl BinanceWs {
     /// Creates a new Binance WebSocket client
     pub fn new(url: String) -> Self {
         let subscription_manager = Arc::new(SubscriptionManager::new());
-        let message_router = Arc::new(MessageRouter::new(url, subscription_manager.clone()));
+        let message_router = Arc::new(MessageRouter::new(url, subscription_manager.clone(), None));
 
         // Start the router immediately
         let router_clone = message_router.clone();
@@ -93,7 +93,12 @@ impl BinanceWs {
     /// Creates a WebSocket client with a listen key manager
     pub fn new_with_auth(url: String, binance: Arc<Binance>) -> Self {
         let subscription_manager = Arc::new(SubscriptionManager::new());
-        let message_router = Arc::new(MessageRouter::new(url, subscription_manager.clone()));
+        let listen_key_manager = Arc::new(ListenKeyManager::new(binance));
+        let message_router = Arc::new(MessageRouter::new(
+            url,
+            subscription_manager.clone(),
+            Some(listen_key_manager.clone()),
+        ));
 
         // Start the router immediately
         let router_clone = message_router.clone();
@@ -107,7 +112,7 @@ impl BinanceWs {
             message_router,
             subscription_manager,
             listen_key: Arc::new(RwLock::new(None)),
-            listen_key_manager: Some(Arc::new(ListenKeyManager::new(binance))),
+            listen_key_manager: Some(listen_key_manager),
             tickers: Arc::new(Mutex::new(HashMap::new())),
             bids_asks: Arc::new(Mutex::new(HashMap::new())),
             mark_prices: Arc::new(Mutex::new(HashMap::new())),
@@ -156,8 +161,8 @@ impl BinanceWs {
         let listen_key = manager.get_or_create().await?;
 
         let base_url = self.message_router.get_url();
-        let base_url = if base_url.ends_with('/') {
-            &base_url[..base_url.len() - 1]
+        let base_url = if let Some(stripped) = base_url.strip_suffix('/') {
+            stripped
         } else {
             &base_url
         };
@@ -192,7 +197,7 @@ impl BinanceWs {
     /// Subscribes to the ticker stream for a symbol
     pub async fn subscribe_ticker(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@ticker", symbol.to_lowercase());
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -209,7 +214,7 @@ impl BinanceWs {
     /// Subscribes to the 24-hour ticker stream for all symbols
     pub async fn subscribe_all_tickers(&self) -> Result<()> {
         let stream = "!ticker@arr".to_string();
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -226,7 +231,7 @@ impl BinanceWs {
     /// Subscribes to real-time trade executions for a symbol
     pub async fn subscribe_trades(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@trade", symbol.to_lowercase());
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -243,7 +248,7 @@ impl BinanceWs {
     /// Subscribes to the aggregated trade stream for a symbol
     pub async fn subscribe_agg_trades(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@aggTrade", symbol.to_lowercase());
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -269,7 +274,7 @@ impl BinanceWs {
         } else {
             format!("{}@depth{}", symbol.to_lowercase(), levels)
         };
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -298,7 +303,7 @@ impl BinanceWs {
         } else {
             format!("{}@depth", symbol.to_lowercase())
         };
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -315,7 +320,7 @@ impl BinanceWs {
     /// Subscribes to Kline (candlestick) data for a symbol
     pub async fn subscribe_kline(&self, symbol: &str, interval: &str) -> Result<()> {
         let stream = format!("{}@kline_{}", symbol.to_lowercase(), interval);
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -332,7 +337,7 @@ impl BinanceWs {
     /// Subscribes to the mini ticker stream for a symbol
     pub async fn subscribe_mini_ticker(&self, symbol: &str) -> Result<()> {
         let stream = format!("{}@miniTicker", symbol.to_lowercase());
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -349,7 +354,7 @@ impl BinanceWs {
     /// Subscribes to the mini ticker stream for all symbols
     pub async fn subscribe_all_mini_tickers(&self) -> Result<()> {
         let stream = "!miniTicker@arr".to_string();
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -409,7 +414,7 @@ impl BinanceWs {
     async fn watch_ticker_internal(&self, symbol: &str, channel_name: &str) -> Result<Ticker> {
         let stream = format!("{}@{}", symbol.to_lowercase(), channel_name);
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         self.subscription_manager
             .add_subscription(
                 stream.clone(),
@@ -452,7 +457,7 @@ impl BinanceWs {
             vec![format!("!{}@arr", channel_name)]
         };
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         for stream in &streams {
             self.subscription_manager
@@ -556,7 +561,7 @@ impl BinanceWs {
             format!("{}@depth", symbol.to_lowercase())
         };
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         self.subscription_manager
             .add_subscription(
                 stream.clone(),
@@ -674,7 +679,7 @@ impl BinanceWs {
             ));
         }
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         let mut streams = Vec::new();
 
         for symbol in &symbols {
@@ -707,9 +712,9 @@ impl BinanceWs {
         }
 
         let mut result = HashMap::new();
-        let mut update_count = 0;
+        let mut synced_symbols = std::collections::HashSet::new();
 
-        while update_count < symbols.len() {
+        while synced_symbols.len() < symbols.len() {
             if let Some(message) = rx.recv().await {
                 if message.get("result").is_some() {
                     continue;
@@ -728,7 +733,12 @@ impl BinanceWs {
                                 continue;
                             }
 
-                            update_count += 1;
+                            let orderbooks = self.orderbooks.lock().await;
+                            if let Some(ob) = orderbooks.get(msg_symbol) {
+                                if ob.is_synced {
+                                    synced_symbols.insert(msg_symbol.to_string());
+                                }
+                            }
                         }
                     }
                 }
@@ -750,7 +760,7 @@ impl BinanceWs {
     /// Watches the best bid/ask data for a unified symbol (internal helper)
     async fn watch_bids_asks_internal(&self, symbol: &str, market_id: &str) -> Result<BidAsk> {
         let stream = format!("{}@bookTicker", market_id.to_lowercase());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -790,7 +800,7 @@ impl BinanceWs {
         market: Option<&ccxt_core::types::Market>,
     ) -> Result<Vec<Trade>> {
         let stream = format!("{}@trade", market_id.to_lowercase());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -853,7 +863,7 @@ impl BinanceWs {
         limit: Option<usize>,
     ) -> Result<Vec<OHLCV>> {
         let stream = format!("{}@kline_{}", market_id.to_lowercase(), timeframe);
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -923,7 +933,7 @@ impl BinanceWs {
     async fn watch_balance_internal(&self, account_type: &str) -> Result<Balance> {
         self.connect_user_stream().await?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -964,7 +974,7 @@ impl BinanceWs {
     ) -> Result<Vec<Order>> {
         self.connect_user_stream().await?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -1028,7 +1038,7 @@ impl BinanceWs {
     ) -> Result<Vec<Trade>> {
         self.connect_user_stream().await?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -1075,7 +1085,7 @@ impl BinanceWs {
     ) -> Result<Vec<Position>> {
         self.connect_user_stream().await?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
         self.subscription_manager
             .add_subscription(
@@ -1261,6 +1271,7 @@ impl BinanceWs {
 include!("binance_impl.rs");
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
 
@@ -1290,7 +1301,7 @@ mod tests {
     #[tokio::test]
     async fn test_subscription_manager_basic() {
         let manager = SubscriptionManager::new();
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
 
         assert_eq!(manager.active_count(), 0);
         assert!(!manager.has_subscription("btcusdt@ticker").await);

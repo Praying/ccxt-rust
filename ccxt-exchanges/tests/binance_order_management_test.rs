@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance order management parameter and status validation tests.
 //!
 //! Tests parameter validation logic and order status validation.
@@ -43,7 +44,7 @@ mod binance_order_management_tests {
     #[test]
     fn test_order_status_validation() {
         // Test order status validation
-        let valid_statuses = vec!["open", "closed", "canceled", "expired"];
+        let valid_statuses = ["open", "closed", "canceled", "expired"];
 
         for status in valid_statuses.iter() {
             assert!(!status.is_empty(), "Order status should not be empty");
