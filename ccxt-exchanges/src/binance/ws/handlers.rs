@@ -528,7 +528,7 @@ impl MessageRouter {
                             return Err(Error::generic("Missing kline data"));
                         }
                     }
-                    "markPriceUpdate" => format!("{}@markprice", symbol.to_lowercase()),
+                    "markPriceUpdate" => format!("{}@markPrice", symbol.to_lowercase()),
                     "bookTicker" => format!("{}@bookTicker", symbol.to_lowercase()),
                     _ => {
                         return Err(Error::generic(format!(
@@ -785,10 +785,10 @@ mod tests {
         let manager = Arc::new(crate::binance::ws::subscriptions::SubscriptionManager::new());
         let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
-        // Subscription uses lowercase symbol "btcusdt" and specific stream "btcusdt@markprice@1s"
+        // Subscription uses lowercase symbol "btcusdt" and specific stream "btcusdt@markPrice@1s"
         manager
             .add_subscription(
-                "btcusdt@markprice@1s".to_string(),
+                "btcusdt@markPrice@1s".to_string(),
                 "btcusdt".to_string(),
                 crate::binance::ws::subscriptions::SubscriptionType::MarkPrice,
                 tx,
@@ -797,7 +797,7 @@ mod tests {
             .unwrap();
 
         // Incoming message has uppercase symbol "BTCUSDT" and event "markPriceUpdate"
-        // extract_stream_name will derive "btcusdt@markprice"
+        // extract_stream_name will derive "btcusdt@markPrice"
         let message = json!({
             "e": "markPriceUpdate",
             "s": "BTCUSDT",

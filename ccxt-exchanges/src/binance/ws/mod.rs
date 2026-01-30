@@ -472,17 +472,26 @@ impl BinanceWs {
         symbols: Option<Vec<String>>,
         channel_name: &str,
     ) -> Result<HashMap<String, MarkPrice>> {
-        let streams: Vec<String> = if let Some(syms) = symbols.as_ref() {
-            syms.iter()
-                .map(|s| format!("{}@{}", s.to_lowercase(), channel_name))
-                .collect()
-        } else {
-            vec![format!("!{}@arr", channel_name)]
-        };
-
         let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
-        for stream in &streams {
+        let streams: Vec<String> = if let Some(syms) = symbols.as_ref() {
+            let mut streams = Vec::with_capacity(syms.len());
+            for sym in syms {
+                let symbol = sym.to_lowercase();
+                let stream = format!("{}@{}", symbol, channel_name);
+                self.subscription_manager
+                    .add_subscription(
+                        stream.clone(),
+                        symbol,
+                        SubscriptionType::MarkPrice,
+                        tx.clone(),
+                    )
+                    .await?;
+                streams.push(stream);
+            }
+            streams
+        } else {
+            let stream = format!("!{}@arr", channel_name);
             self.subscription_manager
                 .add_subscription(
                     stream.clone(),
@@ -491,7 +500,8 @@ impl BinanceWs {
                     tx.clone(),
                 )
                 .await?;
-        }
+            vec![stream]
+        };
 
         self.message_router.subscribe(streams.clone()).await?;
 

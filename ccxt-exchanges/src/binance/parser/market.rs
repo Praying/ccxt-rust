@@ -2,6 +2,7 @@ use super::value_to_hashmap;
 use ccxt_core::{
     Result,
     error::{Error, ParseError},
+    parser_utils::timestamp_to_datetime,
     types::{Market, MarketLimits, MarketPrecision, MarketType, MinMax},
 };
 use rust_decimal::Decimal;
@@ -66,19 +67,26 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         }
     }
 
-    let unified_symbol = if is_contract {
-        if let Some(s) = &settle {
-            // For now simplified logic: base/quote:settle
-            // TODO: Add expiration handling for Futures (vs Swap)
-            format!("{}/{}:{}", base_asset, quote_asset, s)
-        } else {
-            format!("{}/{}", base_asset, quote_asset)
-        }
+    let expiry_timestamp = if market_type == MarketType::Futures {
+        data["deliveryDate"].as_i64().filter(|ts| *ts > 0)
     } else {
-        format!("{}/{}", base_asset, quote_asset)
+        None
     };
 
-    let parsed_symbol = ccxt_core::symbol::SymbolParser::parse(&unified_symbol).ok();
+    let expiry_datetime = expiry_timestamp.and_then(timestamp_to_datetime);
+
+    let expiry_suffix = if market_type == MarketType::Futures {
+        symbol.rfind('_').and_then(|pos| {
+            let suffix = &symbol[pos + 1..];
+            if suffix.len() == 6 && suffix.chars().all(|c| c.is_ascii_digit()) {
+                Some(suffix.to_string())
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
 
     let mut price_precision: Option<Decimal> = None;
     let mut amount_precision: Option<Decimal> = None;
@@ -131,7 +139,15 @@ pub fn parse_market(data: &Value) -> Result<Market> {
 
     let unified_symbol = if is_contract {
         if let Some(s) = &settle {
-            format!("{}/{}:{}", base_asset, quote_asset, s)
+            if market_type == MarketType::Futures {
+                if let Some(expiry) = &expiry_suffix {
+                    format!("{}/{}:{}-{}", base_asset, quote_asset, s, expiry)
+                } else {
+                    format!("{}/{}:{}", base_asset, quote_asset, s)
+                }
+            } else {
+                format!("{}/{}:{}", base_asset, quote_asset, s)
+            }
         } else {
             format!("{}/{}", base_asset, quote_asset)
         }
@@ -160,8 +176,8 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         taker: Decimal::from_str("0.001").ok(),
         maker: Decimal::from_str("0.001").ok(),
         contract_size: None,
-        expiry: None,
-        expiry_datetime: None,
+        expiry: expiry_timestamp,
+        expiry_datetime,
         strike: None,
         option_type: None,
         percentage: Some(true),
