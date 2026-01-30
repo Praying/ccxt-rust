@@ -3,13 +3,13 @@
 //! This module contains all public market data methods that don't require authentication.
 //! These include ticker data, order books, trades, OHLCV data, and market statistics.
 
-use super::super::{Binance, constants::endpoints, parser};
+use super::super::{Binance, BinanceEndpointRouter, constants::endpoints, parser};
 use ccxt_core::{
     Error, ParseError, Result,
     time::TimestampUtils,
     types::{
-        AggTrade, BidAsk, IntoTickerParams, LastPrice, MarkPrice, OhlcvRequest, ServerTime,
-        Stats24hr, Ticker, Trade, TradingLimits,
+        AggTrade, BidAsk, EndpointType, IntoTickerParams, LastPrice, MarkPrice, OhlcvRequest,
+        ServerTime, Stats24hr, Ticker, Trade, TradingLimits,
     },
 };
 use reqwest::header::HeaderMap;
@@ -44,7 +44,7 @@ impl Binance {
     ///
     /// Returns an error if the request fails or the response is malformed.
     pub(crate) async fn fetch_time_raw(&self) -> Result<i64> {
-        let url = format!("{}{}", self.urls().public, endpoints::TIME);
+        let url = format!("{}{}", self.get_rest_url_public(), endpoints::TIME);
         let response = self.base().http_client.get(&url, None).await?;
 
         response["serverTime"]
@@ -67,7 +67,8 @@ impl Binance {
     /// }
     /// ```
     pub async fn fetch_status(&self) -> Result<SystemStatus> {
-        let url = format!("{}{}", self.urls().sapi, endpoints::SYSTEM_STATUS);
+        // System status is specific to Spot/Margin (SAPI)
+        let url = format!("{}{}", self.sapi_endpoint(), endpoints::SYSTEM_STATUS);
         let response = self.base().http_client.get(&url, None).await?;
 
         // Response format: { "status": 0, "msg": "normal" }
@@ -122,7 +123,7 @@ impl Binance {
     pub async fn fetch_markets(
         &self,
     ) -> Result<Arc<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>>> {
-        let url = format!("{}{}", self.urls().public, endpoints::EXCHANGE_INFO);
+        let url = format!("{}{}", self.get_rest_url_public(), endpoints::EXCHANGE_INFO);
         let data = self.base().http_client.get(&url, None).await?;
 
         let symbols = data["symbols"]
@@ -236,7 +237,11 @@ impl Binance {
             endpoints::TICKER_24HR
         };
 
-        let full_url = format!("{}{}", self.urls().public, endpoint);
+        let full_url = format!(
+            "{}{}",
+            self.rest_endpoint(&market, EndpointType::Public),
+            endpoint
+        );
         let mut url =
             Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
 
@@ -294,7 +299,7 @@ impl Binance {
                 .collect();
         drop(cache);
 
-        let url = format!("{}{}", self.urls().public, endpoints::TICKER_24HR);
+        let url = format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR);
         let data = self.base().http_client.get(&url, None).await?;
 
         let tickers_array = data.as_array().ok_or_else(|| {
@@ -355,7 +360,11 @@ impl Binance {
     ) -> Result<ccxt_core::types::OrderBook> {
         let market = self.base().market(symbol).await?;
 
-        let full_url = format!("{}{}", self.urls().public, endpoints::DEPTH);
+        let full_url = format!(
+            "{}{}",
+            self.rest_endpoint(&market, EndpointType::Public),
+            endpoints::DEPTH
+        );
         let mut url =
             Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
 
@@ -392,7 +401,7 @@ impl Binance {
         let url = if let Some(l) = limit {
             format!(
                 "{}{}?symbol={}&limit={}",
-                self.urls().public,
+                self.rest_endpoint(&market, EndpointType::Public),
                 endpoints::TRADES,
                 market.id,
                 l
@@ -400,7 +409,7 @@ impl Binance {
         } else {
             format!(
                 "{}{}?symbol={}",
-                self.urls().public,
+                self.rest_endpoint(&market, EndpointType::Public),
                 endpoints::TRADES,
                 market.id
             )
@@ -482,7 +491,7 @@ impl Binance {
 
         let mut url = format!(
             "{}{}?symbol={}",
-            self.urls().public,
+            self.rest_endpoint(&market, EndpointType::Public),
             endpoints::AGG_TRADES,
             market.id
         );
@@ -562,7 +571,7 @@ impl Binance {
 
         let mut url = format!(
             "{}{}?symbol={}",
-            self.urls().public,
+            self.rest_endpoint(&market, EndpointType::Public),
             endpoints::HISTORICAL_TRADES,
             market.id
         );
@@ -624,12 +633,12 @@ impl Binance {
             let market = self.base().market(sym).await?;
             format!(
                 "{}{}?symbol={}",
-                self.urls().public,
+                self.rest_endpoint(&market, EndpointType::Public),
                 endpoints::TICKER_24HR,
                 market.id
             )
         } else {
-            format!("{}{}", self.urls().public, endpoints::TICKER_24HR)
+            format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR)
         };
 
         let data = self.base().http_client.get(&url, None).await?;
@@ -678,7 +687,7 @@ impl Binance {
 
         let url = format!(
             "{}{}?symbol={}",
-            self.urls().public,
+            self.rest_endpoint(&market, EndpointType::Public),
             endpoints::EXCHANGE_INFO,
             market.id
         );
@@ -1115,11 +1124,11 @@ impl Binance {
             let market = self.base().market(sym).await?;
             format!(
                 "{}/ticker/bookTicker?symbol={}",
-                self.urls().public,
+                self.rest_endpoint(&market, EndpointType::Public),
                 market.id
             )
         } else {
-            format!("{}/ticker/bookTicker", self.urls().public)
+            format!("{}/ticker/bookTicker", self.get_rest_url_public())
         };
 
         let data = self.base().http_client.get(&url, None).await?;
@@ -1172,9 +1181,13 @@ impl Binance {
 
         let url = if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
-            format!("{}/ticker/price?symbol={}", self.urls().public, market.id)
+            format!(
+                "{}/ticker/price?symbol={}",
+                self.rest_endpoint(&market, EndpointType::Public),
+                market.id
+            )
         } else {
-            format!("{}/ticker/price", self.urls().public)
+            format!("{}/ticker/price", self.get_rest_url_public())
         };
 
         let data = self.base().http_client.get(&url, None).await?;
@@ -1233,13 +1246,18 @@ impl Binance {
 
         let url = if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
+            // Use rest_endpoint to correctly select FAPI/DAPI
             format!(
                 "{}/premiumIndex?symbol={}",
-                self.urls().fapi_public,
+                self.rest_endpoint(&market, EndpointType::Public),
                 market.id
             )
         } else {
-            format!("{}/premiumIndex", self.urls().fapi_public)
+            // Default to the exchange's configured futures type (FAPI/DAPI)
+            format!(
+                "{}/premiumIndex",
+                self.default_rest_endpoint(EndpointType::Public)
+            )
         };
 
         let data = self.base().http_client.get(&url, None).await?;

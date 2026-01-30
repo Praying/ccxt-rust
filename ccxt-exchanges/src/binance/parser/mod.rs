@@ -12,7 +12,10 @@ pub use balance::{parse_balance, parse_balance_with_type};
 pub use funding::{parse_funding_rate, parse_funding_rate_history};
 pub use margin::{parse_margin_adjustment, parse_margin_loan};
 pub use market::{parse_currencies, parse_market};
-pub use misc::{parse_mark_prices, parse_stats_24hr, parse_trading_fee, parse_trading_limits};
+pub use misc::{
+    parse_mark_prices, parse_stats_24hr, parse_trading_fee, parse_trading_limits,
+    parse_ws_mark_price,
+};
 pub use ohlcv::{parse_ohlcvs, parse_ws_ohlcv};
 pub use order::parse_order;
 pub use orderbook::{parse_orderbook, parse_ws_orderbook};

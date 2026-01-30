@@ -6,6 +6,7 @@
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::{Context, Result};
+use ccxt_core::logging::{LogConfig, init_logging};
 use ccxt_core::prelude::{Amount, ExchangeConfig, Price};
 use ccxt_exchanges::binance::Binance;
 use rust_decimal::Decimal;
@@ -16,7 +17,9 @@ use tokio::time::{Duration, sleep};
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("=== Binance WebSocket Example ===\n");
-
+    let mut config = LogConfig::development();
+    config.show_span_events = false;
+    init_logging(&config);
     let exchange =
         Binance::new(ExchangeConfig::default()).context("Failed to initialize Binance exchange")?;
 
@@ -136,29 +139,27 @@ async fn main() -> Result<()> {
     // Example 5: Monitor futures mark price (1-second updates)
     println!("\n5. Monitor futures mark price (BTC/USDT:USDT, 1-second updates)");
 
+    // Initialize futures exchange for monitoring futures markets
+    let futures_exchange = Binance::new_swap(ExchangeConfig::default())
+        .context("Failed to initialize Binance futures exchange")?;
+
     let mut params = HashMap::new();
     params.insert("use1sFreq".to_string(), json!(true));
 
-    match exchange
+    match futures_exchange
         .watch_mark_price("BTC/USDT:USDT", Some(params))
         .await
     {
-        Ok(ticker) => {
+        Ok(mark_price) => {
             println!("   ✓ Mark price connected successfully!");
-            println!("   Symbol: {}", ticker.symbol);
-            println!(
-                "   Mark Price: {}",
-                ticker.last.unwrap_or(Price(Decimal::ZERO))
-            );
+            println!("   Symbol: {}", mark_price.symbol);
+            println!("   Mark Price: {}", mark_price.mark_price);
 
-            if !ticker.info.is_empty() {
-                let info = &ticker.info;
-                if let Some(index_price) = info.get("indexPrice") {
-                    println!("   Index Price: {}", index_price);
-                }
-                if let Some(funding_rate) = info.get("fundingRate") {
-                    println!("   Funding Rate: {}", funding_rate);
-                }
+            if let Some(index_price) = mark_price.index_price {
+                println!("   Index Price: {}", index_price);
+            }
+            if let Some(funding_rate) = mark_price.last_funding_rate {
+                println!("   Funding Rate: {}", funding_rate);
             }
         }
         Err(e) => {
@@ -173,19 +174,15 @@ async fn main() -> Result<()> {
 
     let futures_symbols = vec!["BTC/USDT:USDT".to_string(), "ETH/USDT:USDT".to_string()];
 
-    match exchange
+    match futures_exchange
         .watch_mark_prices(Some(futures_symbols.clone()), None)
         .await
     {
-        Ok(tickers) => {
-            println!("   ✓ Received {} mark prices", tickers.len());
+        Ok(mark_prices) => {
+            println!("   ✓ Received {} mark prices", mark_prices.len());
 
-            for (symbol, ticker) in &tickers {
-                println!(
-                    "   {} - Mark: ${:.2}",
-                    symbol,
-                    ticker.last.unwrap_or(Price(Decimal::ZERO))
-                );
+            for (symbol, mark_price) in &mark_prices {
+                println!("   {} - Mark: ${}", symbol, mark_price.mark_price);
             }
         }
         Err(e) => {
@@ -193,18 +190,32 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Example 7: Continuous ticker monitoring instructions
-    println!("\n7. Continuous ticker monitoring");
+    // Example 7: Continuous ticker monitoring
+    println!("\n7. Continuous ticker monitoring (Running for 5 seconds)");
     println!("   Tip: Continuous monitoring requires the watch_ticker() method");
     println!("   This method maintains WebSocket connection and continuously pushes updates");
-    println!("   Example code:");
-    println!("   ```rust");
-    println!("   loop {{");
-    println!("       let ticker = exchange.watch_ticker(\"BTC/USDT\", None).await?;");
-    println!("       println!(\"Price: {{}}\", ticker.last.unwrap_or(Price(Decimal::ZERO)));");
-    println!("       // Process ticker data...");
-    println!("   }}");
-    println!("   ```");
+    println!("   Starting monitoring loop...");
+
+    let start = std::time::Instant::now();
+    let duration = Duration::from_secs(5);
+
+    while start.elapsed() < duration {
+        match exchange.watch_ticker("BTC/USDT", None).await {
+            Ok(ticker) => {
+                println!(
+                    "   [{}] {} - ${}",
+                    chrono::Local::now().format("%H:%M:%S"),
+                    ticker.symbol,
+                    ticker.last.unwrap_or(Price(Decimal::ZERO))
+                );
+            }
+            Err(e) => {
+                eprintln!("   Error: {}", e);
+                break;
+            }
+        }
+    }
+    println!("   Stopped.");
 
     sleep(Duration::from_secs(2)).await;
 

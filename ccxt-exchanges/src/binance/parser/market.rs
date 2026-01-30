@@ -2,6 +2,7 @@ use super::value_to_hashmap;
 use ccxt_core::{
     Result,
     error::{Error, ParseError},
+    parser_utils::timestamp_to_datetime,
     types::{Market, MarketLimits, MarketPrecision, MarketType, MinMax},
 };
 use rust_decimal::Decimal;
@@ -31,6 +32,61 @@ pub fn parse_market(data: &Value) -> Result<Market> {
 
     let active = status == "TRADING";
     let margin = data["isMarginTradingAllowed"].as_bool().unwrap_or(false);
+
+    // Check for contract type to determine if this is a futures/swap market
+    let contract_type = data["contractType"].as_str();
+    let is_contract = contract_type.is_some();
+
+    let market_type = if let Some(ct) = contract_type {
+        if ct == "PERPETUAL" {
+            MarketType::Swap
+        } else {
+            MarketType::Futures
+        }
+    } else {
+        MarketType::Spot
+    };
+
+    let mut linear = None;
+    let mut inverse = None;
+    let mut settle_id = None;
+    let mut settle = None;
+
+    if is_contract {
+        if let Some(margin_asset) = data["marginAsset"].as_str() {
+            settle_id = Some(margin_asset.to_string());
+            settle = Some(margin_asset.to_string()); // In Binance, asset ID is usually the code
+
+            if margin_asset == quote_asset {
+                linear = Some(true);
+                inverse = Some(false);
+            } else if margin_asset == base_asset {
+                linear = Some(false);
+                inverse = Some(true);
+            }
+        }
+    }
+
+    let expiry_timestamp = if market_type == MarketType::Futures {
+        data["deliveryDate"].as_i64().filter(|ts| *ts > 0)
+    } else {
+        None
+    };
+
+    let expiry_datetime = expiry_timestamp.and_then(timestamp_to_datetime);
+
+    let expiry_suffix = if market_type == MarketType::Futures {
+        symbol.rfind('_').and_then(|pos| {
+            let suffix = &symbol[pos + 1..];
+            if suffix.len() == 6 && suffix.chars().all(|c| c.is_ascii_digit()) {
+                Some(suffix.to_string())
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
 
     let mut price_precision: Option<Decimal> = None;
     let mut amount_precision: Option<Decimal> = None;
@@ -81,7 +137,24 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         }
     }
 
-    let unified_symbol = format!("{}/{}", base_asset, quote_asset);
+    let unified_symbol = if is_contract {
+        if let Some(s) = &settle {
+            if market_type == MarketType::Futures {
+                if let Some(expiry) = &expiry_suffix {
+                    format!("{}/{}:{}-{}", base_asset, quote_asset, s, expiry)
+                } else {
+                    format!("{}/{}:{}", base_asset, quote_asset, s)
+                }
+            } else {
+                format!("{}/{}:{}", base_asset, quote_asset, s)
+            }
+        } else {
+            format!("{}/{}", base_asset, quote_asset)
+        }
+    } else {
+        format!("{}/{}", base_asset, quote_asset)
+    };
+
     let parsed_symbol = ccxt_core::symbol::SymbolParser::parse(&unified_symbol).ok();
 
     Ok(Market {
@@ -90,21 +163,21 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         parsed_symbol,
         base: base_asset.clone(),
         quote: quote_asset.clone(),
-        settle: None,
         base_id: Some(base_asset),
         quote_id: Some(quote_asset),
-        settle_id: None,
-        market_type: MarketType::Spot,
+        settle_id,
+        settle,
+        market_type,
         active,
         margin,
-        contract: Some(false),
-        linear: None,
-        inverse: None,
+        contract: Some(is_contract),
+        linear,
+        inverse,
         taker: Decimal::from_str("0.001").ok(),
         maker: Decimal::from_str("0.001").ok(),
         contract_size: None,
-        expiry: None,
-        expiry_datetime: None,
+        expiry: expiry_timestamp,
+        expiry_datetime,
         strike: None,
         option_type: None,
         percentage: Some(true),

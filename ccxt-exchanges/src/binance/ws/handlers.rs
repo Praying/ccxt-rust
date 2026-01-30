@@ -416,18 +416,55 @@ impl MessageRouter {
         let symbol_opt = payload.get("s").and_then(|s| s.as_str());
 
         if let Some(symbol) = symbol_opt {
-            let active_streams = subscription_manager
+            let mut active_streams = subscription_manager
                 .get_subscriptions_by_symbol(symbol)
                 .await;
+
+            tracing::debug!(
+                "Routing message for symbol {}: stream_name={}, active_subscriptions={}",
+                symbol,
+                stream_name,
+                active_streams.len()
+            );
+
+            // If no streams found for uppercase symbol (e.g. "BTCUSDT"), try lowercase (e.g. "btcusdt")
+            // This is common since Binance API sends uppercase symbols but we usually subscribe with lowercase
+            if active_streams.is_empty() {
+                let lower_symbol = symbol.to_lowercase();
+                if lower_symbol != symbol {
+                    let lower_streams = subscription_manager
+                        .get_subscriptions_by_symbol(&lower_symbol)
+                        .await;
+                    if !lower_streams.is_empty() {
+                        active_streams = lower_streams;
+                        tracing::debug!(
+                            "Found subscriptions for lowercased symbol {}: count={}",
+                            lower_symbol,
+                            active_streams.len()
+                        );
+                    }
+                }
+            }
+
             let mut fallback_sent = false;
 
             for sub in active_streams {
-                if sub.stream.starts_with(&stream_name) && sub.stream != stream_name {
+                // For mark price updates, the stream name is usually like "btcusdt@markPrice" or "btcusdt@markprice"
+                // But the user might have subscribed to "btcusdt@markprice@1s"
+                // The starts_with check handles the suffix @1s
+                tracing::debug!(
+                    "Checking subscription: stream={}, expected_starts_with={}",
+                    sub.stream,
+                    stream_name
+                );
+
+                if sub.stream.starts_with(&stream_name) {
                     if subscription_manager
                         .send_to_stream(&sub.stream, payload.clone())
                         .await
                     {
                         fallback_sent = true;
+                        tracing::debug!("Successfully routed to fallback stream: {}", sub.stream);
                     }
                 }
             }
@@ -444,6 +481,19 @@ impl MessageRouter {
     pub fn extract_stream_name(message: &Value) -> Result<String> {
         if let Some(stream) = message.get("stream").and_then(|s| s.as_str()) {
             return Ok(stream.to_string());
+        }
+
+        // Handle array messages (e.g. !ticker@arr, !miniTicker@arr)
+        if let Some(arr) = message.as_array() {
+            if let Some(first) = arr.first() {
+                if let Some(event_type) = first.get("e").and_then(|e| e.as_str()) {
+                    match event_type {
+                        "24hrTicker" => return Ok("!ticker@arr".to_string()),
+                        "24hrMiniTicker" => return Ok("!miniTicker@arr".to_string()),
+                        _ => {}
+                    }
+                }
+            }
         }
 
         if let Some(event_type) = message.get("e").and_then(|e| e.as_str()) {
@@ -463,6 +513,7 @@ impl MessageRouter {
             if let Some(symbol) = message.get("s").and_then(|s| s.as_str()) {
                 let stream = match event_type {
                     "24hrTicker" => format!("{}@ticker", symbol.to_lowercase()),
+                    "24hrMiniTicker" => format!("{}@miniTicker", symbol.to_lowercase()),
                     "depthUpdate" => format!("{}@depth", symbol.to_lowercase()),
                     "aggTrade" => format!("{}@aggTrade", symbol.to_lowercase()),
                     "trade" => format!("{}@trade", symbol.to_lowercase()),
@@ -727,5 +778,40 @@ mod tests {
         assert!(received.get("stream").is_none());
         assert_eq!(received["e"], "24hrTicker");
         assert_eq!(received["c"], "50000.00");
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_mark_price_fallback() {
+        let manager = Arc::new(crate::binance::ws::subscriptions::SubscriptionManager::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+
+        // Subscription uses lowercase symbol "btcusdt" and specific stream "btcusdt@markPrice@1s"
+        manager
+            .add_subscription(
+                "btcusdt@markPrice@1s".to_string(),
+                "btcusdt".to_string(),
+                crate::binance::ws::subscriptions::SubscriptionType::MarkPrice,
+                tx,
+            )
+            .await
+            .unwrap();
+
+        // Incoming message has uppercase symbol "BTCUSDT" and event "markPriceUpdate"
+        // extract_stream_name will derive "btcusdt@markPrice"
+        let message = json!({
+            "e": "markPriceUpdate",
+            "s": "BTCUSDT",
+            "p": "50000.00",
+            "E": 123456789
+        });
+
+        // This should succeed thanks to the fallback logic
+        MessageRouter::handle_message(message, manager, None)
+            .await
+            .unwrap();
+
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received["e"], "markPriceUpdate");
+        assert_eq!(received["p"], "50000.00");
     }
 }

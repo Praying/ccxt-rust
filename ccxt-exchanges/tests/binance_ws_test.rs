@@ -122,12 +122,12 @@ mod tests {
         let exchange = Binance::new(ExchangeConfig::default()).unwrap();
 
         match exchange.watch_mark_price("BTC/USDT:USDT", None).await {
-            Ok(ticker) => {
+            Ok(mark_price) => {
                 println!("✓ watch_mark_price succeeded");
-                println!("  Symbol: {}", ticker.symbol);
-                println!("  Mark Price: {:?}", ticker.last);
-                println!("  Index Price: {:?}", ticker.info.get("indexPrice"));
-                assert!(ticker.symbol.contains("BTC"));
+                println!("  Symbol: {}", mark_price.symbol);
+                println!("  Mark Price: {:?}", mark_price.mark_price);
+                println!("  Index Price: {:?}", mark_price.index_price);
+                assert!(mark_price.symbol.contains("BTC") || mark_price.symbol.contains("btc"));
             }
             Err(e) => {
                 println!("✗ watch_mark_price failed: {}", e);
@@ -148,11 +148,11 @@ mod tests {
             .watch_mark_price("ETH/USDT:USDT", Some(params))
             .await
         {
-            Ok(ticker) => {
+            Ok(mark_price) => {
                 println!("✓ watch_mark_price (3s update) succeeded");
-                println!("  Symbol: {}", ticker.symbol);
-                println!("  Mark Price: {:?}", ticker.last);
-                assert!(ticker.symbol.contains("ETH"));
+                println!("  Symbol: {}", mark_price.symbol);
+                println!("  Mark Price: {:?}", mark_price.mark_price);
+                assert!(mark_price.symbol.contains("ETH") || mark_price.symbol.contains("eth"));
             }
             Err(e) => {
                 println!("✗ watch_mark_price (3s update) failed: {}", e);
@@ -172,17 +172,17 @@ mod tests {
             .watch_mark_prices(Some(symbols.clone()), None)
             .await
         {
-            Ok(tickers) => {
+            Ok(mark_prices) => {
                 println!(
-                    "✓ watch_mark_prices succeeded, received {} tickers",
-                    tickers.len()
+                    "✓ watch_mark_prices succeeded, received {} mark prices",
+                    mark_prices.len()
                 );
 
-                for (symbol, ticker) in &tickers {
-                    println!("  {} - Mark: {:?}", symbol, ticker.last);
+                for (symbol, mark_price) in &mark_prices {
+                    println!("  {} - Mark: {:?}", symbol, mark_price.mark_price);
                 }
 
-                assert!(tickers.len() > 0);
+                assert!(mark_prices.len() > 0);
             }
             Err(e) => {
                 println!("✗ watch_mark_prices failed: {}", e);

@@ -98,7 +98,7 @@ impl Binance {
         &self,
         symbol: &str,
         params: Option<HashMap<String, Value>>,
-    ) -> Result<Ticker> {
+    ) -> Result<MarkPrice> {
         self.load_markets(false).await?;
 
         let market = self.base.market(symbol).await?;
@@ -126,7 +126,7 @@ impl Binance {
         };
 
         let ws = self.connection_manager.get_public_connection().await?;
-        ws.watch_ticker_internal(&binance_symbol, channel_name)
+        ws.watch_mark_price_internal(&binance_symbol, channel_name)
             .await
     }
 
@@ -218,7 +218,7 @@ impl Binance {
         &self,
         symbols: Option<Vec<String>>,
         params: Option<HashMap<String, Value>>,
-    ) -> Result<HashMap<String, Ticker>> {
+    ) -> Result<HashMap<String, MarkPrice>> {
         self.load_markets(false).await?;
 
         let use_1s_freq = if let Some(p) = &params {
@@ -255,7 +255,7 @@ impl Binance {
         };
 
         let ws = self.connection_manager.get_public_connection().await?;
-        ws.watch_tickers_internal(binance_symbols, channel_name)
+        ws.watch_mark_prices_internal(binance_symbols, channel_name)
             .await
     }
 

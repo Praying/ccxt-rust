@@ -156,6 +156,14 @@ pub struct WsConfig {
     ///
     /// Default: `DropOldest` to ensure most recent data is available.
     pub backpressure_strategy: BackpressureStrategy,
+    /// Maximum message size in bytes.
+    ///
+    /// Default: 128 MiB (134,217,728 bytes) if None.
+    pub max_message_size: Option<usize>,
+    /// Maximum frame size in bytes.
+    ///
+    /// Default: 32 MiB (33,554,432 bytes) if None.
+    pub max_frame_size: Option<usize>,
 }
 
 impl Default for WsConfig {
@@ -175,6 +183,8 @@ impl Default for WsConfig {
             message_channel_capacity: DEFAULT_MESSAGE_CHANNEL_CAPACITY,
             write_channel_capacity: DEFAULT_WRITE_CHANNEL_CAPACITY,
             backpressure_strategy: BackpressureStrategy::default(),
+            max_message_size: Some(128 * 1024 * 1024),
+            max_frame_size: Some(32 * 1024 * 1024),
         }
     }
 }
