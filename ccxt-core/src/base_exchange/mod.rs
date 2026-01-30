@@ -93,10 +93,10 @@ impl BaseExchange {
                     strategy_type: crate::retry_strategy::RetryStrategyType::Fixed,
                     ..crate::retry_strategy::RetryConfig::default()
                 }),
-            max_response_size: 10 * 1024 * 1024, // 10MB default
-            max_request_size: 10 * 1024 * 1024,  // 10MB default
-            circuit_breaker: None,               // Disabled by default for backward compatibility
-            pool_max_idle_per_host: 10,          // Default: 10 idle connections per host
+            max_response_size: 128 * 1024 * 1024, // 128MB default
+            max_request_size: 10 * 1024 * 1024,   // 10MB default
+            circuit_breaker: None,                // Disabled by default for backward compatibility
+            pool_max_idle_per_host: 10,           // Default: 10 idle connections per host
             pool_idle_timeout: Duration::from_secs(90), // Default: 90 seconds
         };
 

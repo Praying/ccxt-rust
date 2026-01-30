@@ -34,7 +34,8 @@ use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::{Duration, interval};
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async, tungstenite::protocol::Message,
+    MaybeTlsStream, WebSocketStream, connect_async_with_config,
+    tungstenite::protocol::{Message, WebSocketConfig},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, warn};
@@ -154,9 +155,17 @@ impl WsClient {
         let url = self.config.url.clone();
         info!("Initiating WebSocket connection");
 
+        let mut ws_config = WebSocketConfig::default();
+        if let Some(limit) = self.config.max_message_size {
+            ws_config.max_message_size = Some(limit);
+        }
+        if let Some(limit) = self.config.max_frame_size {
+            ws_config.max_frame_size = Some(limit);
+        }
+
         match tokio::time::timeout(
             Duration::from_millis(self.config.connect_timeout),
-            connect_async(&url),
+            connect_async_with_config(&url, Some(ws_config), false),
         )
         .await
         {
@@ -214,6 +223,14 @@ impl WsClient {
         self.set_state(WsConnectionState::Connecting);
         let url = self.config.url.clone();
 
+        let mut ws_config = WebSocketConfig::default();
+        if let Some(limit) = self.config.max_message_size {
+            ws_config.max_message_size = Some(limit);
+        }
+        if let Some(limit) = self.config.max_frame_size {
+            ws_config.max_frame_size = Some(limit);
+        }
+
         tokio::select! {
             biased;
             () = token.cancelled() => {
@@ -223,7 +240,7 @@ impl WsClient {
             }
             result = tokio::time::timeout(
                 Duration::from_millis(self.config.connect_timeout),
-                connect_async(&url),
+                connect_async_with_config(&url, Some(ws_config), false),
             ) => {
                 match result {
                     Ok(Ok((ws_stream, response))) => {

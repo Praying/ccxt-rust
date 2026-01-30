@@ -410,6 +410,157 @@ impl BinanceWs {
         self.subscription_manager.active_count()
     }
 
+    /// Watches a single mark price stream (internal helper)
+    async fn watch_mark_price_internal(
+        &self,
+        symbol: &str,
+        channel_name: &str,
+    ) -> Result<MarkPrice> {
+        let stream = format!("{}@{}", symbol.to_lowercase(), channel_name);
+        tracing::debug!(
+            "watch_mark_price_internal: stream={}, symbol={}",
+            stream,
+            symbol
+        );
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        self.subscription_manager
+            .add_subscription(
+                stream.clone(),
+                symbol.to_string(),
+                SubscriptionType::MarkPrice,
+                tx,
+            )
+            .await?;
+
+        self.message_router.subscribe(vec![stream.clone()]).await?;
+
+        loop {
+            if let Some(message) = rx.recv().await {
+                if message.get("result").is_some() {
+                    tracing::debug!("Received subscription result for {}", stream);
+                    continue;
+                }
+
+                tracing::debug!("Received mark price message for {}", stream);
+
+                match parser::parse_ws_mark_price(&message) {
+                    Ok(mark_price) => {
+                        let mut mark_prices = self.mark_prices.lock().await;
+                        mark_prices.insert(mark_price.symbol.clone(), mark_price.clone());
+                        return Ok(mark_price);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to parse mark price message for stream {}: {:?}. Payload: {:?}",
+                            stream,
+                            e,
+                            message
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!("Subscription channel closed for {}", stream);
+                return Err(Error::network("Subscription channel closed"));
+            }
+        }
+    }
+
+    /// Watches multiple mark price streams (internal helper)
+    async fn watch_mark_prices_internal(
+        &self,
+        symbols: Option<Vec<String>>,
+        channel_name: &str,
+    ) -> Result<HashMap<String, MarkPrice>> {
+        let streams: Vec<String> = if let Some(syms) = symbols.as_ref() {
+            syms.iter()
+                .map(|s| format!("{}@{}", s.to_lowercase(), channel_name))
+                .collect()
+        } else {
+            vec![format!("!{}@arr", channel_name)]
+        };
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+
+        for stream in &streams {
+            self.subscription_manager
+                .add_subscription(
+                    stream.clone(),
+                    "all".to_string(),
+                    SubscriptionType::MarkPrice,
+                    tx.clone(),
+                )
+                .await?;
+        }
+
+        self.message_router.subscribe(streams.clone()).await?;
+
+        let mut result = HashMap::new();
+
+        loop {
+            if let Some(message) = rx.recv().await {
+                if message.get("result").is_some() {
+                    continue;
+                }
+
+                if let Some(arr) = message.as_array() {
+                    for item in arr {
+                        if let Ok(mark_price) = parser::parse_ws_mark_price(item) {
+                            let symbol = mark_price.symbol.clone();
+
+                            if let Some(syms) = &symbols {
+                                if syms.contains(&symbol.to_lowercase()) {
+                                    result.insert(symbol.clone(), mark_price.clone());
+                                }
+                            } else {
+                                result.insert(symbol.clone(), mark_price.clone());
+                            }
+
+                            let mut mark_prices = self.mark_prices.lock().await;
+                            mark_prices.insert(symbol, mark_price);
+                        } else {
+                            tracing::warn!("Failed to parse item in mark price array: {:?}", item);
+                        }
+                    }
+
+                    if let Some(syms) = &symbols {
+                        if result.len() >= syms.len() {
+                            return Ok(result);
+                        }
+                    } else {
+                        // For array updates without specific symbols filter, return what we got
+                        return Ok(result);
+                    }
+                } else {
+                    match parser::parse_ws_mark_price(&message) {
+                        Ok(mark_price) => {
+                            let symbol = mark_price.symbol.clone();
+                            result.insert(symbol.clone(), mark_price.clone());
+
+                            let mut mark_prices = self.mark_prices.lock().await;
+                            mark_prices.insert(symbol, mark_price);
+
+                            if let Some(syms) = &symbols {
+                                if result.len() >= syms.len() {
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse mark price message: {:?}. Payload: {:?}",
+                                e,
+                                message
+                            );
+                        }
+                    }
+                }
+            } else {
+                return Err(Error::network("Subscription channel closed"));
+            }
+        }
+    }
+
     /// Watches a single ticker stream (internal helper)
     async fn watch_ticker_internal(&self, symbol: &str, channel_name: &str) -> Result<Ticker> {
         let stream = format!("{}@{}", symbol.to_lowercase(), channel_name);
@@ -432,10 +583,21 @@ impl BinanceWs {
                     continue;
                 }
 
-                if let Ok(ticker) = parser::parse_ws_ticker(&message, None) {
-                    let mut tickers = self.tickers.lock().await;
-                    tickers.insert(ticker.symbol.clone(), ticker.clone());
-                    return Ok(ticker);
+                match parser::parse_ws_ticker(&message, None) {
+                    Ok(ticker) => {
+                        let mut tickers = self.tickers.lock().await;
+                        tickers.insert(ticker.symbol.clone(), ticker.clone());
+                        return Ok(ticker);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to parse ticker message for stream {}: {:?}. Payload: {:?}",
+                            stream,
+                            e,
+                            message
+                        );
+                        // Continue waiting for the next message instead of hanging silently
+                    }
                 }
             } else {
                 return Err(Error::network("Subscription channel closed"));
@@ -495,6 +657,8 @@ impl BinanceWs {
 
                             let mut tickers = self.tickers.lock().await;
                             tickers.insert(symbol, ticker);
+                        } else {
+                            tracing::warn!("Failed to parse item in ticker array: {:?}", item);
                         }
                     }
 
@@ -503,18 +667,32 @@ impl BinanceWs {
                             return Ok(result);
                         }
                     } else {
+                        // If we received an array but we are not waiting for specific symbols,
+                        // we can assume we got the update for "all" markets.
+                        // However, !ticker@arr returns ALL tickers in one message usually.
                         return Ok(result);
                     }
-                } else if let Ok(ticker) = parser::parse_ws_ticker(&message, None) {
-                    let symbol = ticker.symbol.clone();
-                    result.insert(symbol.clone(), ticker.clone());
+                } else {
+                    match parser::parse_ws_ticker(&message, None) {
+                        Ok(ticker) => {
+                            let symbol = ticker.symbol.clone();
+                            result.insert(symbol.clone(), ticker.clone());
 
-                    let mut tickers = self.tickers.lock().await;
-                    tickers.insert(symbol, ticker);
+                            let mut tickers = self.tickers.lock().await;
+                            tickers.insert(symbol, ticker);
 
-                    if let Some(syms) = &symbols {
-                        if result.len() >= syms.len() {
-                            return Ok(result);
+                            if let Some(syms) = &symbols {
+                                if result.len() >= syms.len() {
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse ticker message: {:?}. Payload: {:?}",
+                                e,
+                                message
+                            );
                         }
                     }
                 }

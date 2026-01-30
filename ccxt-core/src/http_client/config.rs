@@ -78,8 +78,8 @@ impl Default for HttpConfig {
             proxy: None,
             enable_rate_limit: true,
             retry_config: None,
-            max_response_size: 10 * 1024 * 1024,
-            max_request_size: 10 * 1024 * 1024,
+            max_response_size: 128 * 1024 * 1024, // 128MB default
+            max_request_size: 10 * 1024 * 1024,   // 10MB default
             circuit_breaker: None,
             pool_max_idle_per_host: 10,
             pool_idle_timeout: Duration::from_secs(90),
