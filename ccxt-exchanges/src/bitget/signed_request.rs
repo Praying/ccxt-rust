@@ -421,6 +421,7 @@ fn build_query_string(params: &BTreeMap<String, String>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
     use ccxt_core::ExchangeConfig;
 

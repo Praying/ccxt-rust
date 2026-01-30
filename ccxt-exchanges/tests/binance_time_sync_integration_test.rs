@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Integration tests for Binance Time Sync Optimization
 //!
 //! These tests verify the time synchronization functionality that reduces
@@ -21,9 +22,11 @@ fn get_api_credentials() -> ExchangeConfig {
     let api_key = env::var("BINANCE_API_KEY").ok().map(SecretString::new);
     let secret = env::var("BINANCE_API_SECRET").ok().map(SecretString::new);
 
-    let mut config = ExchangeConfig::default();
-    config.api_key = api_key;
-    config.secret = secret;
+    let config = ExchangeConfig {
+        api_key,
+        secret,
+        ..Default::default()
+    };
     config
 }
 
@@ -377,7 +380,7 @@ fn test_time_sync_manager_offset_calculation() {
     // Offset should be approximately 500ms
     let offset = manager.get_offset();
     assert!(
-        offset >= 400 && offset <= 600,
+        (400..=600).contains(&offset),
         "Offset should be ~500ms, got {}",
         offset
     );

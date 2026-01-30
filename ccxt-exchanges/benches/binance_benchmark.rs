@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+#![allow(deprecated)]
 use ccxt_core::ExchangeConfig;
 use ccxt_exchanges::binance::Binance;
 use ccxt_exchanges::binance::parser;
@@ -234,8 +236,8 @@ fn bench_exchange_with_credentials(c: &mut Criterion) {
     c.bench_function("create_exchange_with_credentials", |b| {
         b.iter(|| {
             let config = ExchangeConfig {
-                api_key: Some("test_key".to_string()),
-                secret: Some("test_secret".to_string()),
+                api_key: Some("test_key".to_string().into()),
+                secret: Some("test_secret".to_string().into()),
                 ..Default::default()
             };
             let _ = Binance::new(black_box(config));

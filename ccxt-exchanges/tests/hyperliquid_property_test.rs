@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for HyperLiquid exchange implementation.
 //!
 //! These tests verify correctness properties using proptest.

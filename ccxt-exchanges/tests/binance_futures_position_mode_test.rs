@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance futures position mode management tests.
 //!
 //! Tests position mode configuration and query functionality.

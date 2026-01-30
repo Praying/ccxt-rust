@@ -717,8 +717,21 @@ impl Binance {
     }
 }
 
+// Implement HasHttpClient trait for generic SignedRequestBuilder support
+impl ccxt_core::signed_request::HasHttpClient for Binance {
+    fn http_client(&self) -> &ccxt_core::http_client::HttpClient {
+        &self.base().http_client
+    }
+
+    fn base_url(&self) -> &'static str {
+        // Return empty string since Binance uses full URLs in endpoints
+        ""
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
     use ccxt_core::ExchangeConfig;
 
@@ -1105,7 +1118,7 @@ mod tests {
                 let mut seen = std::collections::HashSet::new();
                 for tf in &timeframes {
                     prop_assert!(
-                        seen.insert(tf.clone()),
+                        seen.insert(*tf),
                         "Timeframes should not contain duplicates: {:?}",
                         tf
                     );
@@ -1181,17 +1194,5 @@ mod tests {
                 prop_assert!(trait_caps.websocket(), "Should support websocket");
             }
         }
-    }
-}
-
-// Implement HasHttpClient trait for generic SignedRequestBuilder support
-impl ccxt_core::signed_request::HasHttpClient for Binance {
-    fn http_client(&self) -> &ccxt_core::http_client::HttpClient {
-        &self.base().http_client
-    }
-
-    fn base_url(&self) -> &'static str {
-        // Return empty string since Binance uses full URLs in endpoints
-        ""
     }
 }

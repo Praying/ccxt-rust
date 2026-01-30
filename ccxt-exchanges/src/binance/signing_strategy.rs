@@ -94,9 +94,8 @@ mod tests {
     fn test_signing_strategy_creation() {
         let config = ExchangeConfig::default();
         let binance = Arc::new(Binance::new(config).unwrap());
-        let strategy = BinanceSigningStrategy::new(binance);
+        let _strategy = BinanceSigningStrategy::new(binance);
         // Strategy created successfully
-        assert!(true);
     }
 
     #[test]

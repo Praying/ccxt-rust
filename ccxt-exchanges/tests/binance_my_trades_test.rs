@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance user trades API integration tests.
 //!
 //! Tests user trade history functionality including subscription and filtering.

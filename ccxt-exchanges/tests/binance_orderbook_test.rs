@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance orderbook WebSocket integration tests
 
 use ccxt_core::{Amount, ExchangeConfig, Price, error::Result, types::Market};

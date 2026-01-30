@@ -195,6 +195,7 @@ impl Bitget {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::*;
     use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 
@@ -269,6 +270,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_timestamp() {
         let _bitget = Bitget::builder().build().unwrap();
         let ts = Bitget::get_timestamp();

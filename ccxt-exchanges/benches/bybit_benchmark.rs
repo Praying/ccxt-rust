@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+#![allow(deprecated)]
 //! Bybit exchange performance benchmarks.
 //!
 //! Benchmarks for Bybit API calls, data parsing, and other operations.
@@ -19,12 +21,7 @@ fn bench_fetch_ticker(c: &mut Criterion) {
 
     c.bench_function("bybit_fetch_ticker_btc_usdt", |b| {
         b.to_async(&rt).iter(|| async {
-            let _ = bybit
-                .fetch_ticker(
-                    black_box("BTC/USDT"),
-                    ccxt_core::types::TickerParams::default(),
-                )
-                .await;
+            let _ = bybit.fetch_ticker(black_box("BTC/USDT")).await;
         });
     });
 }
@@ -75,7 +72,7 @@ fn bench_fetch_ohlcv(c: &mut Criterion) {
             |b, timeframe| {
                 b.to_async(&rt).iter(|| async {
                     let _ = bybit
-                        .fetch_ohlcv(black_box("BTC/USDT"), timeframe, None, Some(100), None)
+                        .fetch_ohlcv(black_box("BTC/USDT"), timeframe, None, Some(100))
                         .await;
                 });
             },
@@ -182,8 +179,8 @@ fn bench_exchange_with_credentials(c: &mut Criterion) {
     c.bench_function("bybit_create_exchange_with_credentials", |b| {
         b.iter(|| {
             let config = ExchangeConfig {
-                api_key: Some("test_key".to_string()),
-                secret: Some("test_secret".to_string()),
+                api_key: Some("test_key".to_string().into()),
+                secret: Some("test_secret".to_string().into()),
                 ..Default::default()
             };
             let _ = Bybit::new(black_box(config));
@@ -215,7 +212,7 @@ fn bench_concurrent_ticker_fetches(c: &mut Criterion) {
 
             let futures: Vec<_> = symbols
                 .into_iter()
-                .map(|symbol| bybit.fetch_ticker(symbol, ccxt_core::types::TickerParams::default()))
+                .map(|symbol| bybit.fetch_ticker(symbol))
                 .collect();
 
             let _ = futures::future::join_all(futures).await;

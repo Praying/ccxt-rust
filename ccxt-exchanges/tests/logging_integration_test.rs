@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Logging system end-to-end integration tests
 //!
 //! Verifies logging functionality during actual HTTP requests and exchange operations.
@@ -77,8 +78,10 @@ async fn test_logging_with_public_api_calls() -> Result<()> {
 async fn test_logging_with_verbose_mode() -> Result<()> {
     setup();
 
-    let mut config = ExchangeConfig::default();
-    config.verbose = true;
+    let config = ExchangeConfig {
+        verbose: true,
+        ..Default::default()
+    };
 
     let exchange = Binance::new(config)?;
     populate_test_markets(&exchange).await;
@@ -126,8 +129,10 @@ async fn test_logging_with_multiple_requests() -> Result<()> {
 async fn test_logging_with_orderbook() -> Result<()> {
     setup();
 
-    let mut config = ExchangeConfig::default();
-    config.verbose = true;
+    let config = ExchangeConfig {
+        verbose: true,
+        ..Default::default()
+    };
 
     let exchange = Binance::new(config)?;
     populate_test_markets(&exchange).await;
@@ -167,8 +172,10 @@ async fn test_logging_with_trades() -> Result<()> {
 async fn test_logging_error_handling() -> Result<()> {
     setup();
 
-    let mut config = ExchangeConfig::default();
-    config.verbose = true;
+    let config = ExchangeConfig {
+        verbose: true,
+        ..Default::default()
+    };
 
     let exchange = Binance::new(config)?;
     // Don't populate markets to force error or use invalid pair
@@ -224,8 +231,10 @@ mod stress_tests {
     async fn test_logging_with_rapid_requests() -> Result<()> {
         setup();
 
-        let mut config = ExchangeConfig::default();
-        config.verbose = false; // Disable verbose to reduce log volume
+        let config = ExchangeConfig {
+            verbose: false, // Disable verbose to reduce log volume
+            ..Default::default()
+        };
 
         let exchange = Binance::new(config)?;
         populate_test_markets(&exchange).await;

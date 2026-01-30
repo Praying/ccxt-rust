@@ -219,7 +219,7 @@ mod tests {
         let signature = auth.sign(query);
         assert!(signature.is_ok());
 
-        let sig = signature.unwrap();
+        let sig = signature.expect("Signature failed");
         assert!(!sig.is_empty());
         assert_eq!(sig.len(), 64); // HMAC-SHA256 produces 64 hex characters
     }
@@ -234,9 +234,12 @@ mod tests {
         let signed = auth.sign_params(&params);
         assert!(signed.is_ok());
 
-        let signed_params = signed.unwrap();
+        let signed_params = signed.expect("Sign params failed");
         assert!(signed_params.contains_key("signature"));
-        assert_eq!(signed_params.get("symbol").unwrap(), "BTCUSDT");
+        assert_eq!(
+            signed_params.get("symbol").expect("Missing symbol"),
+            "BTCUSDT"
+        );
     }
 
     #[test]
@@ -248,12 +251,18 @@ mod tests {
         let signed = auth.sign_with_timestamp(&params, timestamp, Some(5000));
         assert!(signed.is_ok());
 
-        let signed_params = signed.unwrap();
+        let signed_params = signed.expect("Sign timestamp failed");
         assert!(signed_params.contains_key("timestamp"));
         assert!(signed_params.contains_key("recvWindow"));
         assert!(signed_params.contains_key("signature"));
-        assert_eq!(signed_params.get("timestamp").unwrap(), "1234567890");
-        assert_eq!(signed_params.get("recvWindow").unwrap(), "5000");
+        assert_eq!(
+            signed_params.get("timestamp").expect("Missing timestamp"),
+            "1234567890"
+        );
+        assert_eq!(
+            signed_params.get("recvWindow").expect("Missing recvWindow"),
+            "5000"
+        );
     }
 
     #[test]
@@ -275,7 +284,10 @@ mod tests {
         auth.add_auth_headers(&mut headers);
 
         assert!(headers.contains_key("X-MBX-APIKEY"));
-        assert_eq!(headers.get("X-MBX-APIKEY").unwrap(), "my_api_key");
+        assert_eq!(
+            headers.get("X-MBX-APIKEY").expect("Missing header"),
+            "my_api_key"
+        );
     }
 
     #[test]

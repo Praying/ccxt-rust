@@ -197,31 +197,31 @@ mod tests {
 
     #[test]
     fn test_spot_to_exchange_id() {
-        let symbol = ParsedSymbol::spot("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::spot("BTC", "USDT");
         assert_eq!(BinanceSymbolConverter::to_exchange_id(&symbol), "BTCUSDT");
     }
 
     #[test]
     fn test_spot_to_exchange_id_various_pairs() {
-        let eth_usdt = ParsedSymbol::spot("ETH".to_string(), "USDT".to_string());
+        let eth_usdt = ParsedSymbol::spot("ETH", "USDT");
         assert_eq!(BinanceSymbolConverter::to_exchange_id(&eth_usdt), "ETHUSDT");
 
-        let btc_busd = ParsedSymbol::spot("BTC".to_string(), "BUSD".to_string());
+        let btc_busd = ParsedSymbol::spot("BTC", "BUSD");
         assert_eq!(BinanceSymbolConverter::to_exchange_id(&btc_busd), "BTCBUSD");
 
-        let sol_btc = ParsedSymbol::spot("SOL".to_string(), "BTC".to_string());
+        let sol_btc = ParsedSymbol::spot("SOL", "BTC");
         assert_eq!(BinanceSymbolConverter::to_exchange_id(&sol_btc), "SOLBTC");
     }
 
     #[test]
     fn test_linear_swap_to_exchange_id() {
-        let symbol = ParsedSymbol::linear_swap("BTC".to_string(), "USDT".to_string());
+        let symbol = ParsedSymbol::linear_swap("BTC", "USDT");
         assert_eq!(BinanceSymbolConverter::to_exchange_id(&symbol), "BTCUSDT");
     }
 
     #[test]
     fn test_inverse_swap_to_exchange_id() {
-        let symbol = ParsedSymbol::inverse_swap("BTC".to_string(), "USD".to_string());
+        let symbol = ParsedSymbol::inverse_swap("BTC", "USD");
         assert_eq!(
             BinanceSymbolConverter::to_exchange_id(&symbol),
             "BTCUSD_PERP"
@@ -231,12 +231,7 @@ mod tests {
     #[test]
     fn test_linear_futures_to_exchange_id() {
         let expiry = ExpiryDate::new(24, 12, 31).unwrap();
-        let symbol = ParsedSymbol::futures(
-            "BTC".to_string(),
-            "USDT".to_string(),
-            "USDT".to_string(),
-            expiry,
-        );
+        let symbol = ParsedSymbol::futures("BTC", "USDT", "USDT", expiry);
         assert_eq!(
             BinanceSymbolConverter::to_exchange_id(&symbol),
             "BTCUSDT_241231"
@@ -246,12 +241,7 @@ mod tests {
     #[test]
     fn test_inverse_futures_to_exchange_id() {
         let expiry = ExpiryDate::new(25, 3, 15).unwrap();
-        let symbol = ParsedSymbol::futures(
-            "BTC".to_string(),
-            "USD".to_string(),
-            "BTC".to_string(),
-            expiry,
-        );
+        let symbol = ParsedSymbol::futures("BTC", "USD", "BTC", expiry);
         assert_eq!(
             BinanceSymbolConverter::to_exchange_id(&symbol),
             "BTCUSD_250315"
@@ -261,12 +251,7 @@ mod tests {
     #[test]
     fn test_futures_date_padding() {
         let expiry = ExpiryDate::new(25, 1, 5).unwrap();
-        let symbol = ParsedSymbol::futures(
-            "ETH".to_string(),
-            "USDT".to_string(),
-            "USDT".to_string(),
-            expiry,
-        );
+        let symbol = ParsedSymbol::futures("ETH", "USDT", "USDT", expiry);
         assert_eq!(
             BinanceSymbolConverter::to_exchange_id(&symbol),
             "ETHUSDT_250105"

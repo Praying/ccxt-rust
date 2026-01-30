@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for TimeSyncManager concurrent access.
 //!
 //! These tests verify that the TimeSyncManager maintains consistency

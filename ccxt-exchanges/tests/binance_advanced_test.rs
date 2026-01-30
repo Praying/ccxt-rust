@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance advanced feature integration tests.
 //!
 //! Test coverage for newly added API methods.

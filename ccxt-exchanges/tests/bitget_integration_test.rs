@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+#![allow(clippy::disallowed_methods)]
 //! Bitget Integration Tests
 //!
 //! These tests verify Bitget exchange implementation against real API.

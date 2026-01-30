@@ -51,8 +51,8 @@ pub use ccxt_core::BoxedExchange;
 pub use ccxt_core::ArcExchange;
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
-    #[allow(deprecated)]
     use super::*;
 
     #[test]

@@ -477,10 +477,12 @@ mod tests {
     #[test]
     fn test_rest_endpoint_option_public() {
         let binance = create_test_binance();
-        let mut market = Market::default();
-        market.id = "BTC-250328-100000-C".to_string();
-        market.symbol = "BTC/USDT:USDT-250328-100000-C".to_string();
-        market.market_type = MarketType::Option;
+        let market = Market {
+            id: "BTC-250328-100000-C".to_string(),
+            symbol: "BTC/USDT:USDT-250328-100000-C".to_string(),
+            market_type: MarketType::Option,
+            ..Default::default()
+        };
 
         let url = binance.rest_endpoint(&market, EndpointType::Public);
         assert!(url.contains("eapi.binance.com"));
@@ -489,10 +491,12 @@ mod tests {
     #[test]
     fn test_rest_endpoint_option_private() {
         let binance = create_test_binance();
-        let mut market = Market::default();
-        market.id = "BTC-250328-100000-C".to_string();
-        market.symbol = "BTC/USDT:USDT-250328-100000-C".to_string();
-        market.market_type = MarketType::Option;
+        let market = Market {
+            id: "BTC-250328-100000-C".to_string(),
+            symbol: "BTC/USDT:USDT-250328-100000-C".to_string(),
+            market_type: MarketType::Option,
+            ..Default::default()
+        };
 
         let url = binance.rest_endpoint(&market, EndpointType::Private);
         assert!(url.contains("eapi.binance.com"));
@@ -646,8 +650,10 @@ mod tests {
     #[test]
     fn test_swap_defaults_to_linear_when_not_specified() {
         let binance = create_test_binance();
-        let mut market = Market::default();
-        market.market_type = MarketType::Swap;
+        let market = Market {
+            market_type: MarketType::Swap,
+            ..Default::default()
+        };
         // linear and inverse are None
 
         let url = binance.rest_endpoint(&market, EndpointType::Public);
@@ -658,8 +664,10 @@ mod tests {
     #[test]
     fn test_futures_defaults_to_linear_when_not_specified() {
         let binance = create_test_binance();
-        let mut market = Market::default();
-        market.market_type = MarketType::Futures;
+        let market = Market {
+            market_type: MarketType::Futures,
+            ..Default::default()
+        };
         // linear and inverse are None
 
         let url = binance.rest_endpoint(&market, EndpointType::Public);

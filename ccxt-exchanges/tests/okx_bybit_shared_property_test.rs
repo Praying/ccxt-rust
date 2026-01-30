@@ -1,9 +1,9 @@
+#![allow(clippy::disallowed_methods)]
 //! Shared property-based tests for OKX and Bybit exchange implementations.
 //!
 //! These tests verify correctness properties that apply to both exchanges using proptest.
 
 use base64::Engine;
-use ccxt_core::SecretString;
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromStr;
@@ -1558,7 +1558,7 @@ mod order_status_mapping {
 /// SHALL produce an equivalent Market struct.
 mod market_data_roundtrip {
     use super::*;
-    use ccxt_core::types::{Market, MarketLimits, MarketPrecision, MarketType, MinMax};
+    use ccxt_core::types::{Market, MarketLimits, MarketPrecision, MarketType};
     use rust_decimal::prelude::FromPrimitive;
 
     // Strategy for generating valid market types
@@ -1658,7 +1658,7 @@ mod market_data_roundtrip {
 mod ticker_data_roundtrip {
     use super::*;
     use ccxt_core::types::Ticker;
-    use ccxt_core::types::financial::{Amount, Price};
+    use ccxt_core::types::financial::Price;
     use rust_decimal::prelude::FromPrimitive;
 
     // Strategy for generating valid symbols
@@ -1711,6 +1711,10 @@ mod ticker_data_roundtrip {
                 average: None,
                 base_volume: None,
                 quote_volume: None,
+                funding_rate: None,
+                open_interest: None,
+                index_price: None,
+                mark_price: None,
                 info: std::collections::HashMap::new(),
             };
 

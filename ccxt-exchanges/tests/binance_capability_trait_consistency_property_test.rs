@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for capability-trait consistency.
 //!
 //! This test module verifies that exchange capability flags match the implemented traits.

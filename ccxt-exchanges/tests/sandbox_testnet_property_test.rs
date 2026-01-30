@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Property-based tests for Sandbox/Testnet Support.
 //!
 //! These tests verify correctness properties for sandbox/testnet URL selection

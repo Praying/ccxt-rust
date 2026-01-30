@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)]
 //! Binance futures margin management tests.
 //!
 //! Tests the following features:
