@@ -568,19 +568,25 @@ impl WsExchange for Binance {
         let ws = self.connection_manager.get_public_connection().await?;
 
         // Use the appropriate subscription method based on channel
+        // Note: The receiver is intentionally dropped here as this is a fire-and-forget subscription.
+        // For proper message handling, use the specific watch_* methods instead.
         match channel {
             "ticker" => {
                 if let Some(sym) = symbol {
                     let market = self.base.market(sym).await?;
-                    ws.subscribe_ticker(&market.id.to_lowercase()).await
+                    ws.subscribe_ticker(&market.id.to_lowercase())
+                        .await
+                        .map(|_| ())
                 } else {
-                    ws.subscribe_all_tickers().await
+                    ws.subscribe_all_tickers().await.map(|_| ())
                 }
             }
             "trade" | "trades" => {
                 if let Some(sym) = symbol {
                     let market = self.base.market(sym).await?;
-                    ws.subscribe_trades(&market.id.to_lowercase()).await
+                    ws.subscribe_trades(&market.id.to_lowercase())
+                        .await
+                        .map(|_| ())
                 } else {
                     Err(Error::invalid_request(
                         "Symbol required for trades subscription",
