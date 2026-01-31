@@ -167,6 +167,31 @@ impl MessageRouter {
         self.is_connected.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Returns the current connection latency in milliseconds.
+    ///
+    /// This is calculated from the ping/pong round-trip time.
+    /// Returns None if no latency data is available.
+    pub fn latency(&self) -> Option<i64> {
+        // Try to get latency from the underlying WsClient
+        // This requires a blocking read, so we use try_read
+        if let Ok(guard) = self.ws_client.try_read() {
+            if let Some(ref client) = *guard {
+                return client.latency();
+            }
+        }
+        None
+    }
+
+    /// Returns the number of reconnection attempts.
+    pub fn reconnect_count(&self) -> u32 {
+        if let Ok(guard) = self.ws_client.try_read() {
+            if let Some(ref client) = *guard {
+                return client.reconnect_count();
+            }
+        }
+        0
+    }
+
     /// Applies a new reconnection configuration
     pub async fn set_reconnect_config(&self, config: super::subscriptions::ReconnectConfig) {
         *self.reconnect_config.write().await = config;
@@ -416,35 +441,19 @@ impl MessageRouter {
         let symbol_opt = payload.get("s").and_then(|s| s.as_str());
 
         if let Some(symbol) = symbol_opt {
-            let mut active_streams = subscription_manager
-                .get_subscriptions_by_symbol(symbol)
+            // Normalize symbol to lowercase since subscriptions are stored normalized
+            let normalized_symbol = symbol.to_lowercase();
+            let active_streams = subscription_manager
+                .get_subscriptions_by_symbol(&normalized_symbol)
                 .await;
 
             tracing::debug!(
-                "Routing message for symbol {}: stream_name={}, active_subscriptions={}",
+                "Routing message for symbol {} (normalized: {}): stream_name={}, active_subscriptions={}",
                 symbol,
+                normalized_symbol,
                 stream_name,
                 active_streams.len()
             );
-
-            // If no streams found for uppercase symbol (e.g. "BTCUSDT"), try lowercase (e.g. "btcusdt")
-            // This is common since Binance API sends uppercase symbols but we usually subscribe with lowercase
-            if active_streams.is_empty() {
-                let lower_symbol = symbol.to_lowercase();
-                if lower_symbol != symbol {
-                    let lower_streams = subscription_manager
-                        .get_subscriptions_by_symbol(&lower_symbol)
-                        .await;
-                    if !lower_streams.is_empty() {
-                        active_streams = lower_streams;
-                        tracing::debug!(
-                            "Found subscriptions for lowercased symbol {}: count={}",
-                            lower_symbol,
-                            active_streams.len()
-                        );
-                    }
-                }
-            }
 
             let mut fallback_sent = false;
 

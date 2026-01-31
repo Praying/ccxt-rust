@@ -7,6 +7,22 @@ pub const WS_BASE_URL: &str = "wss://stream.binance.com:9443/ws";
 /// Binance testnet WebSocket endpoint
 pub const WS_TESTNET_URL: &str = "wss://testnet.binance.vision/ws";
 
+/// Normalizes a symbol to Binance's expected format.
+///
+/// Converts symbols like "BTC/USDT", "BTC-USDT", "BTC_USDT" to "btcusdt".
+/// This function is idempotent - already normalized symbols remain unchanged.
+///
+/// # Examples
+/// ```
+/// use ccxt_exchanges::binance::ws::normalize_symbol;
+/// assert_eq!(normalize_symbol("BTC/USDT"), "btcusdt");
+/// assert_eq!(normalize_symbol("btcusdt"), "btcusdt");
+/// assert_eq!(normalize_symbol("ETH-BTC"), "ethbtc");
+/// ```
+pub fn normalize_symbol(symbol: &str) -> String {
+    symbol.replace(['/', '-', '_'], "").to_lowercase()
+}
+
 /// Builds a ticker stream name
 pub fn ticker_stream(symbol: &str) -> String {
     format!("{}@ticker", symbol.to_lowercase())
@@ -81,4 +97,38 @@ pub fn all_mini_tickers_stream() -> String {
 /// Builds a user data stream URL
 pub fn user_data_stream_url(listen_key: &str) -> String {
     format!("wss://stream.binance.com:9443/ws/{}", listen_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_symbol_with_slash() {
+        assert_eq!(normalize_symbol("BTC/USDT"), "btcusdt");
+        assert_eq!(normalize_symbol("ETH/BTC"), "ethbtc");
+    }
+
+    #[test]
+    fn test_normalize_symbol_with_dash() {
+        assert_eq!(normalize_symbol("BTC-USDT"), "btcusdt");
+        assert_eq!(normalize_symbol("ETH-BTC"), "ethbtc");
+    }
+
+    #[test]
+    fn test_normalize_symbol_with_underscore() {
+        assert_eq!(normalize_symbol("BTC_USDT"), "btcusdt");
+        assert_eq!(normalize_symbol("ETH_BTC"), "ethbtc");
+    }
+
+    #[test]
+    fn test_normalize_symbol_already_normalized() {
+        assert_eq!(normalize_symbol("btcusdt"), "btcusdt");
+        assert_eq!(normalize_symbol("BTCUSDT"), "btcusdt");
+    }
+
+    #[test]
+    fn test_normalize_symbol_mixed_case() {
+        assert_eq!(normalize_symbol("BtC/UsDt"), "btcusdt");
+    }
 }

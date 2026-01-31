@@ -7,8 +7,24 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
-/// Listen key refresh interval (30 minutes)
-const LISTEN_KEY_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
+/// Listen key refresh interval (25 minutes)
+///
+/// Binance listen keys expire after 60 minutes. We refresh at 25 minutes
+/// to provide a safety margin and avoid expiration during network delays.
+const LISTEN_KEY_REFRESH_INTERVAL: Duration = Duration::from_secs(25 * 60);
+
+/// Maximum age before forcing a new listen key (20 minutes)
+///
+/// If a listen key is older than this, we create a new one instead of
+/// returning the cached key. This is more conservative than the refresh
+/// interval to handle cases where auto-refresh might have failed.
+const LISTEN_KEY_MAX_AGE: Duration = Duration::from_secs(20 * 60);
+
+/// Maximum number of retry attempts for refresh failures
+const MAX_REFRESH_RETRIES: u32 = 3;
+
+/// Delay between refresh retry attempts
+const REFRESH_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 /// Listen key manager
 ///
@@ -50,8 +66,13 @@ impl ListenKeyManager {
             let created = self.created_at.read().await;
             if let Some(created_time) = *created {
                 let elapsed = created_time.elapsed();
-                if elapsed > Duration::from_secs(50 * 60) {
+                // Use the more conservative max age threshold
+                if elapsed > LISTEN_KEY_MAX_AGE {
                     drop(created);
+                    tracing::info!(
+                        "Listen key is {} minutes old, creating new one",
+                        elapsed.as_secs() / 60
+                    );
                     return self.create_new().await;
                 }
             }
@@ -105,30 +126,46 @@ impl ListenKeyManager {
 
                 let key_opt = listen_key.read().await.clone();
                 if let Some(key) = key_opt {
-                    match binance.refresh_listen_key(&key).await {
-                        Ok(()) => {
-                            *created_at.write().await = Some(Instant::now());
+                    // Try to refresh with retries
+                    let mut refresh_succeeded = false;
+                    for attempt in 1..=MAX_REFRESH_RETRIES {
+                        match binance.refresh_listen_key(&key).await {
+                            Ok(()) => {
+                                *created_at.write().await = Some(Instant::now());
+                                tracing::debug!("Listen key refreshed successfully");
+                                refresh_succeeded = true;
+                                break;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to refresh listen key (attempt {}/{}): {}",
+                                    attempt,
+                                    MAX_REFRESH_RETRIES,
+                                    e
+                                );
+                                if attempt < MAX_REFRESH_RETRIES {
+                                    tokio::time::sleep(REFRESH_RETRY_DELAY).await;
+                                }
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to refresh listen key: {}. Attempting regeneration.",
-                                e
-                            );
-                            match binance.create_listen_key().await {
-                                Ok(new_key) => {
-                                    tracing::info!("Regenerated listen key successfully");
-                                    *listen_key.write().await = Some(new_key);
-                                    *created_at.write().await = Some(Instant::now());
-                                }
-                                Err(create_err) => {
-                                    tracing::error!(
-                                        "Failed to regenerate listen key: {}",
-                                        create_err
-                                    );
-                                    *listen_key.write().await = None;
-                                    *created_at.write().await = None;
-                                    break;
-                                }
+                    }
+
+                    // If all refresh attempts failed, try to regenerate
+                    if !refresh_succeeded {
+                        tracing::warn!(
+                            "All refresh attempts failed, attempting to regenerate listen key"
+                        );
+                        match binance.create_listen_key().await {
+                            Ok(new_key) => {
+                                tracing::info!("Regenerated listen key successfully");
+                                *listen_key.write().await = Some(new_key);
+                                *created_at.write().await = Some(Instant::now());
+                            }
+                            Err(create_err) => {
+                                tracing::error!("Failed to regenerate listen key: {}", create_err);
+                                *listen_key.write().await = None;
+                                *created_at.write().await = None;
+                                break;
                             }
                         }
                     }

@@ -9,8 +9,8 @@ use super::{Amount, Price, Symbol, Timestamp};
 /// Maximum number of buffered messages for orderbook sync
 const MAX_BUFFERED_MESSAGES: usize = 100;
 
-/// Minimum resync interval in milliseconds
-const MIN_RESYNC_INTERVAL_MS: i64 = 1000;
+/// Minimum resync interval in milliseconds (5 seconds)
+const MIN_RESYNC_INTERVAL_MS: i64 = 5000;
 
 /// Orderbook delta update message
 #[derive(Debug, Clone, Serialize, Deserialize)]

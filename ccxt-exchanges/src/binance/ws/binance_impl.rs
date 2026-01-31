@@ -2,31 +2,59 @@
 // It's separated to keep mod.rs under 800 lines
 
 impl Binance {
-    /// Subscribes to the ticker stream for a unified symbol
-    pub async fn subscribe_ticker(&self, symbol: &str) -> Result<()> {
+    /// Subscribes to the ticker stream for a unified symbol.
+    ///
+    /// Returns a receiver that will receive ticker updates as JSON values.
+    pub async fn subscribe_ticker(
+        &self,
+        symbol: &str,
+    ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
         let ws = self.connection_manager.get_public_connection().await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_ticker(&binance_symbol).await
     }
 
-    /// Subscribes to the trade stream for a unified symbol
-    pub async fn subscribe_trades(&self, symbol: &str) -> Result<()> {
+    /// Subscribes to the trade stream for a unified symbol.
+    ///
+    /// Returns a receiver that will receive trade updates as JSON values.
+    pub async fn subscribe_trades(
+        &self,
+        symbol: &str,
+    ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
         let ws = self.connection_manager.get_public_connection().await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_trades(&binance_symbol).await
     }
 
-    /// Subscribes to the order book stream for a unified symbol
-    pub async fn subscribe_orderbook(&self, symbol: &str, levels: Option<u32>) -> Result<()> {
+    /// Subscribes to the order book stream for a unified symbol.
+    ///
+    /// Returns a receiver that will receive order book updates as JSON values.
+    pub async fn subscribe_orderbook(
+        &self,
+        symbol: &str,
+        levels: Option<u32>,
+    ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
+        use super::ws::{DepthLevel, UpdateSpeed};
+
         let ws = self.connection_manager.get_public_connection().await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
-        let depth_levels = levels.unwrap_or(20);
-        ws.subscribe_orderbook(&binance_symbol, depth_levels, "1000ms")
+        let depth_level = match levels.unwrap_or(20) {
+            5 => DepthLevel::L5,
+            10 => DepthLevel::L10,
+            _ => DepthLevel::L20,
+        };
+        ws.subscribe_orderbook(&binance_symbol, depth_level, UpdateSpeed::Ms1000)
             .await
     }
 
-    /// Subscribes to the candlestick stream for a unified symbol
-    pub async fn subscribe_kline(&self, symbol: &str, interval: &str) -> Result<()> {
+    /// Subscribes to the candlestick stream for a unified symbol.
+    ///
+    /// Returns a receiver that will receive kline updates as JSON values.
+    pub async fn subscribe_kline(
+        &self,
+        symbol: &str,
+        interval: &str,
+    ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
         let ws = self.connection_manager.get_public_connection().await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_kline(&binance_symbol, interval).await
@@ -137,6 +165,8 @@ impl Binance {
         limit: Option<i64>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<OrderBook> {
+        use super::ws::UpdateSpeed;
+
         self.load_markets(false).await?;
 
         let market = self.base.market(symbol).await?;
@@ -146,18 +176,13 @@ impl Binance {
             market.market_type == MarketType::Swap || market.market_type == MarketType::Futures;
 
         let update_speed = if let Some(p) = &params {
-            p.get("speed")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(100) as i32
+            match p.get("speed").and_then(serde_json::Value::as_i64).unwrap_or(100) {
+                1000 => UpdateSpeed::Ms1000,
+                _ => UpdateSpeed::Ms100,
+            }
         } else {
-            100
+            UpdateSpeed::Ms100
         };
-
-        if update_speed != 100 && update_speed != 1000 {
-            return Err(Error::invalid_request(
-                "Update speed must be 100 or 1000 milliseconds",
-            ));
-        }
 
         let ws = self.connection_manager.get_public_connection().await?;
         ws.watch_orderbook_internal(self, &binance_symbol, limit, update_speed, is_futures)
@@ -171,6 +196,8 @@ impl Binance {
         limit: Option<i64>,
         params: Option<HashMap<String, Value>>,
     ) -> Result<HashMap<String, OrderBook>> {
+        use super::ws::UpdateSpeed;
+
         if symbols.is_empty() {
             return Err(Error::invalid_request("Symbols list cannot be empty"));
         }
@@ -201,11 +228,12 @@ impl Binance {
         }
 
         let update_speed = if let Some(p) = &params {
-            p.get("speed")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(100) as i32
+            match p.get("speed").and_then(serde_json::Value::as_i64).unwrap_or(100) {
+                1000 => UpdateSpeed::Ms1000,
+                _ => UpdateSpeed::Ms100,
+            }
         } else {
-            100
+            UpdateSpeed::Ms100
         };
 
         let ws = self.connection_manager.get_public_connection().await?;
