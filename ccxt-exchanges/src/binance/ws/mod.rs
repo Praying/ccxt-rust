@@ -44,12 +44,18 @@
 //! - `Reconnect` - Connection lost, need to reconnect
 //! - `Fatal` - Unrecoverable, requires user intervention
 
+/// Data cache for WebSocket streams
+pub mod cache;
 /// Connection manager module
 pub mod connection_manager;
 mod handlers;
+/// Health tracking for WebSocket connections
+pub mod health;
 mod listen_key;
 /// Stream parsers for WebSocket messages
 pub mod parsers;
+/// Shutdown state management
+pub mod shutdown;
 mod streams;
 mod subscriptions;
 /// Types and configuration for WebSocket
@@ -57,12 +63,15 @@ pub mod types;
 pub(crate) mod user_data;
 
 // Re-export public types for backward compatibility
+pub use cache::WsDataCache;
 pub use connection_manager::BinanceConnectionManager;
 pub use handlers::MessageRouter;
+pub use health::WsHealthTracker;
 pub use listen_key::ListenKeyManager;
 pub use parsers::{
     BidAskParser, MarkPriceParser, OhlcvParser, StreamParser, TickerParser, TradeParser,
 };
+pub use shutdown::ShutdownState;
 pub use streams::normalize_symbol;
 pub use subscriptions::{ReconnectConfig, Subscription, SubscriptionManager, SubscriptionType};
 pub use types::{
@@ -77,9 +86,9 @@ use ccxt_core::types::{
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 const MAX_TRADES: usize = 1000;
 const MAX_OHLCVS: usize = 1000;
@@ -94,27 +103,14 @@ pub struct BinanceWs {
     pub(crate) subscription_manager: Arc<SubscriptionManager>,
     listen_key: Arc<RwLock<Option<String>>>,
     listen_key_manager: Option<Arc<ListenKeyManager>>,
-    pub(crate) tickers: Arc<Mutex<HashMap<String, Ticker>>>,
-    pub(crate) bids_asks: Arc<Mutex<HashMap<String, BidAsk>>>,
-    #[allow(dead_code)]
-    mark_prices: Arc<Mutex<HashMap<String, MarkPrice>>>,
-    pub(crate) orderbooks: Arc<Mutex<HashMap<String, OrderBook>>>,
-    pub(crate) trades: Arc<Mutex<HashMap<String, VecDeque<Trade>>>>,
-    pub(crate) ohlcvs: Arc<Mutex<HashMap<String, VecDeque<OHLCV>>>>,
-    pub(crate) balances: Arc<RwLock<HashMap<String, Balance>>>,
-    pub(crate) orders: Arc<RwLock<HashMap<String, HashMap<String, Order>>>>,
-    pub(crate) my_trades: Arc<RwLock<HashMap<String, VecDeque<Trade>>>>,
-    pub(crate) positions: Arc<RwLock<HashMap<String, HashMap<String, Position>>>>,
+    /// Consolidated data cache
+    pub(crate) cache: Arc<WsDataCache>,
+    /// Health monitoring metrics
+    pub(crate) health: Arc<WsHealthTracker>,
+    /// Shutdown lifecycle state
+    pub(crate) shutdown: Arc<ShutdownState>,
     /// Channel capacity configuration
     channel_config: WsChannelConfig,
-    /// Statistics for health monitoring
-    messages_received: Arc<AtomicU64>,
-    messages_dropped: Arc<AtomicU64>,
-    last_message_time: Arc<AtomicU64>,
-    connection_start_time: Arc<AtomicU64>,
-    /// Shutdown state tracking
-    is_shutting_down: Arc<AtomicBool>,
-    shutdown_complete: Arc<AtomicBool>,
     /// Timeout for watch_* methods
     watch_timeout: Option<Duration>,
 }
@@ -129,10 +125,7 @@ impl std::fmt::Debug for BinanceWs {
 
 impl Drop for BinanceWs {
     fn drop(&mut self) {
-        // Warn if shutdown() was not called before dropping
-        if !self.shutdown_complete.load(Ordering::Acquire)
-            && !self.is_shutting_down.load(Ordering::Acquire)
-        {
+        if self.shutdown.needs_shutdown_warning() {
             tracing::warn!(
                 "BinanceWs dropped without calling shutdown(). \
                  This may leave resources uncleaned. \
@@ -143,11 +136,14 @@ impl Drop for BinanceWs {
 }
 
 impl BinanceWs {
-    /// Creates a new Binance WebSocket client
-    pub fn new(url: String) -> Self {
-        let subscription_manager = Arc::new(SubscriptionManager::new());
-        let message_router = Arc::new(MessageRouter::new(url, subscription_manager.clone(), None));
-
+    /// Shared initialization logic for all constructors.
+    fn new_inner(
+        message_router: Arc<MessageRouter>,
+        subscription_manager: Arc<SubscriptionManager>,
+        listen_key_manager: Option<Arc<ListenKeyManager>>,
+        channel_config: WsChannelConfig,
+        watch_timeout: Option<Duration>,
+    ) -> Self {
         // Start the router immediately
         let router_clone = message_router.clone();
         tokio::spawn(async move {
@@ -160,28 +156,27 @@ impl BinanceWs {
             message_router,
             subscription_manager,
             listen_key: Arc::new(RwLock::new(None)),
-            listen_key_manager: None,
-            tickers: Arc::new(Mutex::new(HashMap::new())),
-            bids_asks: Arc::new(Mutex::new(HashMap::new())),
-            mark_prices: Arc::new(Mutex::new(HashMap::new())),
-            orderbooks: Arc::new(Mutex::new(HashMap::new())),
-            trades: Arc::new(Mutex::new(HashMap::new())),
-            ohlcvs: Arc::new(Mutex::new(HashMap::new())),
-            balances: Arc::new(RwLock::new(HashMap::new())),
-            orders: Arc::new(RwLock::new(HashMap::new())),
-            my_trades: Arc::new(RwLock::new(HashMap::new())),
-            positions: Arc::new(RwLock::new(HashMap::new())),
-            channel_config: WsChannelConfig::default(),
-            messages_received: Arc::new(AtomicU64::new(0)),
-            messages_dropped: Arc::new(AtomicU64::new(0)),
-            last_message_time: Arc::new(AtomicU64::new(0)),
-            connection_start_time: Arc::new(AtomicU64::new(
-                chrono::Utc::now().timestamp_millis() as u64
-            )),
-            is_shutting_down: Arc::new(AtomicBool::new(false)),
-            shutdown_complete: Arc::new(AtomicBool::new(false)),
-            watch_timeout: None,
+            listen_key_manager,
+            cache: Arc::new(WsDataCache::new()),
+            health: Arc::new(WsHealthTracker::new()),
+            shutdown: Arc::new(ShutdownState::new()),
+            channel_config,
+            watch_timeout,
         }
+    }
+
+    /// Creates a new Binance WebSocket client
+    pub fn new(url: String) -> Self {
+        let subscription_manager = Arc::new(SubscriptionManager::new());
+        let message_router = Arc::new(MessageRouter::new(url, subscription_manager.clone(), None));
+
+        Self::new_inner(
+            message_router,
+            subscription_manager,
+            None,
+            WsChannelConfig::default(),
+            None,
+        )
     }
 
     /// Creates a new Binance WebSocket client with custom configuration.
@@ -206,40 +201,13 @@ impl BinanceWs {
             None,
         ));
 
-        // Start the router immediately
-        let router_clone = message_router.clone();
-        tokio::spawn(async move {
-            if let Err(e) = router_clone.start(None).await {
-                tracing::error!("Failed to start MessageRouter: {}", e);
-            }
-        });
-
-        Self {
+        Self::new_inner(
             message_router,
             subscription_manager,
-            listen_key: Arc::new(RwLock::new(None)),
-            listen_key_manager: None,
-            tickers: Arc::new(Mutex::new(HashMap::new())),
-            bids_asks: Arc::new(Mutex::new(HashMap::new())),
-            mark_prices: Arc::new(Mutex::new(HashMap::new())),
-            orderbooks: Arc::new(Mutex::new(HashMap::new())),
-            trades: Arc::new(Mutex::new(HashMap::new())),
-            ohlcvs: Arc::new(Mutex::new(HashMap::new())),
-            balances: Arc::new(RwLock::new(HashMap::new())),
-            orders: Arc::new(RwLock::new(HashMap::new())),
-            my_trades: Arc::new(RwLock::new(HashMap::new())),
-            positions: Arc::new(RwLock::new(HashMap::new())),
-            channel_config: config.channel_config,
-            messages_received: Arc::new(AtomicU64::new(0)),
-            messages_dropped: Arc::new(AtomicU64::new(0)),
-            last_message_time: Arc::new(AtomicU64::new(0)),
-            connection_start_time: Arc::new(AtomicU64::new(
-                chrono::Utc::now().timestamp_millis() as u64
-            )),
-            is_shutting_down: Arc::new(AtomicBool::new(false)),
-            shutdown_complete: Arc::new(AtomicBool::new(false)),
-            watch_timeout: config.watch_timeout,
-        }
+            None,
+            config.channel_config,
+            config.watch_timeout,
+        )
     }
 
     /// Creates a WebSocket client with a listen key manager
@@ -252,40 +220,13 @@ impl BinanceWs {
             Some(listen_key_manager.clone()),
         ));
 
-        // Start the router immediately
-        let router_clone = message_router.clone();
-        tokio::spawn(async move {
-            if let Err(e) = router_clone.start(None).await {
-                tracing::error!("Failed to start MessageRouter: {}", e);
-            }
-        });
-
-        Self {
+        Self::new_inner(
             message_router,
             subscription_manager,
-            listen_key: Arc::new(RwLock::new(None)),
-            listen_key_manager: Some(listen_key_manager),
-            tickers: Arc::new(Mutex::new(HashMap::new())),
-            bids_asks: Arc::new(Mutex::new(HashMap::new())),
-            mark_prices: Arc::new(Mutex::new(HashMap::new())),
-            orderbooks: Arc::new(Mutex::new(HashMap::new())),
-            trades: Arc::new(Mutex::new(HashMap::new())),
-            ohlcvs: Arc::new(Mutex::new(HashMap::new())),
-            balances: Arc::new(RwLock::new(HashMap::new())),
-            orders: Arc::new(RwLock::new(HashMap::new())),
-            my_trades: Arc::new(RwLock::new(HashMap::new())),
-            positions: Arc::new(RwLock::new(HashMap::new())),
-            channel_config: WsChannelConfig::default(),
-            messages_received: Arc::new(AtomicU64::new(0)),
-            messages_dropped: Arc::new(AtomicU64::new(0)),
-            last_message_time: Arc::new(AtomicU64::new(0)),
-            connection_start_time: Arc::new(AtomicU64::new(
-                chrono::Utc::now().timestamp_millis() as u64
-            )),
-            is_shutting_down: Arc::new(AtomicBool::new(false)),
-            shutdown_complete: Arc::new(AtomicBool::new(false)),
-            watch_timeout: None,
-        }
+            Some(listen_key_manager),
+            WsChannelConfig::default(),
+            None,
+        )
     }
 
     /// Returns the channel capacity for a given subscription type
@@ -349,14 +290,14 @@ impl BinanceWs {
     /// This method is idempotent - calling it multiple times is safe.
     pub async fn shutdown(&self) -> Result<()> {
         // Check if already shutting down or complete
-        if self.shutdown_complete.load(Ordering::Acquire) {
+        if self.shutdown.shutdown_complete.load(Ordering::Acquire) {
             return Ok(());
         }
 
         // Set shutting down flag to reject new subscriptions
-        if self.is_shutting_down.swap(true, Ordering::AcqRel) {
+        if self.shutdown.is_shutting_down.swap(true, Ordering::AcqRel) {
             // Another shutdown is in progress, wait for it
-            while !self.shutdown_complete.load(Ordering::Acquire) {
+            while !self.shutdown.shutdown_complete.load(Ordering::Acquire) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             return Ok(());
@@ -384,19 +325,21 @@ impl BinanceWs {
         self.subscription_manager.clear().await;
 
         // Clear cached data
-        self.tickers.lock().await.clear();
-        self.bids_asks.lock().await.clear();
-        self.mark_prices.lock().await.clear();
-        self.orderbooks.lock().await.clear();
-        self.trades.lock().await.clear();
-        self.ohlcvs.lock().await.clear();
-        self.balances.write().await.clear();
-        self.orders.write().await.clear();
-        self.my_trades.write().await.clear();
-        self.positions.write().await.clear();
+        self.cache.tickers.lock().await.clear();
+        self.cache.bids_asks.lock().await.clear();
+        self.cache.mark_prices.lock().await.clear();
+        self.cache.orderbooks.lock().await.clear();
+        self.cache.trades.lock().await.clear();
+        self.cache.ohlcvs.lock().await.clear();
+        self.cache.balances.write().await.clear();
+        self.cache.orders.write().await.clear();
+        self.cache.my_trades.write().await.clear();
+        self.cache.positions.write().await.clear();
 
         // Mark shutdown as complete
-        self.shutdown_complete.store(true, Ordering::Release);
+        self.shutdown
+            .shutdown_complete
+            .store(true, Ordering::Release);
 
         tracing::info!("BinanceWs shutdown complete");
         Ok(())
@@ -405,14 +348,14 @@ impl BinanceWs {
     /// Returns true if the client is shutting down or has shut down.
     #[inline]
     pub fn is_shutting_down(&self) -> bool {
-        self.is_shutting_down.load(Ordering::Acquire)
+        self.shutdown.is_shutting_down.load(Ordering::Acquire)
     }
 
     /// Checks if shutdown is allowed and returns an error if shutting down.
     #[inline]
     #[allow(dead_code)]
     fn check_not_shutting_down(&self) -> Result<()> {
-        if self.is_shutting_down.load(Ordering::Acquire) {
+        if self.shutdown.is_shutting_down.load(Ordering::Acquire) {
             return Err(Error::invalid_request("WebSocket client is shutting down"));
         }
         Ok(())
@@ -754,13 +697,13 @@ impl BinanceWs {
     /// - Reconnection count
     pub fn health(&self) -> WsHealthSnapshot {
         let now = chrono::Utc::now().timestamp_millis() as u64;
-        let start_time = self.connection_start_time.load(Ordering::Relaxed);
-        let last_msg = self.last_message_time.load(Ordering::Relaxed);
+        let start_time = self.health.connection_start_time.load(Ordering::Relaxed);
+        let last_msg = self.health.last_message_time.load(Ordering::Relaxed);
 
         WsHealthSnapshot {
             latency_ms: self.message_router.latency(),
-            messages_received: self.messages_received.load(Ordering::Relaxed),
-            messages_dropped: self.messages_dropped.load(Ordering::Relaxed),
+            messages_received: self.health.messages_received.load(Ordering::Relaxed),
+            messages_dropped: self.health.messages_dropped.load(Ordering::Relaxed),
             last_message_time: if last_msg > 0 {
                 Some(last_msg as i64)
             } else {
@@ -779,8 +722,10 @@ impl BinanceWs {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn record_message_received(&self) {
-        self.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.last_message_time.store(
+        self.health
+            .messages_received
+            .fetch_add(1, Ordering::Relaxed);
+        self.health.last_message_time.store(
             chrono::Utc::now().timestamp_millis() as u64,
             Ordering::Relaxed,
         );
@@ -790,7 +735,7 @@ impl BinanceWs {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn record_message_dropped(&self) {
-        let count = self.messages_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+        let count = self.health.messages_dropped.fetch_add(1, Ordering::Relaxed) + 1;
         // Log every 100th drop to avoid log spam
         if count % 100 == 1 {
             tracing::warn!(dropped_count = count, "Message dropped due to backpressure");
@@ -892,7 +837,7 @@ impl BinanceWs {
             .await?;
 
         // Update cache
-        let mut mark_prices = self.mark_prices.lock().await;
+        let mut mark_prices = self.cache.mark_prices.lock().await;
         mark_prices.insert(mark_price.symbol.clone(), mark_price.clone());
 
         Ok(mark_price)
@@ -962,7 +907,7 @@ impl BinanceWs {
                                     result.insert(symbol.clone(), mark_price.clone());
                                 }
 
-                                let mut mark_prices = self.mark_prices.lock().await;
+                                let mut mark_prices = self.cache.mark_prices.lock().await;
                                 mark_prices.insert(symbol, mark_price);
                             } else {
                                 tracing::warn!(
@@ -986,7 +931,7 @@ impl BinanceWs {
                                 let symbol = mark_price.symbol.clone();
                                 result.insert(symbol.clone(), mark_price.clone());
 
-                                let mut mark_prices = self.mark_prices.lock().await;
+                                let mut mark_prices = self.cache.mark_prices.lock().await;
                                 mark_prices.insert(symbol, mark_price);
 
                                 if let Some(syms) = &symbols {
@@ -1033,7 +978,7 @@ impl BinanceWs {
             .await?;
 
         // Update cache
-        let mut tickers = self.tickers.lock().await;
+        let mut tickers = self.cache.tickers.lock().await;
         tickers.insert(ticker.symbol.clone(), ticker.clone());
 
         Ok(ticker)
@@ -1093,7 +1038,7 @@ impl BinanceWs {
                                     result.insert(symbol.clone(), ticker.clone());
                                 }
 
-                                let mut tickers = self.tickers.lock().await;
+                                let mut tickers = self.cache.tickers.lock().await;
                                 tickers.insert(symbol, ticker);
                             } else {
                                 tracing::warn!("Failed to parse item in ticker array: {:?}", item);
@@ -1116,7 +1061,7 @@ impl BinanceWs {
                                 let symbol = ticker.symbol.clone();
                                 result.insert(symbol.clone(), ticker.clone());
 
-                                let mut tickers = self.tickers.lock().await;
+                                let mut tickers = self.cache.tickers.lock().await;
                                 tickers.insert(symbol, ticker);
 
                                 if let Some(syms) = &symbols {
@@ -1155,7 +1100,8 @@ impl BinanceWs {
         delta_message: &Value,
         is_futures: bool,
     ) -> Result<()> {
-        handlers::handle_orderbook_delta(symbol, delta_message, is_futures, &self.orderbooks).await
+        handlers::handle_orderbook_delta(symbol, delta_message, is_futures, &self.cache.orderbooks)
+            .await
     }
 
     /// Retrieves an order book snapshot and initializes cached state (internal helper)
@@ -1166,8 +1112,14 @@ impl BinanceWs {
         limit: Option<i64>,
         is_futures: bool,
     ) -> Result<OrderBook> {
-        handlers::fetch_orderbook_snapshot(exchange, symbol, limit, is_futures, &self.orderbooks)
-            .await
+        handlers::fetch_orderbook_snapshot(
+            exchange,
+            symbol,
+            limit,
+            is_futures,
+            &self.cache.orderbooks,
+        )
+        .await
     }
 
     /// Watches a single order book stream (internal helper)
@@ -1221,7 +1173,7 @@ impl BinanceWs {
                             {
                                 Ok(()) => {
                                     consecutive_errors = 0;
-                                    let orderbooks = self.orderbooks.lock().await;
+                                    let orderbooks = self.cache.orderbooks.lock().await;
                                     if let Some(ob) = orderbooks.get(symbol) {
                                         if ob.is_synced {
                                             return Ok(ob.clone());
@@ -1322,7 +1274,7 @@ impl BinanceWs {
 
         // Check rate limit
         let should_resync = {
-            let orderbooks = self.orderbooks.lock().await;
+            let orderbooks = self.cache.orderbooks.lock().await;
             if let Some(ob) = orderbooks.get(symbol) {
                 ob.should_resync(current_time)
             } else {
@@ -1336,7 +1288,7 @@ impl BinanceWs {
 
         // Reset orderbook state
         {
-            let mut orderbooks = self.orderbooks.lock().await;
+            let mut orderbooks = self.cache.orderbooks.lock().await;
             if let Some(ob) = orderbooks.get_mut(symbol) {
                 ob.reset_for_resync();
                 ob.mark_resync_initiated(current_time);
@@ -1425,7 +1377,7 @@ impl BinanceWs {
                                     continue;
                                 }
 
-                                let orderbooks = self.orderbooks.lock().await;
+                                let orderbooks = self.cache.orderbooks.lock().await;
                                 if let Some(ob) = orderbooks.get(msg_symbol) {
                                     if ob.is_synced {
                                         synced_symbols.insert(msg_symbol.to_string());
@@ -1447,7 +1399,7 @@ impl BinanceWs {
             }
         }
 
-        let orderbooks = self.orderbooks.lock().await;
+        let orderbooks = self.cache.orderbooks.lock().await;
         for symbol in &symbols {
             if let Some(ob) = orderbooks.get(symbol) {
                 result.insert(symbol.clone(), ob.clone());
@@ -1472,7 +1424,7 @@ impl BinanceWs {
             .await?;
 
         // Update cache
-        let mut bids_asks_map = self.bids_asks.lock().await;
+        let mut bids_asks_map = self.cache.bids_asks.lock().await;
         bids_asks_map.insert(symbol.to_string(), bid_ask.clone());
 
         Ok(bid_ask)
@@ -1512,7 +1464,7 @@ impl BinanceWs {
                 }
 
                 if let Ok(trade) = parser::parse_ws_trade(&message, market) {
-                    let mut trades_map = self.trades.lock().await;
+                    let mut trades_map = self.cache.trades.lock().await;
                     let trades = trades_map
                         .entry(symbol.to_string())
                         .or_insert_with(VecDeque::new);
@@ -1570,7 +1522,7 @@ impl BinanceWs {
 
                 if let Ok(ohlcv) = parser::parse_ws_ohlcv(&message) {
                     let cache_key = format!("{}:{}", symbol, timeframe);
-                    let mut ohlcvs_map = self.ohlcvs.lock().await;
+                    let mut ohlcvs_map = self.cache.ohlcvs.lock().await;
                     let ohlcvs = ohlcvs_map.entry(cache_key).or_insert_with(VecDeque::new);
 
                     if ohlcvs.len() >= MAX_OHLCVS {
@@ -1600,19 +1552,19 @@ impl BinanceWs {
 
     /// Returns cached ticker snapshot
     pub async fn get_cached_ticker(&self, symbol: &str) -> Option<Ticker> {
-        let tickers = self.tickers.lock().await;
+        let tickers = self.cache.tickers.lock().await;
         tickers.get(symbol).cloned()
     }
 
     /// Returns all cached ticker snapshots
     pub async fn get_all_cached_tickers(&self) -> HashMap<String, Ticker> {
-        let tickers = self.tickers.lock().await;
+        let tickers = self.cache.tickers.lock().await;
         tickers.clone()
     }
 
     /// Handles balance update messages (internal helper)
     async fn handle_balance_message(&self, message: &Value, account_type: &str) -> Result<()> {
-        user_data::handle_balance_message(message, account_type, &self.balances).await
+        user_data::handle_balance_message(message, account_type, &self.cache.balances).await
     }
 
     /// Watches for balance updates (internal helper)
@@ -1639,7 +1591,7 @@ impl BinanceWs {
                         "balanceUpdate" | "outboundAccountPosition" | "ACCOUNT_UPDATE"
                     ) {
                         if let Ok(()) = self.handle_balance_message(&message, account_type).await {
-                            let balances = self.balances.read().await;
+                            let balances = self.cache.balances.read().await;
                             if let Some(balance) = balances.get(account_type) {
                                 return Ok(balance.clone());
                             }
@@ -1680,7 +1632,7 @@ impl BinanceWs {
                         if event_type == "executionReport" {
                             let order = user_data::parse_ws_order(&data);
 
-                            let mut orders = self.orders.write().await;
+                            let mut orders = self.cache.orders.write().await;
                             let symbol_orders = orders
                                 .entry(order.symbol.clone())
                                 .or_insert_with(HashMap::new);
@@ -1694,7 +1646,7 @@ impl BinanceWs {
                                     if let Ok(trade) =
                                         BinanceWs::parse_ws_trade(&Value::Object(data.clone()))
                                     {
-                                        let mut trades = self.my_trades.write().await;
+                                        let mut trades = self.cache.my_trades.write().await;
                                         let symbol_trades = trades
                                             .entry(trade.symbol.clone())
                                             .or_insert_with(VecDeque::new);
@@ -1745,7 +1697,7 @@ impl BinanceWs {
                         if let Ok(trade) = BinanceWs::parse_ws_trade(&msg) {
                             let symbol_key = trade.symbol.clone();
 
-                            let mut trades_map = self.my_trades.write().await;
+                            let mut trades_map = self.cache.my_trades.write().await;
                             let symbol_trades =
                                 trades_map.entry(symbol_key).or_insert_with(VecDeque::new);
 
@@ -1804,7 +1756,7 @@ impl BinanceWs {
                                             .clone()
                                             .unwrap_or_else(|| "both".to_string());
 
-                                        let mut positions_map = self.positions.write().await;
+                                        let mut positions_map = self.cache.positions.write().await;
                                         let symbol_positions = positions_map
                                             .entry(symbol_key)
                                             .or_insert_with(HashMap::new);
@@ -1839,7 +1791,7 @@ impl BinanceWs {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Order>> {
-        let orders_map = self.orders.read().await;
+        let orders_map = self.cache.orders.read().await;
 
         let mut orders: Vec<Order> = if let Some(sym) = symbol {
             orders_map
@@ -1882,7 +1834,7 @@ impl BinanceWs {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Trade>> {
-        let trades_map = self.my_trades.read().await;
+        let trades_map = self.cache.my_trades.read().await;
 
         let mut trades: Vec<Trade> = if let Some(sym) = symbol {
             trades_map
@@ -1925,7 +1877,7 @@ impl BinanceWs {
         since: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Position>> {
-        let positions_map = self.positions.read().await;
+        let positions_map = self.cache.positions.read().await;
 
         let mut positions: Vec<Position> = if let Some(syms) = symbols {
             syms.iter()

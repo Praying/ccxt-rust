@@ -6,15 +6,11 @@
 use async_trait::async_trait;
 use ccxt_core::{
     error::{Error, Result},
-    types::{
-        Balance, Ohlcv, Order, OrderBook, Ticker, Timeframe, Trade, financial::Amount,
-        financial::Price,
-    },
+    types::{Balance, Ohlcv, Order, OrderBook, Ticker, Timeframe, Trade},
     ws_client::WsConnectionState,
     ws_exchange::{MessageStream, WsExchange},
 };
 
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -344,26 +340,9 @@ impl WsExchange for Binance {
         // Spawn parser task
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
-                // Parse OHLCV from kline message
-                match super::parser::parse_ws_ohlcv(&msg) {
-                    Ok(ohlcv_f64) => {
-                        // Convert OHLCV (f64) to Ohlcv (Decimal)
-                        let ohlcv = Ohlcv {
-                            timestamp: ohlcv_f64.timestamp,
-                            open: Price::from(
-                                Decimal::try_from(ohlcv_f64.open).unwrap_or_default(),
-                            ),
-                            high: Price::from(
-                                Decimal::try_from(ohlcv_f64.high).unwrap_or_default(),
-                            ),
-                            low: Price::from(Decimal::try_from(ohlcv_f64.low).unwrap_or_default()),
-                            close: Price::from(
-                                Decimal::try_from(ohlcv_f64.close).unwrap_or_default(),
-                            ),
-                            volume: Amount::from(
-                                Decimal::try_from(ohlcv_f64.volume).unwrap_or_default(),
-                            ),
-                        };
+                // Parse OHLCV from kline message directly to Decimal-based Ohlcv
+                match super::parser::parse_ws_ohlcv_decimal(&msg) {
+                    Ok(ohlcv) => {
                         if user_tx.send(Ok(ohlcv)).await.is_err() {
                             break;
                         }
@@ -405,7 +384,7 @@ impl WsExchange for Binance {
 
         let (user_tx, user_rx) = mpsc::channel::<Result<Balance>>(1024);
         let account_type = self.options.default_type.to_string();
-        let balances_cache = ws.balances.clone();
+        let balances_cache = ws.cache.balances.clone();
 
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
@@ -461,7 +440,7 @@ impl WsExchange for Binance {
 
         let (user_tx, user_rx) = mpsc::channel::<Result<Order>>(1024);
         let symbol_filter = symbol.map(ToString::to_string);
-        let orders_cache = ws.orders.clone();
+        let orders_cache = ws.cache.orders.clone();
 
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
@@ -522,7 +501,7 @@ impl WsExchange for Binance {
 
         let (user_tx, user_rx) = mpsc::channel::<Result<Trade>>(1024);
         let symbol_filter = symbol.map(ToString::to_string);
-        let trades_cache = ws.my_trades.clone();
+        let trades_cache = ws.cache.my_trades.clone();
 
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {

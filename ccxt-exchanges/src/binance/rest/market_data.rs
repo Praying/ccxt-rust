@@ -34,6 +34,30 @@ pub struct SystemStatus {
 }
 
 impl Binance {
+    /// Build a URL with query parameters using `url::Url` for safe encoding.
+    ///
+    /// This helper ensures all query parameter values are properly URL-encoded,
+    /// eliminating injection risks from manual string concatenation.
+    pub(crate) fn build_url(
+        &self,
+        base_url: &str,
+        endpoint: &str,
+        params: &[(&str, &str)],
+    ) -> Result<Url> {
+        let full_url = format!("{}{}", base_url, endpoint);
+        let mut url =
+            Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
+
+        {
+            let mut query = url.query_pairs_mut();
+            for (key, value) in params {
+                query.append_pair(key, value);
+            }
+        }
+
+        Ok(url)
+    }
+
     /// Fetch server timestamp for internal use.
     ///
     /// # Returns
@@ -309,6 +333,10 @@ impl Binance {
             ))
         })?;
 
+        // Use HashSet for O(1) symbol lookup instead of Vec::contains O(n)
+        let symbols_set: Option<std::collections::HashSet<&String>> =
+            symbols.as_ref().map(|syms| syms.iter().collect());
+
         let mut tickers = Vec::new();
         for ticker_data in tickers_array {
             if let Some(binance_symbol) = ticker_data["symbol"].as_str() {
@@ -316,8 +344,8 @@ impl Binance {
                 if let Some(market) = markets_snapshot.get(binance_symbol) {
                     match parser::parse_ticker(ticker_data, Some(market)) {
                         Ok(ticker) => {
-                            if let Some(ref syms) = symbols {
-                                if syms.contains(&ticker.symbol) {
+                            if let Some(ref set) = symbols_set {
+                                if set.contains(&ticker.symbol) {
                                     tickers.push(ticker);
                                 }
                             } else {
@@ -398,24 +426,15 @@ impl Binance {
     pub async fn fetch_trades(&self, symbol: &str, limit: Option<u32>) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        let url = if let Some(l) = limit {
-            format!(
-                "{}{}?symbol={}&limit={}",
-                self.rest_endpoint(&market, EndpointType::Public),
-                endpoints::TRADES,
-                market.id,
-                l
-            )
-        } else {
-            format!(
-                "{}{}?symbol={}",
-                self.rest_endpoint(&market, EndpointType::Public),
-                endpoints::TRADES,
-                market.id
-            )
-        };
+        let base_url = self.rest_endpoint(&market, EndpointType::Public);
+        let limit_str = limit.map(|l| l.to_string());
+        let mut params: Vec<(&str, &str)> = vec![("symbol", &market.id)];
+        if let Some(ref l) = limit_str {
+            params.push(("limit", l));
+        }
+        let url = self.build_url(&base_url, endpoints::TRADES, &params)?;
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.base().http_client.get(url.as_str(), None).await?;
 
         let trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -489,35 +508,28 @@ impl Binance {
     ) -> Result<Vec<AggTrade>> {
         let market = self.base().market(symbol).await?;
 
-        let mut url = format!(
-            "{}{}?symbol={}",
-            self.rest_endpoint(&market, EndpointType::Public),
-            endpoints::AGG_TRADES,
-            market.id
-        );
+        let base_url = self.rest_endpoint(&market, EndpointType::Public);
+        let since_str = since.map(|s| s.to_string());
+        let limit_str = limit.map(|l| l.to_string());
 
-        if let Some(s) = since {
-            use std::fmt::Write;
-            let _ = write!(url, "&startTime={}", s);
+        let mut url_params: Vec<(&str, &str)> = vec![("symbol", &market.id)];
+        if let Some(ref s) = since_str {
+            url_params.push(("startTime", s));
         }
-
-        if let Some(l) = limit {
-            use std::fmt::Write;
-            let _ = write!(url, "&limit={}", l);
+        if let Some(ref l) = limit_str {
+            url_params.push(("limit", l));
         }
-
-        if let Some(p) = params {
+        if let Some(ref p) = params {
             if let Some(from_id) = p.get("fromId") {
-                use std::fmt::Write;
-                let _ = write!(url, "&fromId={}", from_id);
+                url_params.push(("fromId", from_id));
             }
             if let Some(end_time) = p.get("endTime") {
-                use std::fmt::Write;
-                let _ = write!(url, "&endTime={}", end_time);
+                url_params.push(("endTime", end_time));
             }
         }
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let url = self.build_url(&base_url, endpoints::AGG_TRADES, &url_params)?;
+        let data = self.base().http_client.get(url.as_str(), None).await?;
 
         let agg_trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -569,31 +581,30 @@ impl Binance {
 
         self.check_required_credentials()?;
 
-        let mut url = format!(
-            "{}{}?symbol={}",
-            self.rest_endpoint(&market, EndpointType::Public),
-            endpoints::HISTORICAL_TRADES,
-            market.id
-        );
+        let base_url = self.rest_endpoint(&market, EndpointType::Public);
+        let limit_str = limit.map(|l| l.to_string());
 
-        // Binance historicalTrades endpoint uses fromId instead of timestamp
-        if let Some(p) = &params {
+        let mut url_params: Vec<(&str, &str)> = vec![("symbol", &market.id)];
+        if let Some(ref p) = params {
             if let Some(from_id) = p.get("fromId") {
-                use std::fmt::Write;
-                let _ = write!(url, "&fromId={}", from_id);
+                url_params.push(("fromId", from_id));
             }
         }
-
-        if let Some(l) = limit {
-            use std::fmt::Write;
-            let _ = write!(url, "&limit={}", l);
+        if let Some(ref l) = limit_str {
+            url_params.push(("limit", l));
         }
+
+        let url = self.build_url(&base_url, endpoints::HISTORICAL_TRADES, &url_params)?;
 
         let mut headers = HeaderMap::new();
         let auth = self.get_auth()?;
         auth.add_auth_headers_reqwest(&mut headers);
 
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self
+            .base()
+            .http_client
+            .get(url.as_str(), Some(headers))
+            .await?;
 
         let trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -897,6 +908,26 @@ impl Binance {
         &self,
         request: OhlcvRequest,
     ) -> Result<Vec<ccxt_core::types::OHLCV>> {
+        let url = self.build_ohlcv_url(&request, None).await?;
+        let data = self.base().http_client.get(url.as_str(), None).await?;
+        parser::parse_ohlcvs(&data)
+    }
+
+    /// Fetch OHLCV data and parse directly to Decimal-based `Ohlcv` type.
+    ///
+    /// This method reuses the same URL building logic as `fetch_ohlcv_v2` but
+    /// parses JSON strings directly to `Decimal`, avoiding f64 precision loss.
+    pub(crate) async fn fetch_ohlcv_decimal(
+        &self,
+        request: OhlcvRequest,
+    ) -> ccxt_core::Result<Vec<ccxt_core::types::Ohlcv>> {
+        let url = self.build_ohlcv_url(&request, None).await?;
+        let data = self.base().http_client.get(url.as_str(), None).await?;
+        parser::parse_ohlcvs_decimal(&data)
+    }
+
+    /// Build the URL for OHLCV requests (shared by fetch_ohlcv_v2 and fetch_ohlcv_decimal).
+    async fn build_ohlcv_url(&self, request: &OhlcvRequest, price: Option<&str>) -> Result<Url> {
         self.load_markets(false).await?;
 
         let market = self.base().market(&request.symbol).await?;
@@ -913,8 +944,7 @@ impl Binance {
                 default_limit
             };
 
-        // For v2, we don't support price type parameter (use fetch_ohlcv for that)
-        let (base_url, endpoint, use_pair) = self.get_ohlcv_endpoint(&market, None)?;
+        let (base_url, endpoint, use_pair) = self.get_ohlcv_endpoint(&market, price)?;
 
         let symbol_param = if use_pair {
             market.symbol.replace('/', "")
@@ -922,14 +952,20 @@ impl Binance {
             market.id.clone()
         };
 
-        let mut url = format!(
-            "{}{}?symbol={}&interval={}&limit={}",
-            base_url, endpoint, symbol_param, request.timeframe, adjusted_limit
-        );
+        let limit_str = adjusted_limit.to_string();
+        let mut url_params: Vec<(&str, &str)> = vec![
+            ("symbol", &symbol_param),
+            ("interval", &request.timeframe),
+            ("limit", &limit_str),
+        ];
+
+        let start_time_str;
+        let end_time_str;
+        let calculated_end_time_str;
 
         if let Some(start_time) = request.since {
-            use std::fmt::Write;
-            let _ = write!(url, "&startTime={}", start_time);
+            start_time_str = start_time.to_string();
+            url_params.push(("startTime", &start_time_str));
 
             // Calculate endTime for inverse markets
             if market.inverse.unwrap_or(false) && start_time > 0 && request.until.is_none() {
@@ -938,18 +974,17 @@ impl Binance {
                     start_time + (adjusted_limit as i64 * duration * 1000) - 1;
                 let now = TimestampUtils::now_ms();
                 let end_time = calculated_end_time.min(now);
-                let _ = write!(url, "&endTime={}", end_time);
+                calculated_end_time_str = end_time.to_string();
+                url_params.push(("endTime", &calculated_end_time_str));
             }
         }
 
-        if let Some(end_time) = request.until {
-            use std::fmt::Write;
-            let _ = write!(url, "&endTime={}", end_time);
+        if let Some(until) = request.until {
+            end_time_str = until.to_string();
+            url_params.push(("endTime", &end_time_str));
         }
 
-        let data = self.base().http_client.get(&url, None).await?;
-
-        parser::parse_ohlcvs(&data)
+        self.build_url(&base_url, &endpoint, &url_params)
     }
 
     /// Fetch OHLCV (candlestick) data (deprecated).
@@ -984,8 +1019,6 @@ impl Binance {
         limit: Option<u32>,
         params: Option<std::collections::HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<ccxt_core::types::OHLCV>> {
-        self.load_markets(false).await?;
-
         let price = params
             .as_ref()
             .and_then(|p| p.get("price"))
@@ -997,53 +1030,24 @@ impl Binance {
             .and_then(|p| p.get("until"))
             .and_then(serde_json::Value::as_i64);
 
-        let market = self.base().market(symbol).await?;
-
-        let default_limit = 500u32;
-        let max_limit = 1500u32;
-
-        let adjusted_limit = if since.is_some() && until.is_some() && limit.is_none() {
-            max_limit
-        } else if let Some(lim) = limit {
-            lim.min(max_limit)
-        } else {
-            default_limit
-        };
-
-        let (base_url, endpoint, use_pair) = self.get_ohlcv_endpoint(&market, price.as_deref())?;
-
-        let symbol_param = if use_pair {
-            market.symbol.replace('/', "")
-        } else {
-            market.id.clone()
-        };
-
-        let mut url = format!(
-            "{}{}?symbol={}&interval={}&limit={}",
-            base_url, endpoint, symbol_param, timeframe, adjusted_limit
-        );
-
-        if let Some(start_time) = since {
-            use std::fmt::Write;
-            let _ = write!(url, "&startTime={}", start_time);
-
-            // Calculate endTime for inverse markets
-            if market.inverse.unwrap_or(false) && start_time > 0 && until.is_none() {
-                let duration = Self::parse_timeframe(timeframe)?;
-                let calculated_end_time =
-                    start_time + (adjusted_limit as i64 * duration * 1000) - 1;
-                let now = TimestampUtils::now_ms();
-                let end_time = calculated_end_time.min(now);
-                let _ = write!(url, "&endTime={}", end_time);
-            }
+        // Build an OhlcvRequest to reuse shared URL building logic
+        let mut builder = OhlcvRequest::builder();
+        builder = builder.symbol(symbol).timeframe(timeframe);
+        if let Some(s) = since {
+            builder = builder.since(s);
         }
-
-        if let Some(end_time) = until {
-            use std::fmt::Write;
-            let _ = write!(url, "&endTime={}", end_time);
+        if let Some(l) = limit {
+            builder = builder.limit(l);
         }
+        if let Some(u) = until {
+            builder = builder.until(u);
+        }
+        let request = builder
+            .build()
+            .map_err(|e| Error::invalid_request(format!("Invalid OHLCV request: {}", e)))?;
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let url = self.build_ohlcv_url(&request, price.as_deref()).await?;
+        let data = self.base().http_client.get(url.as_str(), None).await?;
 
         parser::parse_ohlcvs(&data)
     }

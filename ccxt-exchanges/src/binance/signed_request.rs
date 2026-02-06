@@ -40,7 +40,7 @@
 //! ```
 
 use super::Binance;
-use ccxt_core::{Error, ParseError, Result};
+use ccxt_core::Result;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -355,45 +355,46 @@ impl<'a> SignedRequestBuilder<'a> {
                     .await
             }
             HttpMethod::Post => {
-                // Serialize parameters as JSON body for POST requests
-                let body = serde_json::to_value(&signed_params).map_err(|e| {
-                    Error::from(ParseError::invalid_format(
-                        "data",
-                        format!("Failed to serialize request body: {}", e),
-                    ))
-                })?;
+                // Binance API requires signed parameters in the query string for POST requests,
+                // not in the JSON body. The signature is computed over the query string parameters.
+                let query_string = build_query_string(&signed_params);
+                let url = if query_string.is_empty() {
+                    self.endpoint
+                } else {
+                    format!("{}?{}", self.endpoint, query_string)
+                };
                 self.binance
                     .base()
                     .http_client
-                    .post(&self.endpoint, Some(headers), Some(body))
+                    .post(&url, Some(headers), None)
                     .await
             }
             HttpMethod::Put => {
-                // Serialize parameters as JSON body for PUT requests
-                let body = serde_json::to_value(&signed_params).map_err(|e| {
-                    Error::from(ParseError::invalid_format(
-                        "data",
-                        format!("Failed to serialize request body: {}", e),
-                    ))
-                })?;
+                // Binance API requires signed parameters in the query string for PUT requests
+                let query_string = build_query_string(&signed_params);
+                let url = if query_string.is_empty() {
+                    self.endpoint
+                } else {
+                    format!("{}?{}", self.endpoint, query_string)
+                };
                 self.binance
                     .base()
                     .http_client
-                    .put(&self.endpoint, Some(headers), Some(body))
+                    .put(&url, Some(headers), None)
                     .await
             }
             HttpMethod::Delete => {
-                // Serialize parameters as JSON body for DELETE requests
-                let body = serde_json::to_value(&signed_params).map_err(|e| {
-                    Error::from(ParseError::invalid_format(
-                        "data",
-                        format!("Failed to serialize request body: {}", e),
-                    ))
-                })?;
+                // Binance API requires signed parameters in the query string for DELETE requests
+                let query_string = build_query_string(&signed_params);
+                let url = if query_string.is_empty() {
+                    self.endpoint
+                } else {
+                    format!("{}?{}", self.endpoint, query_string)
+                };
                 self.binance
                     .base()
                     .http_client
-                    .delete(&self.endpoint, Some(headers), Some(body))
+                    .delete(&url, Some(headers), None)
                     .await
             }
         }

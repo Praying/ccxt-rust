@@ -29,7 +29,6 @@ use ccxt_core::{
         Timeframe, Trade,
     },
 };
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -39,64 +38,68 @@ use super::Binance;
 #[cfg(test)]
 use ccxt_core::exchange::ExchangeExt;
 
+/// Macro to implement shared metadata methods for Exchange and PublicExchange traits.
+/// This eliminates duplication between the two trait implementations.
+macro_rules! impl_binance_metadata {
+    () => {
+        fn id(&self) -> &'static str {
+            "binance"
+        }
+
+        fn name(&self) -> &'static str {
+            "Binance"
+        }
+
+        fn version(&self) -> &'static str {
+            "v3"
+        }
+
+        fn certified(&self) -> bool {
+            true
+        }
+
+        fn has_websocket(&self) -> bool {
+            true
+        }
+
+        fn capabilities(&self) -> ExchangeCapabilities {
+            ExchangeCapabilities::builder()
+                .all()
+                .without_capability(Capability::EditOrder)
+                .without_capability(Capability::FetchCanceledOrders)
+                .build()
+        }
+
+        fn timeframes(&self) -> Vec<Timeframe> {
+            vec![
+                Timeframe::M1,
+                Timeframe::M3,
+                Timeframe::M5,
+                Timeframe::M15,
+                Timeframe::M30,
+                Timeframe::H1,
+                Timeframe::H2,
+                Timeframe::H4,
+                Timeframe::H6,
+                Timeframe::H8,
+                Timeframe::H12,
+                Timeframe::D1,
+                Timeframe::D3,
+                Timeframe::W1,
+                Timeframe::Mon1,
+            ]
+        }
+
+        fn rate_limit(&self) -> u32 {
+            self.options.rate_limit
+        }
+    };
+}
+
 #[async_trait]
 impl Exchange for Binance {
     // ==================== Metadata ====================
-
-    fn id(&self) -> &'static str {
-        "binance"
-    }
-
-    fn name(&self) -> &'static str {
-        "Binance"
-    }
-
-    fn version(&self) -> &'static str {
-        "v3"
-    }
-
-    fn certified(&self) -> bool {
-        true
-    }
-
-    fn has_websocket(&self) -> bool {
-        true
-    }
-
-    fn capabilities(&self) -> ExchangeCapabilities {
-        // Binance supports almost all capabilities except:
-        // - EditOrder: Binance doesn't support order editing
-        // - FetchCanceledOrders: Binance doesn't have a separate API for canceled orders
-        ExchangeCapabilities::builder()
-            .all()
-            .without_capability(Capability::EditOrder)
-            .without_capability(Capability::FetchCanceledOrders)
-            .build()
-    }
-
-    fn timeframes(&self) -> Vec<Timeframe> {
-        vec![
-            Timeframe::M1,
-            Timeframe::M3,
-            Timeframe::M5,
-            Timeframe::M15,
-            Timeframe::M30,
-            Timeframe::H1,
-            Timeframe::H2,
-            Timeframe::H4,
-            Timeframe::H6,
-            Timeframe::H8,
-            Timeframe::H12,
-            Timeframe::D1,
-            Timeframe::D3,
-            Timeframe::W1,
-            Timeframe::Mon1,
-        ]
-    }
-
-    fn rate_limit(&self) -> u32 {
-        self.options.rate_limit
-    }
+    impl_binance_metadata!();
 
     // ==================== Market Data (Public API) ====================
 
@@ -137,27 +140,23 @@ impl Exchange for Binance {
         since: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<Ohlcv>> {
-        use ccxt_core::types::{Amount, Price};
+        use ccxt_core::types::OhlcvRequest;
 
-        // Convert Timeframe enum to string for existing implementation
-        let timeframe_str = timeframe.to_string();
-        // Use i64 directly for the updated method signature
-        #[allow(deprecated)]
-        let ohlcv_data =
-            Binance::fetch_ohlcv(self, symbol, &timeframe_str, since, limit, None).await?;
+        // Build OhlcvRequest and delegate to fetch_ohlcv_v2's URL logic,
+        // but parse directly to Decimal-based Ohlcv to avoid f64 precision loss
+        let mut builder = OhlcvRequest::builder();
+        builder = builder.symbol(symbol).timeframe(&timeframe.to_string());
+        if let Some(s) = since {
+            builder = builder.since(s);
+        }
+        if let Some(l) = limit {
+            builder = builder.limit(l);
+        }
+        let request = builder.build().map_err(|e| {
+            ccxt_core::Error::invalid_request(format!("Invalid OHLCV request: {}", e))
+        })?;
 
-        // Convert OHLCV to Ohlcv with proper type conversions
-        Ok(ohlcv_data
-            .into_iter()
-            .map(|o| Ohlcv {
-                timestamp: o.timestamp,
-                open: Price::from(Decimal::try_from(o.open).unwrap_or_default()),
-                high: Price::from(Decimal::try_from(o.high).unwrap_or_default()),
-                low: Price::from(Decimal::try_from(o.low).unwrap_or_default()),
-                close: Price::from(Decimal::try_from(o.close).unwrap_or_default()),
-                volume: Amount::from(Decimal::try_from(o.volume).unwrap_or_default()),
-            })
-            .collect())
+        Binance::fetch_ohlcv_decimal(self, request).await
     }
 
     // ==================== Trading (Private API) ====================
@@ -170,9 +169,19 @@ impl Exchange for Binance {
         amount: Amount,
         price: Option<Price>,
     ) -> Result<Order> {
-        // Direct delegation - no type conversion needed
-        #[allow(deprecated)]
-        Binance::create_order(self, symbol, order_type, side, amount, price, None).await
+        use ccxt_core::types::OrderRequest;
+
+        // Delegate to create_order_v2 instead of deprecated create_order
+        let mut builder = OrderRequest::builder()
+            .symbol(symbol)
+            .side(side)
+            .order_type(order_type)
+            .amount(amount);
+        if let Some(p) = price {
+            builder = builder.price(p);
+        }
+        let request = builder.build();
+        Binance::create_order_v2(self, request).await
     }
 
     async fn cancel_order(&self, id: &str, symbol: Option<&str>) -> Result<Order> {
@@ -274,60 +283,7 @@ impl Exchange for Binance {
 
 #[async_trait]
 impl PublicExchange for Binance {
-    fn id(&self) -> &'static str {
-        "binance"
-    }
-
-    fn name(&self) -> &'static str {
-        "Binance"
-    }
-
-    fn version(&self) -> &'static str {
-        "v3"
-    }
-
-    fn certified(&self) -> bool {
-        true
-    }
-
-    fn capabilities(&self) -> ExchangeCapabilities {
-        // Binance supports almost all capabilities except:
-        // - EditOrder: Binance doesn't support order editing
-        // - FetchCanceledOrders: Binance doesn't have a separate API for canceled orders
-        ExchangeCapabilities::builder()
-            .all()
-            .without_capability(Capability::EditOrder)
-            .without_capability(Capability::FetchCanceledOrders)
-            .build()
-    }
-
-    fn timeframes(&self) -> Vec<Timeframe> {
-        vec![
-            Timeframe::M1,
-            Timeframe::M3,
-            Timeframe::M5,
-            Timeframe::M15,
-            Timeframe::M30,
-            Timeframe::H1,
-            Timeframe::H2,
-            Timeframe::H4,
-            Timeframe::H6,
-            Timeframe::H8,
-            Timeframe::H12,
-            Timeframe::D1,
-            Timeframe::D3,
-            Timeframe::W1,
-            Timeframe::Mon1,
-        ]
-    }
-
-    fn rate_limit(&self) -> u32 {
-        self.options.rate_limit
-    }
-
-    fn has_websocket(&self) -> bool {
-        true
-    }
+    impl_binance_metadata!();
 }
 
 // Helper methods for REST API operations

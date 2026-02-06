@@ -16,7 +16,9 @@ pub use misc::{
     parse_mark_prices, parse_stats_24hr, parse_trading_fee, parse_trading_limits,
     parse_ws_mark_price,
 };
-pub use ohlcv::{parse_ohlcvs, parse_ws_ohlcv};
+pub use ohlcv::{
+    parse_ohlcv_decimal, parse_ohlcvs, parse_ohlcvs_decimal, parse_ws_ohlcv, parse_ws_ohlcv_decimal,
+};
 pub use order::parse_order;
 pub use orderbook::{parse_orderbook, parse_ws_orderbook};
 pub use position::{parse_leverage, parse_leverage_tier, parse_position};

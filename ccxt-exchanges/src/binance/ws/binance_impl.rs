@@ -176,7 +176,11 @@ impl Binance {
             market.market_type == MarketType::Swap || market.market_type == MarketType::Futures;
 
         let update_speed = if let Some(p) = &params {
-            match p.get("speed").and_then(serde_json::Value::as_i64).unwrap_or(100) {
+            match p
+                .get("speed")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(100)
+            {
                 1000 => UpdateSpeed::Ms1000,
                 _ => UpdateSpeed::Ms100,
             }
@@ -228,7 +232,11 @@ impl Binance {
         }
 
         let update_speed = if let Some(p) = &params {
-            match p.get("speed").and_then(serde_json::Value::as_i64).unwrap_or(100) {
+            match p
+                .get("speed")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(100)
+            {
                 1000 => UpdateSpeed::Ms1000,
                 _ => UpdateSpeed::Ms100,
             }
@@ -376,7 +384,7 @@ impl Binance {
             let account_type_enum = account_type.parse::<ccxt_core::types::AccountType>().ok();
             let snapshot = self.fetch_balance(account_type_enum).await?;
 
-            let mut balances = ws.balances.write().await;
+            let mut balances = ws.cache.balances.write().await;
             balances.insert(account_type.to_string(), snapshot.clone());
 
             if !await_snapshot {
