@@ -23,6 +23,7 @@ struct MessageLoopContext {
     listen_key_manager: Option<Arc<super::listen_key::ListenKeyManager>>,
     base_url: String,
     current_url: String,
+    ready_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 /// Message router for handling WebSocket connections and message routing
@@ -99,8 +100,7 @@ impl MessageRouter {
 
         *self.ws_client.write().await = Some(client);
 
-        self.is_connected
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
         let ws_client = self.ws_client.clone();
         let subscription_manager = self.subscription_manager.clone();
@@ -121,6 +121,7 @@ impl MessageRouter {
             listen_key_manager,
             base_url: ws_url,
             current_url,
+            ready_tx: Some(ready_tx),
         };
 
         let handle = tokio::spawn(async move {
@@ -129,7 +130,27 @@ impl MessageRouter {
 
         *self.router_task.lock().await = Some(handle);
 
-        Ok(())
+        // Wait for the message loop to signal readiness (with timeout)
+        match tokio::time::timeout(Duration::from_secs(5), ready_rx).await {
+            Ok(Ok(())) => {
+                self.is_connected
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+            Ok(Err(_)) => {
+                // oneshot sender was dropped — message loop task died
+                self.is_connected
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                Err(Error::network("Message loop failed to start"))
+            }
+            Err(_) => {
+                // Timeout waiting for readiness — assume loop is running
+                // (it may just not have received any messages yet)
+                self.is_connected
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        }
     }
 
     /// Stops the message router
@@ -265,10 +286,15 @@ impl MessageRouter {
     }
 
     /// Message reception loop
-    async fn message_loop(ctx: MessageLoopContext) {
+    async fn message_loop(mut ctx: MessageLoopContext) {
         let mut reconnect_attempt = 0;
 
         Self::resubscribe_all(&ctx.ws_client, &ctx.subscription_manager, &ctx.request_id).await;
+
+        // Signal readiness to the caller
+        if let Some(ready_tx) = ctx.ready_tx.take() {
+            let _ = ready_tx.send(());
+        }
 
         loop {
             if !ctx.is_connected.load(std::sync::atomic::Ordering::SeqCst) {
@@ -320,13 +346,17 @@ impl MessageRouter {
             };
 
             if let Some(value) = message_opt {
-                if let Err(_e) = Self::handle_message(
+                if let Err(e) = Self::handle_message(
                     value,
                     ctx.subscription_manager.clone(),
                     ctx.listen_key_manager.clone(),
                 )
                 .await
                 {
+                    tracing::warn!(
+                        error = %e,
+                        "Message handling failed, continuing"
+                    );
                     continue;
                 }
 

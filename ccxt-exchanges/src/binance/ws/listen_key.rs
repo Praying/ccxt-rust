@@ -26,6 +26,15 @@ const MAX_REFRESH_RETRIES: u32 = 3;
 /// Delay between refresh retry attempts
 const REFRESH_RETRY_DELAY: Duration = Duration::from_secs(5);
 
+/// Maximum number of retry attempts for listen key regeneration
+const MAX_REGEN_RETRIES: u32 = 10;
+
+/// Base delay for regeneration retry backoff (5 seconds)
+const REGEN_BASE_DELAY_MS: u64 = 5_000;
+
+/// Maximum delay for regeneration retry backoff (5 minutes)
+const REGEN_MAX_DELAY_MS: u64 = 300_000;
+
 /// Listen key manager
 ///
 /// Automatically manages Binance user data stream listen keys by:
@@ -150,22 +159,44 @@ impl ListenKeyManager {
                         }
                     }
 
-                    // If all refresh attempts failed, try to regenerate
+                    // If all refresh attempts failed, try to regenerate with backoff
                     if !refresh_succeeded {
                         tracing::warn!(
                             "All refresh attempts failed, attempting to regenerate listen key"
                         );
-                        match binance.create_listen_key().await {
-                            Ok(new_key) => {
-                                tracing::info!("Regenerated listen key successfully");
-                                *listen_key.write().await = Some(new_key);
-                                *created_at.write().await = Some(Instant::now());
-                            }
-                            Err(create_err) => {
-                                tracing::error!("Failed to regenerate listen key: {}", create_err);
-                                *listen_key.write().await = None;
-                                *created_at.write().await = None;
-                                break;
+                        let mut regen_attempt: u32 = 0;
+                        loop {
+                            match binance.create_listen_key().await {
+                                Ok(new_key) => {
+                                    tracing::info!("Regenerated listen key successfully");
+                                    *listen_key.write().await = Some(new_key);
+                                    *created_at.write().await = Some(Instant::now());
+                                    break;
+                                }
+                                Err(create_err) => {
+                                    regen_attempt += 1;
+                                    if regen_attempt >= MAX_REGEN_RETRIES {
+                                        tracing::error!(
+                                            attempts = regen_attempt,
+                                            "Listen key regeneration exhausted all retries"
+                                        );
+                                        *listen_key.write().await = None;
+                                        *created_at.write().await = None;
+                                        return; // exit the spawned task
+                                    }
+                                    let delay_ms = std::cmp::min(
+                                        REGEN_BASE_DELAY_MS.saturating_mul(1u64 << regen_attempt),
+                                        REGEN_MAX_DELAY_MS,
+                                    );
+                                    tracing::warn!(
+                                        attempt = regen_attempt,
+                                        max_attempts = MAX_REGEN_RETRIES,
+                                        delay_ms = delay_ms,
+                                        error = %create_err,
+                                        "Listen key regeneration failed, retrying with backoff"
+                                    );
+                                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                                }
                             }
                         }
                     }

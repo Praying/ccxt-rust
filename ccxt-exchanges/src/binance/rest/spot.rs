@@ -163,9 +163,13 @@ impl Binance {
             if market.is_spot() {
                 // Convert percentage to basis points (e.g., 2.0% -> 200)
                 let delta = (percent * Decimal::from(100)).to_string();
-                if let Ok(delta_int) = delta.parse::<i64>() {
-                    request_params.insert("trailingDelta".to_string(), delta_int.to_string());
-                }
+                let delta_int: i64 = delta.parse().map_err(|_| {
+                    Error::invalid_request(format!(
+                        "Failed to convert trailing_percent {} to basis points",
+                        percent
+                    ))
+                })?;
+                request_params.insert("trailingDelta".to_string(), delta_int.to_string());
             } else {
                 request_params.insert("trailingPercent".to_string(), percent.to_string());
             }

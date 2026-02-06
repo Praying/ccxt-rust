@@ -83,6 +83,8 @@ use tokio::sync::{Mutex, RwLock};
 
 const MAX_TRADES: usize = 1000;
 const MAX_OHLCVS: usize = 1000;
+/// Maximum consecutive non-fatal errors before returning fatal in orderbook delta processing
+const MAX_CONSECUTIVE_DELTA_ERRORS: u32 = 5;
 /// Default shutdown timeout in milliseconds
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 5000;
 
@@ -113,6 +115,8 @@ pub struct BinanceWs {
     /// Shutdown state tracking
     is_shutting_down: Arc<AtomicBool>,
     shutdown_complete: Arc<AtomicBool>,
+    /// Timeout for watch_* methods
+    watch_timeout: Option<Duration>,
 }
 
 impl std::fmt::Debug for BinanceWs {
@@ -176,6 +180,7 @@ impl BinanceWs {
             )),
             is_shutting_down: Arc::new(AtomicBool::new(false)),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
+            watch_timeout: None,
         }
     }
 
@@ -233,6 +238,7 @@ impl BinanceWs {
             )),
             is_shutting_down: Arc::new(AtomicBool::new(false)),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
+            watch_timeout: config.watch_timeout,
         }
     }
 
@@ -278,6 +284,7 @@ impl BinanceWs {
             )),
             is_shutting_down: Arc::new(AtomicBool::new(false)),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
+            watch_timeout: None,
         }
     }
 
@@ -296,6 +303,12 @@ impl BinanceWs {
             | SubscriptionType::MyTrades
             | SubscriptionType::Positions => self.channel_config.user_data_capacity,
         }
+    }
+
+    /// Returns the configured watch timeout or the default (30 seconds)
+    fn watch_timeout(&self) -> Duration {
+        self.watch_timeout
+            .unwrap_or(Duration::from_secs(types::DEFAULT_WATCH_TIMEOUT_SECS))
     }
 
     /// Connects to the WebSocket server
@@ -819,27 +832,38 @@ impl BinanceWs {
 
         self.message_router.subscribe(vec![stream.clone()]).await?;
 
-        loop {
-            if let Some(message) = rx.recv().await {
-                // Skip subscription confirmation messages
-                if message.get("result").is_some() {
-                    continue;
-                }
+        let timeout_duration = self.watch_timeout();
 
-                match P::parse(&message, market) {
-                    Ok(data) => return Ok(data),
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse message for stream {}: {:?}. Payload: {:?}",
-                            stream,
-                            e,
-                            message
-                        );
-                        // Continue waiting for the next message
+        loop {
+            match tokio::time::timeout(timeout_duration, rx.recv()).await {
+                Ok(Some(message)) => {
+                    // Skip subscription confirmation messages
+                    if message.get("result").is_some() {
+                        continue;
+                    }
+
+                    match P::parse(&message, market) {
+                        Ok(data) => return Ok(data),
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse message for stream {}: {:?}. Payload: {:?}",
+                                stream,
+                                e,
+                                message
+                            );
+                            // Continue waiting for the next message
+                        }
                     }
                 }
-            } else {
-                return Err(Error::network("Subscription channel closed"));
+                Ok(None) => {
+                    return Err(Error::network("Subscription channel closed"));
+                }
+                Err(_) => {
+                    return Err(Error::network(format!(
+                        "No valid message received within {:?} for stream {}",
+                        timeout_duration, stream
+                    )));
+                }
             }
         }
     }
@@ -916,66 +940,80 @@ impl BinanceWs {
 
         let mut result = HashMap::new();
 
+        let timeout_duration = self.watch_timeout();
+
         loop {
-            if let Some(message) = rx.recv().await {
-                if message.get("result").is_some() {
-                    continue;
-                }
-
-                if let Some(arr) = message.as_array() {
-                    for item in arr {
-                        if let Ok(mark_price) = parser::parse_ws_mark_price(item) {
-                            let symbol = mark_price.symbol.clone();
-
-                            if let Some(syms) = &symbols {
-                                if syms.contains(&symbol.to_lowercase()) {
-                                    result.insert(symbol.clone(), mark_price.clone());
-                                }
-                            } else {
-                                result.insert(symbol.clone(), mark_price.clone());
-                            }
-
-                            let mut mark_prices = self.mark_prices.lock().await;
-                            mark_prices.insert(symbol, mark_price);
-                        } else {
-                            tracing::warn!("Failed to parse item in mark price array: {:?}", item);
-                        }
+            match tokio::time::timeout(timeout_duration, rx.recv()).await {
+                Ok(Some(message)) => {
+                    if message.get("result").is_some() {
+                        continue;
                     }
 
-                    if let Some(syms) = &symbols {
-                        if result.len() >= syms.len() {
+                    if let Some(arr) = message.as_array() {
+                        for item in arr {
+                            if let Ok(mark_price) = parser::parse_ws_mark_price(item) {
+                                let symbol = mark_price.symbol.clone();
+
+                                if let Some(syms) = &symbols {
+                                    if syms.contains(&symbol.to_lowercase()) {
+                                        result.insert(symbol.clone(), mark_price.clone());
+                                    }
+                                } else {
+                                    result.insert(symbol.clone(), mark_price.clone());
+                                }
+
+                                let mut mark_prices = self.mark_prices.lock().await;
+                                mark_prices.insert(symbol, mark_price);
+                            } else {
+                                tracing::warn!(
+                                    "Failed to parse item in mark price array: {:?}",
+                                    item
+                                );
+                            }
+                        }
+
+                        if let Some(syms) = &symbols {
+                            if result.len() >= syms.len() {
+                                return Ok(result);
+                            }
+                        } else {
+                            // For array updates without specific symbols filter, return what we got
                             return Ok(result);
                         }
                     } else {
-                        // For array updates without specific symbols filter, return what we got
-                        return Ok(result);
-                    }
-                } else {
-                    match parser::parse_ws_mark_price(&message) {
-                        Ok(mark_price) => {
-                            let symbol = mark_price.symbol.clone();
-                            result.insert(symbol.clone(), mark_price.clone());
+                        match parser::parse_ws_mark_price(&message) {
+                            Ok(mark_price) => {
+                                let symbol = mark_price.symbol.clone();
+                                result.insert(symbol.clone(), mark_price.clone());
 
-                            let mut mark_prices = self.mark_prices.lock().await;
-                            mark_prices.insert(symbol, mark_price);
+                                let mut mark_prices = self.mark_prices.lock().await;
+                                mark_prices.insert(symbol, mark_price);
 
-                            if let Some(syms) = &symbols {
-                                if result.len() >= syms.len() {
-                                    return Ok(result);
+                                if let Some(syms) = &symbols {
+                                    if result.len() >= syms.len() {
+                                        return Ok(result);
+                                    }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to parse mark price message: {:?}. Payload: {:?}",
-                                e,
-                                message
-                            );
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to parse mark price message: {:?}. Payload: {:?}",
+                                    e,
+                                    message
+                                );
+                            }
                         }
                     }
                 }
-            } else {
-                return Err(Error::network("Subscription channel closed"));
+                Ok(None) => {
+                    return Err(Error::network("Subscription channel closed"));
+                }
+                Err(_) => {
+                    return Err(Error::network(format!(
+                        "No valid message received within {:?} for mark prices",
+                        timeout_duration
+                    )));
+                }
             }
         }
     }
@@ -1033,68 +1071,79 @@ impl BinanceWs {
 
         let mut result = HashMap::new();
 
+        let timeout_duration = self.watch_timeout();
+
         loop {
-            if let Some(message) = rx.recv().await {
-                if message.get("result").is_some() {
-                    continue;
-                }
-
-                if let Some(arr) = message.as_array() {
-                    for item in arr {
-                        if let Ok(ticker) = parser::parse_ws_ticker(item, None) {
-                            let symbol = ticker.symbol.clone();
-
-                            if let Some(syms) = &symbols {
-                                if syms.contains(&symbol.to_lowercase()) {
-                                    result.insert(symbol.clone(), ticker.clone());
-                                }
-                            } else {
-                                result.insert(symbol.clone(), ticker.clone());
-                            }
-
-                            let mut tickers = self.tickers.lock().await;
-                            tickers.insert(symbol, ticker);
-                        } else {
-                            tracing::warn!("Failed to parse item in ticker array: {:?}", item);
-                        }
+            match tokio::time::timeout(timeout_duration, rx.recv()).await {
+                Ok(Some(message)) => {
+                    if message.get("result").is_some() {
+                        continue;
                     }
 
-                    if let Some(syms) = &symbols {
-                        if result.len() >= syms.len() {
+                    if let Some(arr) = message.as_array() {
+                        for item in arr {
+                            if let Ok(ticker) = parser::parse_ws_ticker(item, None) {
+                                let symbol = ticker.symbol.clone();
+
+                                if let Some(syms) = &symbols {
+                                    if syms.contains(&symbol.to_lowercase()) {
+                                        result.insert(symbol.clone(), ticker.clone());
+                                    }
+                                } else {
+                                    result.insert(symbol.clone(), ticker.clone());
+                                }
+
+                                let mut tickers = self.tickers.lock().await;
+                                tickers.insert(symbol, ticker);
+                            } else {
+                                tracing::warn!("Failed to parse item in ticker array: {:?}", item);
+                            }
+                        }
+
+                        if let Some(syms) = &symbols {
+                            if result.len() >= syms.len() {
+                                return Ok(result);
+                            }
+                        } else {
+                            // If we received an array but we are not waiting for specific symbols,
+                            // we can assume we got the update for "all" markets.
+                            // However, !ticker@arr returns ALL tickers in one message usually.
                             return Ok(result);
                         }
                     } else {
-                        // If we received an array but we are not waiting for specific symbols,
-                        // we can assume we got the update for "all" markets.
-                        // However, !ticker@arr returns ALL tickers in one message usually.
-                        return Ok(result);
-                    }
-                } else {
-                    match parser::parse_ws_ticker(&message, None) {
-                        Ok(ticker) => {
-                            let symbol = ticker.symbol.clone();
-                            result.insert(symbol.clone(), ticker.clone());
+                        match parser::parse_ws_ticker(&message, None) {
+                            Ok(ticker) => {
+                                let symbol = ticker.symbol.clone();
+                                result.insert(symbol.clone(), ticker.clone());
 
-                            let mut tickers = self.tickers.lock().await;
-                            tickers.insert(symbol, ticker);
+                                let mut tickers = self.tickers.lock().await;
+                                tickers.insert(symbol, ticker);
 
-                            if let Some(syms) = &symbols {
-                                if result.len() >= syms.len() {
-                                    return Ok(result);
+                                if let Some(syms) = &symbols {
+                                    if result.len() >= syms.len() {
+                                        return Ok(result);
+                                    }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to parse ticker message: {:?}. Payload: {:?}",
-                                e,
-                                message
-                            );
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to parse ticker message: {:?}. Payload: {:?}",
+                                    e,
+                                    message
+                                );
+                            }
                         }
                     }
                 }
-            } else {
-                return Err(Error::network("Subscription channel closed"));
+                Ok(None) => {
+                    return Err(Error::network("Subscription channel closed"));
+                }
+                Err(_) => {
+                    return Err(Error::network(format!(
+                        "No valid message received within {:?} for tickers",
+                        timeout_duration
+                    )));
+                }
             }
         }
     }
@@ -1154,79 +1203,107 @@ impl BinanceWs {
             .fetch_orderbook_snapshot(exchange, symbol, limit, is_futures)
             .await?;
 
+        let timeout_duration = self.watch_timeout();
+        let mut consecutive_errors: u32 = 0;
+
         loop {
-            if let Some(message) = rx.recv().await {
-                if message.get("result").is_some() {
-                    continue;
-                }
+            match tokio::time::timeout(timeout_duration, rx.recv()).await {
+                Ok(Some(message)) => {
+                    if message.get("result").is_some() {
+                        continue;
+                    }
 
-                if let Some(event_type) = message.get("e").and_then(serde_json::Value::as_str) {
-                    if event_type == "depthUpdate" {
-                        match self
-                            .handle_orderbook_delta(symbol, &message, is_futures)
-                            .await
-                        {
-                            Ok(()) => {
-                                let orderbooks = self.orderbooks.lock().await;
-                                if let Some(ob) = orderbooks.get(symbol) {
-                                    if ob.is_synced {
-                                        return Ok(ob.clone());
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let err_msg = e.to_string();
-                                let recovery = WsErrorRecovery::from_error_message(&err_msg);
-
-                                match recovery {
-                                    WsErrorRecovery::Resync => {
-                                        tracing::warn!("Resync needed for {}: {}", symbol, err_msg);
-                                        match self
-                                            .resync_orderbook(exchange, symbol, limit, is_futures)
-                                            .await
-                                        {
-                                            Ok(true) => {
-                                                tracing::info!(
-                                                    "Resync completed successfully for {}",
-                                                    symbol
-                                                );
-                                            }
-                                            Ok(false) => {
-                                                tracing::debug!(
-                                                    "Resync rate limited for {}, skipping",
-                                                    symbol
-                                                );
-                                            }
-                                            Err(resync_err) => {
-                                                tracing::error!(
-                                                    "Resync failed for {}: {}",
-                                                    symbol,
-                                                    resync_err
-                                                );
-                                                return Err(resync_err);
-                                            }
+                    if let Some(event_type) = message.get("e").and_then(serde_json::Value::as_str) {
+                        if event_type == "depthUpdate" {
+                            match self
+                                .handle_orderbook_delta(symbol, &message, is_futures)
+                                .await
+                            {
+                                Ok(()) => {
+                                    consecutive_errors = 0;
+                                    let orderbooks = self.orderbooks.lock().await;
+                                    if let Some(ob) = orderbooks.get(symbol) {
+                                        if ob.is_synced {
+                                            return Ok(ob.clone());
                                         }
                                     }
-                                    WsErrorRecovery::Fatal => {
-                                        tracing::error!(
-                                            "Fatal error handling orderbook delta: {}",
-                                            err_msg
-                                        );
-                                        return Err(e);
-                                    }
-                                    _ => {
-                                        tracing::error!(
-                                            "Failed to handle orderbook delta: {}",
-                                            err_msg
-                                        );
+                                }
+                                Err(e) => {
+                                    let err_msg = e.to_string();
+                                    let recovery = WsErrorRecovery::from_error_message(&err_msg);
+
+                                    match recovery {
+                                        WsErrorRecovery::Resync => {
+                                            tracing::warn!(
+                                                "Resync needed for {}: {}",
+                                                symbol,
+                                                err_msg
+                                            );
+                                            match self
+                                                .resync_orderbook(
+                                                    exchange, symbol, limit, is_futures,
+                                                )
+                                                .await
+                                            {
+                                                Ok(true) => {
+                                                    tracing::info!(
+                                                        "Resync completed successfully for {}",
+                                                        symbol
+                                                    );
+                                                }
+                                                Ok(false) => {
+                                                    tracing::debug!(
+                                                        "Resync rate limited for {}, skipping",
+                                                        symbol
+                                                    );
+                                                }
+                                                Err(resync_err) => {
+                                                    tracing::error!(
+                                                        "Resync failed for {}: {}",
+                                                        symbol,
+                                                        resync_err
+                                                    );
+                                                    return Err(resync_err);
+                                                }
+                                            }
+                                        }
+                                        WsErrorRecovery::Fatal => {
+                                            tracing::error!(
+                                                "Fatal error handling orderbook delta: {}",
+                                                err_msg
+                                            );
+                                            return Err(e);
+                                        }
+                                        _ => {
+                                            consecutive_errors += 1;
+                                            tracing::error!(
+                                                consecutive = consecutive_errors,
+                                                max = MAX_CONSECUTIVE_DELTA_ERRORS,
+                                                "Failed to handle orderbook delta: {}",
+                                                err_msg
+                                            );
+                                            if consecutive_errors >= MAX_CONSECUTIVE_DELTA_ERRORS {
+                                                return Err(Error::exchange(
+                                                    "Too many consecutive orderbook delta errors",
+                                                    err_msg,
+                                                ));
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            } else {
-                return Err(Error::network("Subscription channel closed"));
+                Ok(None) => {
+                    return Err(Error::network("Subscription channel closed"));
+                }
+                Err(_) => {
+                    return Err(Error::network(format!(
+                        "No valid message received within {:?} for orderbook {}",
+                        timeout_duration, symbol
+                    )));
+                }
             }
         }
     }
@@ -1326,36 +1403,47 @@ impl BinanceWs {
         let mut result = HashMap::new();
         let mut synced_symbols = std::collections::HashSet::new();
 
+        let timeout_duration = self.watch_timeout();
+
         while synced_symbols.len() < symbols.len() {
-            if let Some(message) = rx.recv().await {
-                if message.get("result").is_some() {
-                    continue;
-                }
+            match tokio::time::timeout(timeout_duration, rx.recv()).await {
+                Ok(Some(message)) => {
+                    if message.get("result").is_some() {
+                        continue;
+                    }
 
-                if let Some(event_type) = message.get("e").and_then(serde_json::Value::as_str) {
-                    if event_type == "depthUpdate" {
-                        if let Some(msg_symbol) =
-                            message.get("s").and_then(serde_json::Value::as_str)
-                        {
-                            if let Err(e) = self
-                                .handle_orderbook_delta(msg_symbol, &message, is_futures)
-                                .await
+                    if let Some(event_type) = message.get("e").and_then(serde_json::Value::as_str) {
+                        if event_type == "depthUpdate" {
+                            if let Some(msg_symbol) =
+                                message.get("s").and_then(serde_json::Value::as_str)
                             {
-                                tracing::error!("Failed to handle orderbook delta: {}", e);
-                                continue;
-                            }
+                                if let Err(e) = self
+                                    .handle_orderbook_delta(msg_symbol, &message, is_futures)
+                                    .await
+                                {
+                                    tracing::error!("Failed to handle orderbook delta: {}", e);
+                                    continue;
+                                }
 
-                            let orderbooks = self.orderbooks.lock().await;
-                            if let Some(ob) = orderbooks.get(msg_symbol) {
-                                if ob.is_synced {
-                                    synced_symbols.insert(msg_symbol.to_string());
+                                let orderbooks = self.orderbooks.lock().await;
+                                if let Some(ob) = orderbooks.get(msg_symbol) {
+                                    if ob.is_synced {
+                                        synced_symbols.insert(msg_symbol.to_string());
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            } else {
-                return Err(Error::network("Subscription channel closed"));
+                Ok(None) => {
+                    return Err(Error::network("Subscription channel closed"));
+                }
+                Err(_) => {
+                    return Err(Error::network(format!(
+                        "No valid message received within {:?} for orderbooks",
+                        timeout_duration
+                    )));
+                }
             }
         }
 

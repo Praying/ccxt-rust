@@ -16,6 +16,9 @@ pub const DEFAULT_TRADES_CAPACITY: usize = 1024;
 /// Default channel capacity for user data streams
 pub const DEFAULT_USER_DATA_CAPACITY: usize = 256;
 
+/// Default timeout for watch_* methods (30 seconds)
+pub const DEFAULT_WATCH_TIMEOUT_SECS: u64 = 30;
+
 /// Configuration for WebSocket channel capacities.
 ///
 /// Different data streams have different message frequencies:
@@ -287,6 +290,8 @@ pub struct BinanceWsConfig {
     pub backpressure_strategy: BackpressureStrategy,
     /// Shutdown timeout in milliseconds
     pub shutdown_timeout_ms: u64,
+    /// Timeout for watch_* methods (default: 30 seconds)
+    pub watch_timeout: Option<Duration>,
 }
 
 impl BinanceWsConfig {
@@ -297,6 +302,7 @@ impl BinanceWsConfig {
             channel_config: WsChannelConfig::default(),
             backpressure_strategy: BackpressureStrategy::DropOldest,
             shutdown_timeout_ms: 5000,
+            watch_timeout: None,
         }
     }
 
@@ -315,6 +321,12 @@ impl BinanceWsConfig {
     /// Sets the shutdown timeout
     pub fn with_shutdown_timeout(mut self, timeout_ms: u64) -> Self {
         self.shutdown_timeout_ms = timeout_ms;
+        self
+    }
+
+    /// Sets the watch timeout for watch_* methods
+    pub fn with_watch_timeout(mut self, timeout: Duration) -> Self {
+        self.watch_timeout = Some(timeout);
         self
     }
 }
