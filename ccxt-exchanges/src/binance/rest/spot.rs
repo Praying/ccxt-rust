@@ -3,10 +3,12 @@
 //! This module contains all spot trading methods including order creation,
 //! cancellation, and order management.
 
-use super::super::{Binance, constants::endpoints, parser, signed_request::HttpMethod};
+use super::super::{
+    Binance, BinanceEndpointRouter, constants::endpoints, parser, signed_request::HttpMethod,
+};
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Amount, Order, OrderRequest, OrderSide, OrderType, Price, TimeInForce},
+    types::{Amount, EndpointType, Order, OrderRequest, OrderSide, OrderType, Price, TimeInForce},
 };
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
@@ -191,7 +193,9 @@ impl Binance {
             request_params.insert("positionSide".to_string(), position_side);
         }
 
-        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
+        // Use market-type-aware endpoint routing for correct API base URL
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}{}", base_url, endpoints::ORDER);
         let data = self
             .signed_request(url)
             .method(HttpMethod::Post)
@@ -333,7 +337,9 @@ impl Binance {
             }
         }
 
-        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
+        // Use market-type-aware endpoint routing for correct API base URL
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}{}", base_url, endpoints::ORDER);
         let data = self
             .signed_request(url)
             .method(HttpMethod::Post)
@@ -360,7 +366,9 @@ impl Binance {
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
+        // Use market-type-aware endpoint routing
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}{}", base_url, endpoints::ORDER);
 
         let data = self
             .signed_request(url)
@@ -389,7 +397,9 @@ impl Binance {
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn fetch_order(&self, id: &str, symbol: &str) -> Result<Order> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}{}", self.urls().private, endpoints::ORDER);
+        // Use market-type-aware endpoint routing
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}{}", base_url, endpoints::ORDER);
 
         let data = self
             .signed_request(url)
@@ -421,7 +431,13 @@ impl Binance {
             None
         };
 
-        let url = format!("{}{}", self.urls().private, endpoints::OPEN_ORDERS);
+        // Use market-type-aware endpoint routing if market is available,
+        // otherwise fall back to spot endpoint
+        let base_url = match &market {
+            Some(m) => self.rest_endpoint(m, EndpointType::Private),
+            None => self.urls().private.clone(),
+        };
+        let url = format!("{}{}", base_url, endpoints::OPEN_ORDERS);
 
         let data = self
             .signed_request(url)
@@ -499,7 +515,9 @@ impl Binance {
     /// Returns an error if authentication fails, market is not found, or the API request fails.
     pub async fn cancel_all_orders(&self, symbol: &str) -> Result<Vec<Order>> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}{}", self.urls().private, endpoints::OPEN_ORDERS);
+        // Use market-type-aware endpoint routing
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}{}", base_url, endpoints::OPEN_ORDERS);
 
         let data = self
             .signed_request(url)
@@ -552,7 +570,9 @@ impl Binance {
             ))
         })?;
 
-        let url = format!("{}{}", self.urls().private, endpoints::OPEN_ORDERS);
+        // Use market-type-aware endpoint routing
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}{}", base_url, endpoints::OPEN_ORDERS);
 
         let data = self
             .signed_request(url)
@@ -609,7 +629,13 @@ impl Binance {
             None
         };
 
-        let url = format!("{}{}", self.urls().private, endpoints::ALL_ORDERS);
+        // Use market-type-aware endpoint routing if market is available,
+        // otherwise fall back to spot endpoint
+        let base_url = match &market {
+            Some(m) => self.rest_endpoint(m, EndpointType::Private),
+            None => self.urls().private.clone(),
+        };
+        let url = format!("{}{}", base_url, endpoints::ALL_ORDERS);
 
         let data = self
             .signed_request(url)

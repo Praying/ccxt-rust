@@ -3,6 +3,7 @@
 //! Supports spot trading, futures trading, and options trading with complete REST API and WebSocket support.
 
 use ccxt_core::types::EndpointType;
+use ccxt_core::types::MarketType;
 use ccxt_core::types::default_type::{DefaultSubType, DefaultType};
 use ccxt_core::{BaseExchange, ExchangeConfig, Result};
 use std::sync::Arc;
@@ -17,6 +18,7 @@ pub mod error;
 mod exchange_impl;
 pub mod options;
 pub mod parser;
+pub mod rate_limiter;
 pub mod rest;
 pub mod signed_request;
 pub mod signing_strategy;
@@ -28,10 +30,14 @@ mod ws_exchange_impl;
 
 pub use builder::BinanceBuilder;
 pub use endpoint_router::BinanceEndpointRouter;
+pub use error::BinanceApiError;
 pub use options::BinanceOptions;
 pub use signed_request::{HttpMethod, SignedRequestBuilder};
 pub use time_sync::{TimeSyncConfig, TimeSyncManager};
 pub use urls::BinanceUrls;
+
+use rate_limiter::WeightRateLimiter;
+
 /// Binance exchange structure.
 #[derive(Debug, Clone)]
 pub struct Binance {
@@ -46,6 +52,8 @@ pub struct Binance {
     ws_connection: Arc<RwLock<Option<ws::BinanceWs>>>,
     /// Centralized WebSocket connection manager
     pub connection_manager: Arc<ws::BinanceConnectionManager>,
+    /// Rate limiter for API requests.
+    rate_limiter: Arc<WeightRateLimiter>,
 }
 
 #[allow(deprecated)]
@@ -97,20 +105,29 @@ impl Binance {
         let options = BinanceOptions::default();
         let time_sync = Arc::new(TimeSyncManager::new());
 
-        // Determine WS URL for ConnectionManager
-        let urls = if base.config.sandbox {
+        // Determine URLs for ConnectionManager
+        let mut urls = if base.config.sandbox {
             BinanceUrls::testnet()
         } else {
             BinanceUrls::production()
         };
-        // Apply overrides logic similar to self.urls()
-        let ws_url = if let Some(url) = base.config.url_overrides.get("ws") {
-            url.clone()
-        } else {
-            urls.ws.clone()
-        };
+        // Apply URL overrides
+        if let Some(ws_url) = base.config.url_overrides.get("ws") {
+            urls.ws.clone_from(ws_url);
+        }
+        if let Some(ws_fapi_url) = base.config.url_overrides.get("wsFapi") {
+            urls.ws_fapi.clone_from(ws_fapi_url);
+        }
+        if let Some(ws_dapi_url) = base.config.url_overrides.get("wsDapi") {
+            urls.ws_dapi.clone_from(ws_dapi_url);
+        }
+        if let Some(ws_eapi_url) = base.config.url_overrides.get("wsEapi") {
+            urls.ws_eapi.clone_from(ws_eapi_url);
+        }
 
-        let connection_manager = Arc::new(ws::BinanceConnectionManager::new(ws_url));
+        let connection_manager =
+            Arc::new(ws::BinanceConnectionManager::new(urls, base.config.sandbox));
+        let rate_limiter = Arc::new(WeightRateLimiter::new());
 
         Ok(Self {
             base,
@@ -118,6 +135,7 @@ impl Binance {
             time_sync,
             ws_connection: Arc::new(RwLock::new(None)),
             connection_manager,
+            rate_limiter,
         })
     }
 
@@ -156,7 +174,7 @@ impl Binance {
         };
         let time_sync = Arc::new(TimeSyncManager::with_config(time_sync_config));
 
-        // Determine WS URL
+        // Determine WS URLs
         let mut urls = if base.config.sandbox {
             BinanceUrls::testnet()
         } else {
@@ -177,16 +195,9 @@ impl Binance {
             urls.ws_eapi.clone_from(ws_eapi_url);
         }
 
-        let ws_url = match options.default_type {
-            DefaultType::Swap | DefaultType::Futures => match options.default_sub_type {
-                Some(DefaultSubType::Inverse) => urls.ws_dapi.clone(),
-                _ => urls.ws_fapi.clone(),
-            },
-            DefaultType::Option => urls.ws_eapi.clone(),
-            _ => urls.ws.clone(),
-        };
-
-        let connection_manager = Arc::new(ws::BinanceConnectionManager::new(ws_url));
+        let connection_manager =
+            Arc::new(ws::BinanceConnectionManager::new(urls, base.config.sandbox));
+        let rate_limiter = Arc::new(WeightRateLimiter::new());
 
         Ok(Self {
             base,
@@ -194,6 +205,7 @@ impl Binance {
             time_sync,
             ws_connection: Arc::new(RwLock::new(None)),
             connection_manager,
+            rate_limiter,
         })
     }
 
@@ -227,7 +239,7 @@ impl Binance {
         };
         let time_sync = Arc::new(TimeSyncManager::with_config(time_sync_config));
 
-        // Determine WS URL (Futures/Swap)
+        // Determine WS URLs (Futures/Swap)
         let mut urls = if base.config.sandbox {
             BinanceUrls::testnet()
         } else {
@@ -238,10 +250,9 @@ impl Binance {
             urls.ws_fapi.clone_from(ws_fapi_url);
         }
 
-        // Default to FAPI/Linear for new_swap if not configured otherwise
-        let ws_url = urls.ws_fapi.clone();
-
-        let connection_manager = Arc::new(ws::BinanceConnectionManager::new(ws_url));
+        let connection_manager =
+            Arc::new(ws::BinanceConnectionManager::new(urls, base.config.sandbox));
+        let rate_limiter = Arc::new(WeightRateLimiter::new());
 
         Ok(Self {
             base,
@@ -249,6 +260,7 @@ impl Binance {
             time_sync,
             ws_connection: Arc::new(RwLock::new(None)),
             connection_manager,
+            rate_limiter,
         })
     }
 
@@ -315,6 +327,25 @@ impl Binance {
     /// ```
     pub fn time_sync(&self) -> &Arc<TimeSyncManager> {
         &self.time_sync
+    }
+
+    /// Returns a reference to the rate limiter.
+    ///
+    /// The `WeightRateLimiter` tracks API usage based on response headers
+    /// and provides throttling recommendations to avoid hitting rate limits.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// let binance = Binance::new(ExchangeConfig::default()).unwrap();
+    /// let rate_limiter = binance.rate_limiter();
+    /// println!("Current weight usage: {}%", rate_limiter.weight_usage_ratio() * 100.0);
+    /// ```
+    pub fn rate_limiter(&self) -> &Arc<WeightRateLimiter> {
+        &self.rate_limiter
     }
 
     /// Creates a new signed request builder for the given endpoint.
@@ -646,7 +677,45 @@ impl Binance {
     /// ```
     pub fn create_authenticated_ws(self: &std::sync::Arc<Self>) -> ws::BinanceWs {
         let ws_url = self.get_ws_url();
-        ws::BinanceWs::new_with_auth(ws_url, self.clone())
+        let market_type = MarketType::from(self.options.default_type);
+        ws::BinanceWs::new_with_auth(ws_url, self.clone(), market_type)
+    }
+
+    /// Checks a JSON response for Binance API errors and converts them to `Result`.
+    ///
+    /// Binance API may return errors in the response body even with HTTP 200 status.
+    /// The error format is: `{"code": -1121, "msg": "Invalid symbol."}`
+    ///
+    /// This method should be called after receiving a response from public API endpoints
+    /// to ensure proper error handling.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The JSON response from Binance API
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(response)` if no error is found, or `Err(CoreError)` if the response
+    /// contains a Binance API error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ccxt_exchanges::binance::Binance;
+    /// use ccxt_core::ExchangeConfig;
+    ///
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let binance = Binance::new(ExchangeConfig::default())?;
+    /// let response = binance.base().http_client.get("https://api.binance.com/api/v3/ticker/price", None).await?;
+    /// let validated = binance.check_response(response)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn check_response(&self, response: serde_json::Value) -> Result<serde_json::Value> {
+        if let Some(api_error) = BinanceApiError::from_json(&response) {
+            return Err(api_error.into());
+        }
+        Ok(response)
     }
 }
 
@@ -1437,5 +1506,92 @@ mod tests {
             "EAPI WS sandbox URL should contain testnet.binanceops.com, got: {}",
             urls.ws_eapi
         );
+    }
+
+    // ============================================================
+    // check_response Tests
+    // ============================================================
+
+    #[test]
+    fn test_check_response_success() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Valid response without error
+        let response = serde_json::json!({
+            "symbol": "BTCUSDT",
+            "price": "50000.00"
+        });
+
+        let result = binance.check_response(response.clone());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), response);
+    }
+
+    #[test]
+    fn test_check_response_with_binance_error() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Response with Binance API error
+        let response = serde_json::json!({
+            "code": -1121,
+            "msg": "Invalid symbol."
+        });
+
+        let result = binance.check_response(response);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Invalid symbol"));
+    }
+
+    #[test]
+    fn test_check_response_with_rate_limit_error() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Response with rate limit error
+        let response = serde_json::json!({
+            "code": -1003,
+            "msg": "Too many requests; please use the websocket for live updates."
+        });
+
+        let result = binance.check_response(response);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ccxt_core::error::Error::RateLimit { .. }));
+    }
+
+    #[test]
+    fn test_check_response_with_auth_error() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Response with authentication error
+        let response = serde_json::json!({
+            "code": -2015,
+            "msg": "Invalid API-key, IP, or permissions for action."
+        });
+
+        let result = binance.check_response(response);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ccxt_core::error::Error::Authentication(_)));
+    }
+
+    #[test]
+    fn test_check_response_array_response() {
+        let config = ExchangeConfig::default();
+        let binance = Binance::new(config).unwrap();
+
+        // Array response (common for list endpoints)
+        let response = serde_json::json!([
+            {"symbol": "BTCUSDT", "price": "50000.00"},
+            {"symbol": "ETHUSDT", "price": "3000.00"}
+        ]);
+
+        let result = binance.check_response(response.clone());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), response);
     }
 }

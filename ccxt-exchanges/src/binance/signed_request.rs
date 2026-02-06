@@ -40,7 +40,9 @@
 //! ```
 
 use super::Binance;
-use ccxt_core::{Error, ParseError, Result};
+use super::error::BinanceApiError;
+use super::rate_limiter::RateLimitInfo;
+use ccxt_core::Result;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -51,11 +53,11 @@ pub enum HttpMethod {
     /// GET request - parameters in query string
     #[default]
     Get,
-    /// POST request - parameters in JSON body
+    /// POST request - parameters in query string (Binance requires query string, not JSON body)
     Post,
-    /// PUT request - parameters in JSON body
+    /// PUT request - parameters in query string (Binance requires query string, not JSON body)
     Put,
-    /// DELETE request - parameters in JSON body
+    /// DELETE request - parameters in query string (Binance requires query string, not JSON body)
     Delete,
 }
 
@@ -320,13 +322,18 @@ impl<'a> SignedRequestBuilder<'a> {
     /// # }
     /// ```
     pub async fn execute(self) -> Result<Value> {
-        // Step 1: Validate credentials
+        // Step 1: Check rate limiter - wait if needed
+        if let Some(wait_duration) = self.binance.rate_limiter().wait_duration() {
+            tokio::time::sleep(wait_duration).await;
+        }
+
+        // Step 2: Validate credentials
         self.binance.check_required_credentials()?;
 
-        // Step 2: Get signing timestamp
+        // Step 3: Get signing timestamp
         let timestamp = self.binance.get_signing_timestamp().await?;
 
-        // Step 3: Get auth and sign parameters
+        // Step 4: Get auth and sign parameters
         let auth = self.binance.get_auth()?;
         let signed_params = auth.sign_with_timestamp(
             &self.params,
@@ -334,20 +341,22 @@ impl<'a> SignedRequestBuilder<'a> {
             Some(self.binance.options().recv_window),
         )?;
 
-        // Step 4: Add authentication headers
+        // Step 5: Add authentication headers
         let mut headers = HeaderMap::new();
         auth.add_auth_headers_reqwest(&mut headers);
 
-        // Step 5: Execute HTTP request based on method
-        match self.method {
+        // Step 6: Execute HTTP request based on method
+        // Note: Binance API requires all signed requests to use query string parameters,
+        // not JSON body, even for POST/PUT/DELETE requests.
+        let query_string = build_query_string(&signed_params);
+        let url = if query_string.is_empty() {
+            self.endpoint
+        } else {
+            format!("{}?{}", self.endpoint, query_string)
+        };
+
+        let result = match self.method {
             HttpMethod::Get => {
-                // Build query string for GET requests
-                let query_string = build_query_string(&signed_params);
-                let url = if query_string.is_empty() {
-                    self.endpoint
-                } else {
-                    format!("{}?{}", self.endpoint, query_string)
-                };
                 self.binance
                     .base()
                     .http_client
@@ -355,58 +364,60 @@ impl<'a> SignedRequestBuilder<'a> {
                     .await
             }
             HttpMethod::Post => {
-                // Serialize parameters as JSON body for POST requests
-                let body = serde_json::to_value(&signed_params).map_err(|e| {
-                    Error::from(ParseError::invalid_format(
-                        "data",
-                        format!("Failed to serialize request body: {}", e),
-                    ))
-                })?;
                 self.binance
                     .base()
                     .http_client
-                    .post(&self.endpoint, Some(headers), Some(body))
+                    .post(&url, Some(headers), None)
                     .await
             }
             HttpMethod::Put => {
-                // Serialize parameters as JSON body for PUT requests
-                let body = serde_json::to_value(&signed_params).map_err(|e| {
-                    Error::from(ParseError::invalid_format(
-                        "data",
-                        format!("Failed to serialize request body: {}", e),
-                    ))
-                })?;
                 self.binance
                     .base()
                     .http_client
-                    .put(&self.endpoint, Some(headers), Some(body))
+                    .put(&url, Some(headers), None)
                     .await
             }
             HttpMethod::Delete => {
-                // Serialize parameters as JSON body for DELETE requests
-                let body = serde_json::to_value(&signed_params).map_err(|e| {
-                    Error::from(ParseError::invalid_format(
-                        "data",
-                        format!("Failed to serialize request body: {}", e),
-                    ))
-                })?;
                 self.binance
                     .base()
                     .http_client
-                    .delete(&self.endpoint, Some(headers), Some(body))
+                    .delete(&url, Some(headers), None)
                     .await
             }
+        }?;
+
+        // Step 7: Update rate limiter from response headers
+        if let Some(headers) = result.get("responseHeaders") {
+            let rate_info = RateLimitInfo::from_headers(headers);
+            if rate_info.has_data() {
+                self.binance.rate_limiter().update(rate_info);
+            }
         }
+
+        // Step 8: Check for Binance API error in response body
+        // Binance may return HTTP 200 with an error in the JSON body: {"code": -1121, "msg": "..."}
+        if let Some(api_error) = BinanceApiError::from_json(&result) {
+            // Check for IP ban (HTTP 418)
+            if api_error.is_ip_banned() {
+                self.binance
+                    .rate_limiter()
+                    .set_ip_banned(std::time::Duration::from_secs(7200)); // 2 hours default
+            }
+            return Err(api_error.into());
+        }
+
+        Ok(result)
     }
 }
 
 /// Builds a URL-encoded query string from parameters.
 ///
 /// Parameters are sorted alphabetically by key (due to BTreeMap ordering).
+/// Both keys and values are URL-encoded to handle special characters.
 fn build_query_string(params: &BTreeMap<String, String>) -> String {
     params
         .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
+        .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&")
 }

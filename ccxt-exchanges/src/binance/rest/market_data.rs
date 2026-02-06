@@ -358,6 +358,17 @@ impl Binance {
         symbol: &str,
         limit: Option<u32>,
     ) -> Result<ccxt_core::types::OrderBook> {
+        // Validate depth limit if provided
+        const VALID_DEPTH_LIMITS: &[u32] = &[5, 10, 20, 50, 100, 500, 1000, 5000];
+        if let Some(l) = limit {
+            if !VALID_DEPTH_LIMITS.contains(&l) {
+                return Err(Error::invalid_request(format!(
+                    "Invalid depth limit: {}. Valid values: {:?}",
+                    l, VALID_DEPTH_LIMITS
+                )));
+            }
+        }
+
         let market = self.base().market(symbol).await?;
 
         let full_url = format!(
