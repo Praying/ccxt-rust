@@ -64,7 +64,9 @@ pub use parsers::{
     BidAskParser, MarkPriceParser, OhlcvParser, StreamParser, TickerParser, TradeParser,
 };
 pub use streams::normalize_symbol;
-pub use subscriptions::{ReconnectConfig, Subscription, SubscriptionManager, SubscriptionType};
+pub use subscriptions::{
+    ReconnectConfig, Subscription, SubscriptionHandle, SubscriptionManager, SubscriptionType,
+};
 pub use types::{
     BinanceWsConfig, DepthLevel, UpdateSpeed, WsChannelConfig, WsErrorRecovery, WsHealthSnapshot,
 };
@@ -236,10 +238,10 @@ impl BinanceWs {
         }
     }
 
-    /// Creates a WebSocket client with a listen key manager
-    pub fn new_with_auth(url: String, binance: Arc<Binance>) -> Self {
+    /// Creates a WebSocket client with a listen key manager for a specific market type
+    pub fn new_with_auth(url: String, binance: Arc<Binance>, market_type: MarketType) -> Self {
         let subscription_manager = Arc::new(SubscriptionManager::new());
-        let listen_key_manager = Arc::new(ListenKeyManager::new(binance));
+        let listen_key_manager = Arc::new(ListenKeyManager::new_for_market(binance, market_type));
         let message_router = Arc::new(MessageRouter::new(
             url,
             subscription_manager.clone(),
@@ -690,12 +692,21 @@ impl BinanceWs {
         Ok(rx)
     }
 
-    /// Cancels an existing subscription
+    /// Cancels an existing subscription.
+    ///
+    /// Only sends the UNSUBSCRIBE command to the server when the reference count
+    /// reaches zero (no more active handles for this stream).
     pub async fn unsubscribe(&self, stream: String) -> Result<()> {
-        self.subscription_manager
+        let fully_removed = self
+            .subscription_manager
             .remove_subscription(&stream)
             .await?;
-        self.message_router.unsubscribe(vec![stream]).await
+
+        // Only send UNSUBSCRIBE to the server if the subscription was fully removed
+        if fully_removed {
+            self.message_router.unsubscribe(vec![stream]).await?;
+        }
+        Ok(())
     }
 
     /// Receives the next available message

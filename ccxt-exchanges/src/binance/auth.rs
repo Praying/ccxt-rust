@@ -140,6 +140,7 @@ impl BinanceAuth {
     /// # Returns
     ///
     /// Returns a URL-encoded query string with parameters sorted by key.
+    /// Both keys and values are URL-encoded to handle special characters.
     #[allow(clippy::unused_self)]
     pub(crate) fn build_query_string(&self, params: &BTreeMap<String, String>) -> String {
         let mut pairs: Vec<_> = params.iter().collect();
@@ -147,7 +148,7 @@ impl BinanceAuth {
 
         pairs
             .iter()
-            .map(|(k, v)| format!("{k}={v}"))
+            .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
             .collect::<Vec<_>>()
             .join("&")
     }
@@ -188,7 +189,7 @@ impl BinanceAuth {
 ///
 /// # Returns
 ///
-/// Returns the complete URL with query parameters.
+/// Returns the complete URL with URL-encoded query parameters.
 pub fn build_signed_url<S: std::hash::BuildHasher>(
     base_url: &str,
     endpoint: &str,
@@ -196,7 +197,7 @@ pub fn build_signed_url<S: std::hash::BuildHasher>(
 ) -> String {
     let query_string = params
         .iter()
-        .map(|(k, v)| format!("{k}={v}"))
+        .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&");
 
@@ -309,5 +310,110 @@ mod tests {
         let url = build_signed_url("https://api.binance.com", "/api/v3/time", &params);
 
         assert_eq!(url, "https://api.binance.com/api/v3/time");
+    }
+
+    #[test]
+    fn test_build_query_string_url_encoding() {
+        let auth = BinanceAuth::new("test_key", "test_secret");
+        let mut params = BTreeMap::new();
+        // Test special characters that need URL encoding
+        params.insert("clientOrderId".to_string(), "order+123&test".to_string());
+        params.insert("symbol".to_string(), "BTC/USDT".to_string());
+
+        let query = auth.build_query_string(&params);
+
+        // Verify special characters are URL encoded
+        assert!(query.contains("clientOrderId=order%2B123%26test"));
+        assert!(query.contains("symbol=BTC%2FUSDT"));
+        // Verify & is used as separator (not encoded)
+        assert!(query.contains("&"));
+    }
+
+    #[test]
+    fn test_build_query_string_space_encoding() {
+        let auth = BinanceAuth::new("test_key", "test_secret");
+        let mut params = BTreeMap::new();
+        params.insert("note".to_string(), "hello world".to_string());
+
+        let query = auth.build_query_string(&params);
+
+        // Space should be encoded as %20
+        assert!(query.contains("note=hello%20world"));
+    }
+
+    #[test]
+    fn test_build_query_string_equals_encoding() {
+        let auth = BinanceAuth::new("test_key", "test_secret");
+        let mut params = BTreeMap::new();
+        params.insert("filter".to_string(), "price=100".to_string());
+
+        let query = auth.build_query_string(&params);
+
+        // = in value should be encoded as %3D
+        assert!(query.contains("filter=price%3D100"));
+    }
+
+    #[test]
+    fn test_signature_consistency_with_encoding() {
+        let auth = BinanceAuth::new("test_key", "test_secret");
+        let mut params = BTreeMap::new();
+        params.insert("symbol".to_string(), "BTC/USDT".to_string());
+        params.insert("side".to_string(), "BUY".to_string());
+
+        // Sign the same params twice
+        let signed1 = auth.sign_params(&params).expect("Sign failed");
+        let signed2 = auth.sign_params(&params).expect("Sign failed");
+
+        // Signatures should be identical for same input
+        assert_eq!(
+            signed1.get("signature").expect("Missing sig1"),
+            signed2.get("signature").expect("Missing sig2")
+        );
+    }
+
+    #[test]
+    fn test_signature_changes_with_different_params() {
+        let auth = BinanceAuth::new("test_key", "test_secret");
+
+        let mut params1 = BTreeMap::new();
+        params1.insert("symbol".to_string(), "BTCUSDT".to_string());
+
+        let mut params2 = BTreeMap::new();
+        params2.insert("symbol".to_string(), "ETHUSDT".to_string());
+
+        let signed1 = auth.sign_params(&params1).expect("Sign failed");
+        let signed2 = auth.sign_params(&params2).expect("Sign failed");
+
+        // Signatures should be different for different input
+        assert_ne!(
+            signed1.get("signature").expect("Missing sig1"),
+            signed2.get("signature").expect("Missing sig2")
+        );
+    }
+
+    #[test]
+    fn test_build_signed_url_with_special_chars() {
+        let mut params = HashMap::new();
+        params.insert("clientOrderId".to_string(), "test+order".to_string());
+        params.insert("signature".to_string(), "abc123".to_string());
+
+        let url = build_signed_url("https://api.binance.com", "/api/v3/order", &params);
+
+        // Special chars in values should be URL encoded
+        assert!(url.contains("clientOrderId=test%2Border"));
+    }
+
+    #[test]
+    fn test_alphabetical_sorting() {
+        let auth = BinanceAuth::new("test_key", "test_secret");
+        let mut params = BTreeMap::new();
+        params.insert("zebra".to_string(), "z".to_string());
+        params.insert("apple".to_string(), "a".to_string());
+        params.insert("mango".to_string(), "m".to_string());
+
+        let query = auth.build_query_string(&params);
+
+        // BTreeMap ensures alphabetical order
+        assert_eq!(query, "apple=a&mango=m&zebra=z");
     }
 }

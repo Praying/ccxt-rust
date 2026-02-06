@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use ccxt_core::{
     error::{Error, Result},
     types::{
-        Balance, Ohlcv, Order, OrderBook, Ticker, Timeframe, Trade, financial::Amount,
+        Balance, MarketType, Ohlcv, Order, OrderBook, Ticker, Timeframe, Trade, financial::Amount,
         financial::Price,
     },
     ws_client::WsConnectionState,
@@ -48,8 +48,12 @@ impl WsExchange for Binance {
     // ==================== Connection Management ====================
 
     async fn ws_connect(&self) -> Result<()> {
-        // Ensure at least one public connection is active
-        let _ = self.connection_manager.get_public_connection().await?;
+        // Ensure at least one public connection is active for the default market type
+        let default_market_type = MarketType::from(self.options.default_type);
+        let _ = self
+            .connection_manager
+            .get_public_connection(default_market_type)
+            .await?;
         Ok(())
     }
 
@@ -80,8 +84,11 @@ impl WsExchange for Binance {
         let binance_symbol = market.id.to_lowercase();
         let stream = format!("{}@ticker", binance_symbol);
 
-        // Get shared public connection
-        let ws = self.connection_manager.get_public_connection().await?;
+        // Get shared public connection for this market type
+        let ws = self
+            .connection_manager
+            .get_public_connection(market.market_type)
+            .await?;
 
         // Create subscription channel
         let (tx, mut rx) = mpsc::channel(1024);
@@ -141,7 +148,13 @@ impl WsExchange for Binance {
             markets.insert(binance_symbol.clone(), market);
 
             // Get connection (might be different for each symbol if sharding active)
-            let ws = self.connection_manager.get_public_connection().await?;
+            let Some(market_ref) = markets.get(&binance_symbol) else {
+                continue;
+            };
+            let ws = self
+                .connection_manager
+                .get_public_connection(market_ref.market_type)
+                .await?;
             let (tx, mut rx) = mpsc::channel(1024);
 
             ws.subscription_manager
@@ -196,6 +209,17 @@ impl WsExchange for Binance {
         symbol: &str,
         limit: Option<u32>,
     ) -> Result<MessageStream<OrderBook>> {
+        // Validate depth limit if provided
+        const VALID_WS_DEPTH_LIMITS: &[u32] = &[5, 10, 20];
+        if let Some(l) = limit {
+            if !VALID_WS_DEPTH_LIMITS.contains(&l) {
+                return Err(Error::invalid_request(format!(
+                    "Invalid WebSocket depth limit: {}. Valid values: {:?}",
+                    l, VALID_WS_DEPTH_LIMITS
+                )));
+            }
+        }
+
         // Load markets
         self.load_markets(false).await?;
 
@@ -203,12 +227,20 @@ impl WsExchange for Binance {
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        // Subscribe to orderbook stream
-        let levels = limit.unwrap_or(20);
-        let stream = format!("{}@depth{}@100ms", binance_symbol, levels);
+        // Choose stream based on limit:
+        // - With limit (5/10/20): use @depth{N}@100ms for partial book snapshots
+        // - Without limit: use @depth@100ms for incremental diff updates
+        let stream = if let Some(l) = limit {
+            format!("{}@depth{}@100ms", binance_symbol, l)
+        } else {
+            format!("{}@depth@100ms", binance_symbol)
+        };
 
-        // Get shared public connection
-        let ws = self.connection_manager.get_public_connection().await?;
+        // Get shared public connection for this market type
+        let ws = self
+            .connection_manager
+            .get_public_connection(market.market_type)
+            .await?;
 
         // Create subscription channel
         let (tx, mut rx) = mpsc::channel(1024);
@@ -259,8 +291,11 @@ impl WsExchange for Binance {
         let binance_symbol = market.id.to_lowercase();
         let stream = format!("{}@trade", binance_symbol);
 
-        // Get shared public connection
-        let ws = self.connection_manager.get_public_connection().await?;
+        // Get shared public connection for this market type
+        let ws = self
+            .connection_manager
+            .get_public_connection(market.market_type)
+            .await?;
 
         // Create subscription channel
         let (tx, mut rx) = mpsc::channel(1024);
@@ -319,8 +354,11 @@ impl WsExchange for Binance {
         let interval = timeframe.to_string();
         let stream = format!("{}@kline_{}", binance_symbol, interval);
 
-        // Get shared public connection
-        let ws = self.connection_manager.get_public_connection().await?;
+        // Get shared public connection for this market type
+        let ws = self
+            .connection_manager
+            .get_public_connection(market.market_type)
+            .await?;
 
         // Create subscription channel
         let (tx, mut rx) = mpsc::channel(1024);
@@ -387,9 +425,10 @@ impl WsExchange for Binance {
             .map_err(|_| Error::authentication("API credentials required for watch_balance"))?;
 
         let binance_arc = Arc::new(self.clone());
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&binance_arc)
+            .get_private_connection(default_market_type, &binance_arc)
             .await?;
 
         let (tx, mut rx) = mpsc::channel(1024);
@@ -443,9 +482,10 @@ impl WsExchange for Binance {
             .map_err(|_| Error::authentication("API credentials required for watch_orders"))?;
 
         let binance_arc = Arc::new(self.clone());
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&binance_arc)
+            .get_private_connection(default_market_type, &binance_arc)
             .await?;
 
         let (tx, mut rx) = mpsc::channel(1024);
@@ -467,9 +507,17 @@ impl WsExchange for Binance {
             while let Some(msg) = rx.recv().await {
                 if let Some(data) = msg.as_object() {
                     if let Some(event_type) = data.get("e").and_then(|e| e.as_str()) {
-                        if event_type == "executionReport" {
-                            let order = super::ws::user_data::parse_ws_order(data);
+                        let order = match event_type {
+                            // Spot market order updates
+                            "executionReport" => Some(super::ws::user_data::parse_ws_order(data)),
+                            // Futures market order updates
+                            "ORDER_TRADE_UPDATE" => {
+                                super::ws::user_data::parse_order_trade_update_to_order(&msg).ok()
+                            }
+                            _ => None,
+                        };
 
+                        if let Some(order) = order {
                             {
                                 let mut orders = orders_cache.write().await;
                                 let symbol_orders = orders
@@ -504,9 +552,10 @@ impl WsExchange for Binance {
             .map_err(|_| Error::authentication("API credentials required for watch_my_trades"))?;
 
         let binance_arc = Arc::new(self.clone());
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&binance_arc)
+            .get_private_connection(default_market_type, &binance_arc)
             .await?;
 
         let (tx, mut rx) = mpsc::channel(1024);
@@ -527,30 +576,38 @@ impl WsExchange for Binance {
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 if let Some(event_type) = msg.get("e").and_then(|e| e.as_str()) {
-                    if event_type == "executionReport" {
-                        if let Ok(trade) = super::ws::user_data::parse_ws_trade(&msg) {
-                            {
-                                let mut trades = trades_cache.write().await;
+                    let trade_result = match event_type {
+                        // Spot market trade executions
+                        "executionReport" => super::ws::user_data::parse_ws_trade(&msg).ok(),
+                        // Futures market trade executions
+                        "ORDER_TRADE_UPDATE" => {
+                            super::ws::user_data::parse_order_trade_update_to_trade(&msg).ok()
+                        }
+                        _ => None,
+                    };
 
-                                let symbol_trades = trades
-                                    .entry(trade.symbol.clone())
-                                    .or_insert_with(std::collections::VecDeque::new);
-                                symbol_trades.push_front(trade.clone());
-                                if symbol_trades.len() > 1000 {
-                                    symbol_trades.pop_back();
-                                }
-                            }
+                    if let Some(trade) = trade_result {
+                        {
+                            let mut trades = trades_cache.write().await;
 
-                            // Filter and send
-                            if let Some(s) = &symbol_filter {
-                                if &trade.symbol != s {
-                                    continue;
-                                }
+                            let symbol_trades = trades
+                                .entry(trade.symbol.clone())
+                                .or_insert_with(std::collections::VecDeque::new);
+                            symbol_trades.push_front(trade.clone());
+                            if symbol_trades.len() > 1000 {
+                                symbol_trades.pop_back();
                             }
+                        }
 
-                            if user_tx.send(Ok(trade)).await.is_err() {
-                                break;
+                        // Filter and send
+                        if let Some(s) = &symbol_filter {
+                            if &trade.symbol != s {
+                                continue;
                             }
+                        }
+
+                        if user_tx.send(Ok(trade)).await.is_err() {
+                            break;
                         }
                     }
                 }
@@ -564,8 +621,19 @@ impl WsExchange for Binance {
     // ==================== Subscription Management ====================
 
     async fn subscribe(&self, channel: &str, symbol: Option<&str>) -> Result<()> {
+        // Determine market type from symbol or use default
+        let market_type = if let Some(sym) = symbol {
+            let market = self.base.market(sym).await?;
+            market.market_type
+        } else {
+            MarketType::from(self.options.default_type)
+        };
+
         // Create WebSocket and connect
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self
+            .connection_manager
+            .get_public_connection(market_type)
+            .await?;
 
         // Use the appropriate subscription method based on channel
         // Note: The receiver is intentionally dropped here as this is a fire-and-forget subscription.
@@ -615,8 +683,19 @@ impl WsExchange for Binance {
             channel.to_string()
         };
 
+        // Determine market type from symbol or use default
+        let market_type = if let Some(sym) = symbol {
+            let market = self.base.market(sym).await?;
+            market.market_type
+        } else {
+            MarketType::from(self.options.default_type)
+        };
+
         // Create WS to unsubscribe
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self
+            .connection_manager
+            .get_public_connection(market_type)
+            .await?;
         ws.unsubscribe(stream_name).await
     }
 

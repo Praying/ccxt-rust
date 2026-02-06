@@ -9,7 +9,8 @@ impl Binance {
         &self,
         symbol: &str,
     ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
-        let ws = self.connection_manager.get_public_connection().await?;
+        let default_market_type = MarketType::from(self.options.default_type);
+        let ws = self.connection_manager.get_public_connection(default_market_type).await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_ticker(&binance_symbol).await
     }
@@ -21,7 +22,8 @@ impl Binance {
         &self,
         symbol: &str,
     ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
-        let ws = self.connection_manager.get_public_connection().await?;
+        let default_market_type = MarketType::from(self.options.default_type);
+        let ws = self.connection_manager.get_public_connection(default_market_type).await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_trades(&binance_symbol).await
     }
@@ -36,7 +38,8 @@ impl Binance {
     ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
         use super::ws::{DepthLevel, UpdateSpeed};
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let default_market_type = MarketType::from(self.options.default_type);
+        let ws = self.connection_manager.get_public_connection(default_market_type).await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         let depth_level = match levels.unwrap_or(20) {
             5 => DepthLevel::L5,
@@ -55,7 +58,8 @@ impl Binance {
         symbol: &str,
         interval: &str,
     ) -> Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
-        let ws = self.connection_manager.get_public_connection().await?;
+        let default_market_type = MarketType::from(self.options.default_type);
+        let ws = self.connection_manager.get_public_connection(default_market_type).await?;
         let binance_symbol = symbol.replace('/', "").to_lowercase();
         ws.subscribe_kline(&binance_symbol, interval).await
     }
@@ -78,7 +82,7 @@ impl Binance {
             "ticker"
         };
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market.market_type).await?;
         ws.watch_ticker_internal(&binance_symbol, channel_name)
             .await
     }
@@ -116,7 +120,8 @@ impl Binance {
             None
         };
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let default_market_type = MarketType::from(self.options.default_type);
+        let ws = self.connection_manager.get_public_connection(default_market_type).await?;
         ws.watch_tickers_internal(binance_symbols, channel_name)
             .await
     }
@@ -153,7 +158,7 @@ impl Binance {
             "markPrice"
         };
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market.market_type).await?;
         ws.watch_mark_price_internal(&binance_symbol, channel_name)
             .await
     }
@@ -184,7 +189,7 @@ impl Binance {
             UpdateSpeed::Ms100
         };
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market.market_type).await?;
         ws.watch_orderbook_internal(self, &binance_symbol, limit, update_speed, is_futures)
             .await
     }
@@ -212,10 +217,12 @@ impl Binance {
 
         let mut binance_symbols = Vec::new();
         let mut is_futures = false;
+        let mut market_type = MarketType::from(self.options.default_type);
 
         for symbol in &symbols {
             let market = self.base.market(symbol).await?;
             binance_symbols.push(market.id.to_lowercase());
+            market_type = market.market_type;
 
             let current_is_futures =
                 market.market_type == MarketType::Swap || market.market_type == MarketType::Futures;
@@ -236,7 +243,7 @@ impl Binance {
             UpdateSpeed::Ms100
         };
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market_type).await?;
         ws.watch_orderbooks_internal(self, binance_symbols, limit, update_speed, is_futures)
             .await
     }
@@ -263,6 +270,7 @@ impl Binance {
             "markPrice"
         };
 
+        let mut market_type = MarketType::from(self.options.default_type);
         let binance_symbols = if let Some(syms) = symbols {
             let mut result = Vec::new();
             for symbol in syms {
@@ -275,6 +283,7 @@ impl Binance {
                         market.market_type
                     )));
                 }
+                market_type = market.market_type;
                 result.push(market.id.to_lowercase());
             }
             Some(result)
@@ -282,7 +291,7 @@ impl Binance {
             None
         };
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market_type).await?;
         ws.watch_mark_prices_internal(binance_symbols, channel_name)
             .await
     }
@@ -299,7 +308,7 @@ impl Binance {
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market.market_type).await?;
 
         ws.watch_trades_internal(symbol, &binance_symbol, since, limit, Some(&market))
             .await
@@ -318,7 +327,7 @@ impl Binance {
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market.market_type).await?;
 
         ws.watch_ohlcv_internal(symbol, &binance_symbol, timeframe, since, limit)
             .await
@@ -331,7 +340,7 @@ impl Binance {
         let market = self.base.market(symbol).await?;
         let binance_symbol = market.id.to_lowercase();
 
-        let ws = self.connection_manager.get_public_connection().await?;
+        let ws = self.connection_manager.get_public_connection(market.market_type).await?;
 
         ws.watch_bids_asks_internal(symbol, &binance_symbol).await
     }
@@ -367,9 +376,10 @@ impl Binance {
             true
         };
 
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&self)
+            .get_private_connection(default_market_type, &self)
             .await?;
 
         if fetch_snapshot {
@@ -397,9 +407,10 @@ impl Binance {
     ) -> Result<Vec<Order>> {
         self.base.load_markets(false).await?;
 
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&self)
+            .get_private_connection(default_market_type, &self)
             .await?;
         ws.watch_orders_internal(symbol, since, limit).await
     }
@@ -412,9 +423,10 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Trade>> {
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&self)
+            .get_private_connection(default_market_type, &self)
             .await?;
         ws.watch_my_trades_internal(symbol, since, limit).await
     }
@@ -427,9 +439,10 @@ impl Binance {
         limit: Option<usize>,
         _params: Option<HashMap<String, Value>>,
     ) -> Result<Vec<Position>> {
+        let default_market_type = MarketType::from(self.options.default_type);
         let ws = self
             .connection_manager
-            .get_private_connection(&self)
+            .get_private_connection(default_market_type, &self)
             .await?;
         ws.watch_positions_internal(symbols, since, limit).await
     }

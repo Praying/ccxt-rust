@@ -3,6 +3,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio::sync::RwLock;
 
@@ -70,6 +71,8 @@ pub struct Subscription {
     pub subscribed_at: Instant,
     /// Sender for forwarding WebSocket messages to consumers
     pub sender: tokio::sync::mpsc::Sender<Value>,
+    /// Reference count for this subscription (how many handles are active)
+    ref_count: Arc<AtomicUsize>,
 }
 
 impl Subscription {
@@ -86,6 +89,7 @@ impl Subscription {
             sub_type,
             subscribed_at: Instant::now(),
             sender,
+            ref_count: Arc::new(AtomicUsize::new(1)),
         }
     }
 
@@ -93,6 +97,22 @@ impl Subscription {
     pub fn send(&self, message: Value) -> bool {
         // Use try_send to avoid blocking if channel is full (drop strategy)
         self.sender.try_send(message).is_ok()
+    }
+
+    /// Increments the reference count and returns the new value
+    pub fn add_ref(&self) -> usize {
+        self.ref_count.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Decrements the reference count and returns the new value
+    pub fn remove_ref(&self) -> usize {
+        let prev = self.ref_count.fetch_sub(1, Ordering::SeqCst);
+        prev.saturating_sub(1)
+    }
+
+    /// Returns the current reference count
+    pub fn ref_count(&self) -> usize {
+        self.ref_count.load(Ordering::SeqCst)
     }
 }
 
@@ -116,7 +136,10 @@ impl SubscriptionManager {
         }
     }
 
-    /// Adds a subscription to the manager
+    /// Adds a subscription to the manager.
+    ///
+    /// If a subscription for the same stream already exists, increments the reference count
+    /// instead of creating a duplicate subscription.
     pub async fn add_subscription(
         &self,
         stream: String,
@@ -124,9 +147,16 @@ impl SubscriptionManager {
         sub_type: SubscriptionType,
         sender: tokio::sync::mpsc::Sender<Value>,
     ) -> ccxt_core::error::Result<()> {
+        let mut subs = self.subscriptions.write().await;
+
+        // Check if subscription already exists - increment ref count
+        if let Some(existing) = subs.get(&stream) {
+            existing.add_ref();
+            return Ok(());
+        }
+
         let subscription = Subscription::new(stream.clone(), symbol.clone(), sub_type, sender);
 
-        let mut subs = self.subscriptions.write().await;
         subs.insert(stream.clone(), subscription);
 
         let mut index = self.symbol_index.write().await;
@@ -138,11 +168,24 @@ impl SubscriptionManager {
         Ok(())
     }
 
-    /// Removes a subscription by stream name
-    pub async fn remove_subscription(&self, stream: &str) -> ccxt_core::error::Result<()> {
+    /// Removes a subscription by stream name.
+    ///
+    /// Only actually removes the subscription when the reference count reaches zero.
+    /// Returns `true` if the subscription was fully removed (ref count hit zero).
+    pub async fn remove_subscription(&self, stream: &str) -> ccxt_core::error::Result<bool> {
         let mut subs = self.subscriptions.write().await;
 
-        if let Some(subscription) = subs.remove(stream) {
+        if let Some(subscription) = subs.get(stream) {
+            let remaining = subscription.remove_ref();
+            if remaining > 0 {
+                // Still has active references, don't remove
+                return Ok(false);
+            }
+
+            // Ref count is zero, remove the subscription
+            let Some(subscription) = subs.remove(stream) else {
+                return Ok(false);
+            };
             let mut index = self.symbol_index.write().await;
             if let Some(streams) = index.get_mut(&subscription.symbol) {
                 streams.retain(|s| s != stream);
@@ -153,9 +196,10 @@ impl SubscriptionManager {
 
             self.active_count
                 .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(())
     }
 
     /// Retrieves a subscription by stream name
@@ -315,5 +359,101 @@ impl ReconnectConfig {
     /// Determines whether another reconnection attempt should be made
     pub fn should_retry(&self, attempt: usize) -> bool {
         self.enabled && (self.max_attempts == 0 || attempt < self.max_attempts)
+    }
+}
+
+/// A handle to an active subscription that automatically unsubscribes when dropped.
+///
+/// `SubscriptionHandle` implements a RAII pattern for WebSocket subscriptions.
+/// When the handle is dropped, it decrements the reference count for the stream
+/// and triggers an UNSUBSCRIBE command if no more handles reference the stream.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let handle = subscription_manager.subscribe("btcusdt@ticker", ...).await?;
+/// // ... use the subscription ...
+/// drop(handle); // Automatically unsubscribes when dropped
+/// ```
+pub struct SubscriptionHandle {
+    /// The stream name this handle is associated with
+    stream: String,
+    /// Reference to the subscription manager for cleanup
+    subscription_manager: Arc<SubscriptionManager>,
+    /// Reference to the message router for sending UNSUBSCRIBE
+    message_router: Option<Arc<crate::binance::ws::handlers::MessageRouter>>,
+    /// Whether this handle has already been released
+    released: bool,
+}
+
+impl SubscriptionHandle {
+    /// Creates a new subscription handle.
+    pub fn new(
+        stream: String,
+        subscription_manager: Arc<SubscriptionManager>,
+        message_router: Option<Arc<crate::binance::ws::handlers::MessageRouter>>,
+    ) -> Self {
+        Self {
+            stream,
+            subscription_manager,
+            message_router,
+            released: false,
+        }
+    }
+
+    /// Returns the stream name associated with this handle.
+    pub fn stream(&self) -> &str {
+        &self.stream
+    }
+
+    /// Manually releases the subscription handle.
+    ///
+    /// This is equivalent to dropping the handle, but allows for async cleanup.
+    /// After calling this method, the Drop implementation will be a no-op.
+    pub async fn release(mut self) -> ccxt_core::error::Result<()> {
+        self.released = true;
+        self.do_release().await
+    }
+
+    /// Internal release logic
+    async fn do_release(&self) -> ccxt_core::error::Result<()> {
+        let fully_removed = self
+            .subscription_manager
+            .remove_subscription(&self.stream)
+            .await?;
+
+        if fully_removed {
+            if let Some(router) = &self.message_router {
+                router.unsubscribe(vec![self.stream.clone()]).await?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for SubscriptionHandle {
+    fn drop(&mut self) {
+        if self.released {
+            return;
+        }
+
+        // We can't do async work in Drop, so we spawn a task to handle cleanup
+        let stream = self.stream.clone();
+        let subscription_manager = self.subscription_manager.clone();
+        let message_router = self.message_router.clone();
+
+        tokio::spawn(async move {
+            let fully_removed = subscription_manager
+                .remove_subscription(&stream)
+                .await
+                .unwrap_or(false);
+
+            if fully_removed {
+                if let Some(router) = &message_router {
+                    let _ = router.unsubscribe(vec![stream]).await;
+                }
+            }
+        });
     }
 }

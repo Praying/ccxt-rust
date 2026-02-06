@@ -76,11 +76,13 @@ impl SigningStrategy for BinanceSigningStrategy {
     }
 }
 
-/// Build query string for signing (without URL encoding).
+/// Build query string for signing with URL encoding.
+///
+/// Both keys and values are URL-encoded to handle special characters correctly.
 fn build_signing_string(params: &std::collections::BTreeMap<String, String>) -> String {
     params
         .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
+        .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&")
 }

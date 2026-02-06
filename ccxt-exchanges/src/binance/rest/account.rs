@@ -3,11 +3,11 @@
 //! This module contains all account-related methods including balance,
 //! trade history, account configuration, and user data stream management.
 
-use super::super::{Binance, parser};
+use super::super::{Binance, BinanceEndpointRouter, parser};
 use ccxt_core::types::AccountType;
 use ccxt_core::{
     Error, ParseError, Result,
-    types::{Balance, Currency, FeeTradingFee, MarketType, Trade},
+    types::{Balance, Currency, EndpointType, FeeTradingFee, MarketType, Trade},
 };
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
@@ -391,7 +391,9 @@ impl Binance {
         limit: Option<u32>,
     ) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}/myTrades", self.urls().private);
+        // Use market-type-aware endpoint routing
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}/myTrades", base_url);
 
         let data = self
             .signed_request(url)
@@ -470,7 +472,9 @@ impl Binance {
         params: Option<HashMap<String, String>>,
     ) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
-        let url = format!("{}/myTrades", self.urls().private);
+        // Use market-type-aware endpoint routing
+        let base_url = self.rest_endpoint(&market, EndpointType::Private);
+        let url = format!("{}/myTrades", base_url);
 
         // Convert HashMap to serde_json::Value for merge_json_params
         let json_params = params.map(|p| {
@@ -714,7 +718,7 @@ impl Binance {
         Ok(fees)
     }
 
-    /// Create a listen key for user data stream.
+    /// Create a listen key for user data stream (spot market).
     ///
     /// Creates a new listen key that can be used to subscribe to user data streams
     /// via WebSocket. The listen key is valid for 60 minutes.
@@ -746,9 +750,57 @@ impl Binance {
     /// # }
     /// ```
     pub async fn create_listen_key(&self) -> Result<String> {
+        self.create_listen_key_for_market(None).await
+    }
+
+    /// Create a listen key for user data stream with market type routing.
+    ///
+    /// Creates a new listen key for the specified market type. Different market types
+    /// use different API endpoints:
+    /// - Spot: `/api/v3/userDataStream`
+    /// - USDT-M Futures: `/fapi/v1/listenKey`
+    /// - COIN-M Futures: `/dapi/v1/listenKey`
+    /// - Options: `/eapi/v1/listenKey`
+    ///
+    /// # Arguments
+    ///
+    /// * `market_type` - Optional market type. If None, defaults to Spot.
+    ///
+    /// # Returns
+    ///
+    /// Returns the listen key string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - API credentials are not configured
+    /// - API request fails
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ccxt_exchanges::binance::Binance;
+    /// # use ccxt_core::ExchangeConfig;
+    /// # use ccxt_core::types::MarketType;
+    /// # async fn example() -> ccxt_core::Result<()> {
+    /// let mut config = ExchangeConfig::default();
+    /// config.api_key = Some("your_api_key".to_string());
+    /// config.secret = Some("your_secret".to_string());
+    /// let binance = Binance::new(config)?;
+    ///
+    /// // Create listen key for futures
+    /// let listen_key = binance.create_listen_key_for_market(Some(MarketType::Swap)).await?;
+    /// println!("Futures Listen Key: {}", listen_key);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn create_listen_key_for_market(
+        &self,
+        market_type: Option<MarketType>,
+    ) -> Result<String> {
         self.check_required_credentials()?;
 
-        let url = format!("{}/userDataStream", self.urls().public);
+        let url = self.get_listen_key_url(market_type, None);
         let mut headers = HeaderMap::new();
 
         let auth = self.get_auth()?;
@@ -766,7 +818,7 @@ impl Binance {
             .ok_or_else(|| Error::from(ParseError::missing_field("listenKey")))
     }
 
-    /// Refresh listen key to extend validity.
+    /// Refresh listen key to extend validity (spot market).
     ///
     /// Extends the listen key validity by 60 minutes. Recommended to call
     /// every 30 minutes to maintain the connection.
@@ -786,13 +838,36 @@ impl Binance {
     /// - Listen key is invalid or expired
     /// - API request fails
     pub async fn refresh_listen_key(&self, listen_key: &str) -> Result<()> {
+        self.refresh_listen_key_for_market(listen_key, None).await
+    }
+
+    /// Refresh listen key with market type routing.
+    ///
+    /// Extends the listen key validity by 60 minutes for the specified market type.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - The listen key to refresh.
+    /// * `market_type` - Optional market type. If None, defaults to Spot.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - API credentials are not configured
+    /// - Listen key is invalid or expired
+    /// - API request fails
+    pub async fn refresh_listen_key_for_market(
+        &self,
+        listen_key: &str,
+        market_type: Option<MarketType>,
+    ) -> Result<()> {
         self.check_required_credentials()?;
 
-        let url = format!(
-            "{}/userDataStream?listenKey={}",
-            self.urls().public,
-            listen_key
-        );
+        let url = self.get_listen_key_url(market_type, Some(listen_key));
         let mut headers = HeaderMap::new();
 
         let auth = self.get_auth()?;
@@ -807,7 +882,7 @@ impl Binance {
         Ok(())
     }
 
-    /// Delete listen key to close user data stream.
+    /// Delete listen key to close user data stream (spot market).
     ///
     /// Closes the user data stream connection and invalidates the listen key.
     ///
@@ -825,13 +900,270 @@ impl Binance {
     /// - API credentials are not configured
     /// - API request fails
     pub async fn delete_listen_key(&self, listen_key: &str) -> Result<()> {
+        self.delete_listen_key_for_market(listen_key, None).await
+    }
+
+    /// Delete listen key with market type routing.
+    ///
+    /// Closes the user data stream connection for the specified market type.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - The listen key to delete.
+    /// * `market_type` - Optional market type. If None, defaults to Spot.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - API credentials are not configured
+    /// - API request fails
+    pub async fn delete_listen_key_for_market(
+        &self,
+        listen_key: &str,
+        market_type: Option<MarketType>,
+    ) -> Result<()> {
         self.check_required_credentials()?;
 
-        let url = format!(
-            "{}/userDataStream?listenKey={}",
-            self.urls().public,
-            listen_key
-        );
+        let url = self.get_listen_key_url(market_type, Some(listen_key));
+        let mut headers = HeaderMap::new();
+
+        let auth = self.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        let _response = self
+            .base()
+            .http_client
+            .delete(&url, Some(headers), None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Get the listen key URL for the specified market type.
+    ///
+    /// # Arguments
+    ///
+    /// * `market_type` - Optional market type. If None, defaults to Spot.
+    /// * `listen_key` - Optional listen key to include in the URL (for refresh/delete).
+    ///
+    /// # Returns
+    ///
+    /// Returns the appropriate URL for the listen key operation.
+    fn get_listen_key_url(
+        &self,
+        market_type: Option<MarketType>,
+        listen_key: Option<&str>,
+    ) -> String {
+        let urls = self.urls();
+        let (base_url, endpoint) = match market_type {
+            Some(MarketType::Swap | MarketType::Futures) => {
+                // Check if it's linear (USDT-M) or inverse (COIN-M) based on default_type
+                // For now, default to linear (fapi) for Swap/Futures
+                (urls.fapi_public.clone(), "listenKey")
+            }
+            Some(MarketType::Option) => (urls.eapi_public.clone(), "listenKey"),
+            // Spot is the default
+            None | Some(MarketType::Spot) => (urls.public.clone(), "userDataStream"),
+        };
+
+        match listen_key {
+            Some(key) => format!("{}/{}?listenKey={}", base_url, endpoint, key),
+            None => format!("{}/{}", base_url, endpoint),
+        }
+    }
+
+    /// Get the listen key URL for linear (USDT-M) futures.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - Optional listen key to include in the URL.
+    ///
+    /// # Returns
+    ///
+    /// Returns the URL for linear futures listen key operations.
+    pub fn get_linear_listen_key_url(&self, listen_key: Option<&str>) -> String {
+        let base_url = &self.urls().fapi_public;
+        match listen_key {
+            Some(key) => format!("{}/listenKey?listenKey={}", base_url, key),
+            None => format!("{}/listenKey", base_url),
+        }
+    }
+
+    /// Get the listen key URL for inverse (COIN-M) futures.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - Optional listen key to include in the URL.
+    ///
+    /// # Returns
+    ///
+    /// Returns the URL for inverse futures listen key operations.
+    pub fn get_inverse_listen_key_url(&self, listen_key: Option<&str>) -> String {
+        let base_url = &self.urls().dapi_public;
+        match listen_key {
+            Some(key) => format!("{}/listenKey?listenKey={}", base_url, key),
+            None => format!("{}/listenKey", base_url),
+        }
+    }
+
+    /// Create a listen key for linear (USDT-M) futures.
+    ///
+    /// # Returns
+    ///
+    /// Returns the listen key string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if API credentials are not configured or the request fails.
+    pub async fn create_linear_listen_key(&self) -> Result<String> {
+        self.check_required_credentials()?;
+
+        let url = self.get_linear_listen_key_url(None);
+        let mut headers = HeaderMap::new();
+
+        let auth = self.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        let response = self
+            .base()
+            .http_client
+            .post(&url, Some(headers), None)
+            .await?;
+
+        response["listenKey"]
+            .as_str()
+            .map(ToString::to_string)
+            .ok_or_else(|| Error::from(ParseError::missing_field("listenKey")))
+    }
+
+    /// Create a listen key for inverse (COIN-M) futures.
+    ///
+    /// # Returns
+    ///
+    /// Returns the listen key string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if API credentials are not configured or the request fails.
+    pub async fn create_inverse_listen_key(&self) -> Result<String> {
+        self.check_required_credentials()?;
+
+        let url = self.get_inverse_listen_key_url(None);
+        let mut headers = HeaderMap::new();
+
+        let auth = self.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        let response = self
+            .base()
+            .http_client
+            .post(&url, Some(headers), None)
+            .await?;
+
+        response["listenKey"]
+            .as_str()
+            .map(ToString::to_string)
+            .ok_or_else(|| Error::from(ParseError::missing_field("listenKey")))
+    }
+
+    /// Refresh a linear (USDT-M) futures listen key.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - The listen key to refresh.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    pub async fn refresh_linear_listen_key(&self, listen_key: &str) -> Result<()> {
+        self.check_required_credentials()?;
+
+        let url = self.get_linear_listen_key_url(Some(listen_key));
+        let mut headers = HeaderMap::new();
+
+        let auth = self.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        let _response = self
+            .base()
+            .http_client
+            .put(&url, Some(headers), None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Refresh an inverse (COIN-M) futures listen key.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - The listen key to refresh.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    pub async fn refresh_inverse_listen_key(&self, listen_key: &str) -> Result<()> {
+        self.check_required_credentials()?;
+
+        let url = self.get_inverse_listen_key_url(Some(listen_key));
+        let mut headers = HeaderMap::new();
+
+        let auth = self.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        let _response = self
+            .base()
+            .http_client
+            .put(&url, Some(headers), None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Delete a linear (USDT-M) futures listen key.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - The listen key to delete.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    pub async fn delete_linear_listen_key(&self, listen_key: &str) -> Result<()> {
+        self.check_required_credentials()?;
+
+        let url = self.get_linear_listen_key_url(Some(listen_key));
+        let mut headers = HeaderMap::new();
+
+        let auth = self.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        let _response = self
+            .base()
+            .http_client
+            .delete(&url, Some(headers), None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Delete an inverse (COIN-M) futures listen key.
+    ///
+    /// # Arguments
+    ///
+    /// * `listen_key` - The listen key to delete.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success.
+    pub async fn delete_inverse_listen_key(&self, listen_key: &str) -> Result<()> {
+        self.check_required_credentials()?;
+
+        let url = self.get_inverse_listen_key_url(Some(listen_key));
         let mut headers = HeaderMap::new();
 
         let auth = self.get_auth()?;
