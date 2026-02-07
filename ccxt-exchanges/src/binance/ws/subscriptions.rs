@@ -69,8 +69,8 @@ pub struct Subscription {
     pub sub_type: SubscriptionType,
     /// Timestamp when the subscription was created
     pub subscribed_at: Instant,
-    /// Sender for forwarding WebSocket messages to consumers
-    pub sender: tokio::sync::mpsc::Sender<Value>,
+    /// Senders for forwarding WebSocket messages to consumers (supports multiple subscribers)
+    senders: Arc<std::sync::Mutex<Vec<tokio::sync::mpsc::Sender<Value>>>>,
     /// Reference count for this subscription (how many handles are active)
     ref_count: Arc<AtomicUsize>,
 }
@@ -88,15 +88,44 @@ impl Subscription {
             symbol,
             sub_type,
             subscribed_at: Instant::now(),
-            sender,
+            senders: Arc::new(std::sync::Mutex::new(vec![sender])),
             ref_count: Arc::new(AtomicUsize::new(1)),
         }
     }
 
-    /// Sends a message to the subscriber
+    /// Adds a new sender to this subscription for multi-subscriber support.
+    pub fn add_sender(&self, sender: tokio::sync::mpsc::Sender<Value>) {
+        if let Ok(mut senders) = self.senders.lock() {
+            senders.push(sender);
+        }
+    }
+
+    /// Sends a message to all subscribers, removing closed senders.
+    ///
+    /// Returns `true` if at least one sender successfully received the message.
     pub fn send(&self, message: Value) -> bool {
-        // Use try_send to avoid blocking if channel is full (drop strategy)
-        self.sender.try_send(message).is_ok()
+        if let Ok(mut senders) = self.senders.lock() {
+            let mut any_sent = false;
+            senders.retain(|sender| {
+                match sender.try_send(message.clone()) {
+                    Ok(()) => {
+                        any_sent = true;
+                        true // keep this sender
+                    }
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                        // Channel full - keep sender but count as not sent for backpressure
+                        true
+                    }
+                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                        // Receiver dropped - remove this sender
+                        false
+                    }
+                }
+            });
+            any_sent || !senders.is_empty()
+        } else {
+            false
+        }
     }
 
     /// Increments the reference count and returns the new value
@@ -149,8 +178,9 @@ impl SubscriptionManager {
     ) -> ccxt_core::error::Result<()> {
         let mut subs = self.subscriptions.write().await;
 
-        // Check if subscription already exists - increment ref count
+        // Check if subscription already exists - add sender and increment ref count
         if let Some(existing) = subs.get(&stream) {
+            existing.add_sender(sender);
             existing.add_ref();
             return Ok(());
         }

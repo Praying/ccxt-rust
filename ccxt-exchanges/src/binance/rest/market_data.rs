@@ -45,7 +45,7 @@ impl Binance {
     /// Returns an error if the request fails or the response is malformed.
     pub(crate) async fn fetch_time_raw(&self) -> Result<i64> {
         let url = format!("{}{}", self.get_rest_url_public(), endpoints::TIME);
-        let response = self.base().http_client.get(&url, None).await?;
+        let response = self.public_get(&url, None).await?;
 
         response["serverTime"]
             .as_i64()
@@ -69,7 +69,7 @@ impl Binance {
     pub async fn fetch_status(&self) -> Result<SystemStatus> {
         // System status is specific to Spot/Margin (SAPI)
         let url = format!("{}{}", self.sapi_endpoint(), endpoints::SYSTEM_STATUS);
-        let response = self.base().http_client.get(&url, None).await?;
+        let response = self.public_get(&url, None).await?;
 
         // Response format: { "status": 0, "msg": "normal" }
         // Status codes: 0 = normal, 1 = system maintenance
@@ -124,7 +124,7 @@ impl Binance {
         &self,
     ) -> Result<Arc<std::collections::HashMap<String, Arc<ccxt_core::types::Market>>>> {
         let url = format!("{}{}", self.get_rest_url_public(), endpoints::EXCHANGE_INFO);
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         let symbols = data["symbols"]
             .as_array()
@@ -264,7 +264,7 @@ impl Binance {
             }
         }
 
-        let data = self.base().http_client.get(url.as_str(), None).await?;
+        let data = self.public_get(url.as_str(), None).await?;
 
         parser::parse_ticker(&data, Some(&market))
     }
@@ -300,7 +300,7 @@ impl Binance {
         drop(cache);
 
         let url = format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR);
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         let tickers_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -387,7 +387,7 @@ impl Binance {
             }
         }
 
-        let data = self.base().http_client.get(url.as_str(), None).await?;
+        let data = self.public_get(url.as_str(), None).await?;
 
         parser::parse_orderbook(&data, market.symbol.clone())
     }
@@ -426,7 +426,7 @@ impl Binance {
             )
         };
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         let trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -528,7 +528,7 @@ impl Binance {
             }
         }
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         let agg_trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -604,7 +604,7 @@ impl Binance {
         let auth = self.get_auth()?;
         auth.add_auth_headers_reqwest(&mut headers);
 
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = self.public_get(&url, Some(headers)).await?;
 
         let trades_array = data.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(
@@ -652,7 +652,7 @@ impl Binance {
             format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR)
         };
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         // Single symbol returns object, all symbols return array
         let stats_vec = if data.is_array() {
@@ -702,7 +702,7 @@ impl Binance {
             endpoints::EXCHANGE_INFO,
             market.id
         );
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         let symbols_array = data["symbols"].as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format("data", "Expected symbols array"))
@@ -958,7 +958,7 @@ impl Binance {
             let _ = write!(url, "&endTime={}", end_time);
         }
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         parser::parse_ohlcvs(&data)
     }
@@ -1054,7 +1054,7 @@ impl Binance {
             let _ = write!(url, "&endTime={}", end_time);
         }
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         parser::parse_ohlcvs(&data)
     }
@@ -1142,7 +1142,7 @@ impl Binance {
             format!("{}/ticker/bookTicker", self.get_rest_url_public())
         };
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         parser::parse_bids_asks(&data)
     }
@@ -1201,7 +1201,7 @@ impl Binance {
             format!("{}/ticker/price", self.get_rest_url_public())
         };
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         parser::parse_last_prices(&data)
     }
@@ -1271,7 +1271,7 @@ impl Binance {
             )
         };
 
-        let data = self.base().http_client.get(&url, None).await?;
+        let data = self.public_get(&url, None).await?;
 
         parser::parse_mark_prices(&data)
     }

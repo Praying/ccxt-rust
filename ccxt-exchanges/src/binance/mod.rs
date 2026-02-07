@@ -717,6 +717,32 @@ impl Binance {
         }
         Ok(response)
     }
+
+    /// Executes a public GET request with unified error checking and rate limiter updates.
+    ///
+    /// This method wraps `http_client.get()` to provide:
+    /// - Rate limiter updates from response headers
+    /// - API error checking (Binance may return errors in the body with HTTP 200)
+    ///
+    /// All public REST API methods should use this instead of calling `http_client.get()` directly.
+    pub(crate) async fn public_get(
+        &self,
+        url: &str,
+        headers: Option<reqwest::header::HeaderMap>,
+    ) -> Result<serde_json::Value> {
+        let data = self.base().http_client.get(url, headers).await?;
+
+        // Update rate limiter from response headers
+        if let Some(resp_headers) = data.get("responseHeaders") {
+            let rate_info = rate_limiter::RateLimitInfo::from_headers(resp_headers);
+            if rate_info.has_data() {
+                self.rate_limiter().update(rate_info);
+            }
+        }
+
+        // Check for API errors in response body
+        self.check_response(data)
+    }
 }
 
 #[cfg(test)]

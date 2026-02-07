@@ -296,6 +296,7 @@ impl<'a> SignedRequestBuilder<'a> {
     /// 3. Signs the parameters with HMAC-SHA256
     /// 4. Adds authentication headers
     /// 5. Executes the HTTP request
+    /// 6. If a timestamp error is detected, resyncs time and retries once
     ///
     /// # Returns
     ///
@@ -330,10 +331,28 @@ impl<'a> SignedRequestBuilder<'a> {
         // Step 2: Validate credentials
         self.binance.check_required_credentials()?;
 
-        // Step 3: Get signing timestamp
+        // Step 3: Execute the request
+        match self.execute_inner().await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                // Step 4: If timestamp error, resync time and retry once
+                if self.binance.is_timestamp_error(&err) {
+                    tracing::warn!("Timestamp error detected, resyncing time and retrying");
+                    if self.binance.sync_time().await.is_ok() {
+                        return self.execute_inner().await;
+                    }
+                }
+                Err(err)
+            }
+        }
+    }
+
+    /// Internal execution logic that can be called multiple times for retry.
+    async fn execute_inner(&self) -> Result<Value> {
+        // Get signing timestamp
         let timestamp = self.binance.get_signing_timestamp().await?;
 
-        // Step 4: Get auth and sign parameters
+        // Get auth and sign parameters
         let auth = self.binance.get_auth()?;
         let signed_params = auth.sign_with_timestamp(
             &self.params,
@@ -341,16 +360,16 @@ impl<'a> SignedRequestBuilder<'a> {
             Some(self.binance.options().recv_window),
         )?;
 
-        // Step 5: Add authentication headers
+        // Add authentication headers
         let mut headers = HeaderMap::new();
         auth.add_auth_headers_reqwest(&mut headers);
 
-        // Step 6: Execute HTTP request based on method
+        // Execute HTTP request based on method
         // Note: Binance API requires all signed requests to use query string parameters,
         // not JSON body, even for POST/PUT/DELETE requests.
         let query_string = build_query_string(&signed_params);
         let url = if query_string.is_empty() {
-            self.endpoint
+            self.endpoint.clone()
         } else {
             format!("{}?{}", self.endpoint, query_string)
         };
@@ -386,15 +405,15 @@ impl<'a> SignedRequestBuilder<'a> {
             }
         }?;
 
-        // Step 7: Update rate limiter from response headers
-        if let Some(headers) = result.get("responseHeaders") {
-            let rate_info = RateLimitInfo::from_headers(headers);
+        // Update rate limiter from response headers
+        if let Some(resp_headers) = result.get("responseHeaders") {
+            let rate_info = RateLimitInfo::from_headers(resp_headers);
             if rate_info.has_data() {
                 self.binance.rate_limiter().update(rate_info);
             }
         }
 
-        // Step 8: Check for Binance API error in response body
+        // Check for Binance API error in response body
         // Binance may return HTTP 200 with an error in the JSON body: {"code": -1121, "msg": "..."}
         if let Some(api_error) = BinanceApiError::from_json(&result) {
             // Check for IP ban (HTTP 418)
