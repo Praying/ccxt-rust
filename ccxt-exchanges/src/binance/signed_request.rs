@@ -403,7 +403,30 @@ impl<'a> SignedRequestBuilder<'a> {
                     .delete(&url, Some(headers), None)
                     .await
             }
-        }?;
+        };
+
+        // Handle HTTP errors - try to extract Binance-specific error details
+        let result = match result {
+            Ok(value) => value,
+            Err(err) => {
+                // Try to extract Binance error code/msg from the error message
+                // The HTTP layer now embeds exchange error codes in Exchange errors
+                if let ccxt_core::error::Error::Exchange(ref exchange_err) = err {
+                    let err_str = exchange_err.to_string();
+                    // Check for IP ban (HTTP 418)
+                    if err_str.contains("IP banned") || err_str.contains("418") {
+                        self.binance
+                            .rate_limiter()
+                            .set_ip_banned(std::time::Duration::from_secs(7200));
+                    }
+                    // Check for rate limit errors
+                    if let ccxt_core::error::Error::RateLimit { .. } = err {
+                        // Rate limit info is already handled by the HTTP layer
+                    }
+                }
+                return Err(err);
+            }
+        };
 
         // Update rate limiter from response headers
         if let Some(resp_headers) = result.get("responseHeaders") {
@@ -433,12 +456,143 @@ impl<'a> SignedRequestBuilder<'a> {
 ///
 /// Parameters are sorted alphabetically by key (due to BTreeMap ordering).
 /// Both keys and values are URL-encoded to handle special characters.
-fn build_query_string(params: &BTreeMap<String, String>) -> String {
+pub(crate) fn build_query_string(params: &BTreeMap<String, String>) -> String {
     params
         .iter()
         .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&")
+}
+
+/// Lightweight request builder for API-key-only endpoints (no signature).
+///
+/// Used for listen key operations and other endpoints that require only
+/// the `X-MBX-APIKEY` header but no HMAC signature.
+///
+/// Includes rate limit checking, response header parsing, Binance error
+/// detection, and IP ban handling.
+pub(crate) struct ApiKeyRequestBuilder<'a> {
+    binance: &'a Binance,
+    endpoint: String,
+    method: HttpMethod,
+    query_params: BTreeMap<String, String>,
+}
+
+impl<'a> ApiKeyRequestBuilder<'a> {
+    /// Creates a new API key request builder.
+    pub fn new(binance: &'a Binance, endpoint: impl Into<String>) -> Self {
+        Self {
+            binance,
+            endpoint: endpoint.into(),
+            method: HttpMethod::default(),
+            query_params: BTreeMap::new(),
+        }
+    }
+
+    /// Sets the HTTP method.
+    pub fn method(mut self, method: HttpMethod) -> Self {
+        self.method = method;
+        self
+    }
+
+    /// Adds a query parameter.
+    #[allow(dead_code)]
+    pub fn param(mut self, key: impl Into<String>, value: impl ToString) -> Self {
+        self.query_params.insert(key.into(), value.to_string());
+        self
+    }
+
+    /// Executes the request with API key authentication.
+    pub async fn execute(self) -> Result<Value> {
+        // Check rate limiter
+        if let Some(wait_duration) = self.binance.rate_limiter().wait_duration() {
+            tokio::time::sleep(wait_duration).await;
+        }
+
+        // Validate credentials
+        self.binance.check_required_credentials()?;
+
+        // Build URL with query params
+        let query_string = build_query_string(&self.query_params);
+        let url = if query_string.is_empty() {
+            self.endpoint.clone()
+        } else {
+            format!("{}?{}", self.endpoint, query_string)
+        };
+
+        // Add API key header only (no signature)
+        let mut headers = HeaderMap::new();
+        let auth = self.binance.get_auth()?;
+        auth.add_auth_headers_reqwest(&mut headers);
+
+        // Execute HTTP request
+        let result = match self.method {
+            HttpMethod::Get => {
+                self.binance
+                    .base()
+                    .http_client
+                    .get(&url, Some(headers))
+                    .await
+            }
+            HttpMethod::Post => {
+                self.binance
+                    .base()
+                    .http_client
+                    .post(&url, Some(headers), None)
+                    .await
+            }
+            HttpMethod::Put => {
+                self.binance
+                    .base()
+                    .http_client
+                    .put(&url, Some(headers), None)
+                    .await
+            }
+            HttpMethod::Delete => {
+                self.binance
+                    .base()
+                    .http_client
+                    .delete(&url, Some(headers), None)
+                    .await
+            }
+        };
+
+        let result = match result {
+            Ok(value) => value,
+            Err(err) => {
+                // Check for IP ban in exchange errors
+                if let ccxt_core::error::Error::Exchange(ref exchange_err) = err {
+                    let err_str = exchange_err.to_string();
+                    if err_str.contains("IP banned") || err_str.contains("418") {
+                        self.binance
+                            .rate_limiter()
+                            .set_ip_banned(std::time::Duration::from_secs(7200));
+                    }
+                }
+                return Err(err);
+            }
+        };
+
+        // Update rate limiter from response headers
+        if let Some(resp_headers) = result.get("responseHeaders") {
+            let rate_info = RateLimitInfo::from_headers(resp_headers);
+            if rate_info.has_data() {
+                self.binance.rate_limiter().update(rate_info);
+            }
+        }
+
+        // Check for Binance API error in response body
+        if let Some(api_error) = BinanceApiError::from_json(&result) {
+            if api_error.is_ip_banned() {
+                self.binance
+                    .rate_limiter()
+                    .set_ip_banned(std::time::Duration::from_secs(7200));
+            }
+            return Err(api_error.into());
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

@@ -46,6 +46,9 @@ use std::time::{Duration, Instant};
 /// Default weight limit per minute for spot API.
 pub const DEFAULT_WEIGHT_LIMIT_1M: u64 = 1200;
 
+/// Default weight limit per second.
+pub const DEFAULT_WEIGHT_LIMIT_1S: u64 = 6000;
+
 /// Default order count limit per 10 seconds.
 pub const DEFAULT_ORDER_LIMIT_10S: u64 = 100;
 
@@ -60,6 +63,8 @@ pub const THROTTLE_THRESHOLD: f64 = 0.80;
 pub struct RateLimitInfo {
     /// Used weight in the current 1-minute window.
     pub used_weight_1m: Option<u64>,
+    /// Used weight in the current 1-second window.
+    pub used_weight_1s: Option<u64>,
     /// Order count in the current 10-second window.
     pub order_count_10s: Option<u64>,
     /// Order count in the current day.
@@ -82,19 +87,28 @@ impl RateLimitInfo {
         let mut info = Self::default();
 
         if let Some(obj) = headers.as_object() {
-            // Extract X-MBX-USED-WEIGHT-1M (also fallback to x-mbx-used-weight without -1m suffix,
-            // and x-sapi-used-uid-weight-1m for SAPI endpoints)
+            // Extract X-MBX-USED-WEIGHT-1M (also fallback to x-sapi-used-uid-weight-1m for SAPI endpoints)
             if let Some(weight) = obj
                 .get("x-mbx-used-weight-1m")
                 .or_else(|| obj.get("X-MBX-USED-WEIGHT-1M"))
-                .or_else(|| obj.get("x-mbx-used-weight"))
-                .or_else(|| obj.get("X-MBX-USED-WEIGHT"))
                 .or_else(|| obj.get("x-sapi-used-uid-weight-1m"))
                 .or_else(|| obj.get("X-SAPI-USED-UID-WEIGHT-1M"))
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<u64>().ok())
             {
                 info.used_weight_1m = Some(weight);
+            }
+
+            // Extract X-MBX-USED-WEIGHT-1S (1-second weight window)
+            if let Some(weight) = obj
+                .get("x-mbx-used-weight-1s")
+                .or_else(|| obj.get("X-MBX-USED-WEIGHT-1S"))
+                .or_else(|| obj.get("x-mbx-used-weight"))
+                .or_else(|| obj.get("X-MBX-USED-WEIGHT"))
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                info.used_weight_1s = Some(weight);
             }
 
             // Extract X-MBX-ORDER-COUNT-10S
@@ -148,12 +162,16 @@ impl RateLimitInfo {
 pub struct WeightRateLimiter {
     /// Current used weight (1-minute window).
     used_weight_1m: AtomicU64,
+    /// Current used weight (1-second window).
+    used_weight_1s: AtomicU64,
     /// Current order count (10-second window).
     order_count_10s: AtomicU64,
     /// Current order count (daily).
     order_count_1d: AtomicU64,
     /// Weight limit per minute.
     weight_limit_1m: AtomicU64,
+    /// Weight limit per second.
+    weight_limit_1s: AtomicU64,
     /// Order limit per 10 seconds.
     order_limit_10s: AtomicU64,
     /// Order limit per day.
@@ -177,9 +195,11 @@ impl WeightRateLimiter {
     pub fn new() -> Self {
         Self {
             used_weight_1m: AtomicU64::new(0),
+            used_weight_1s: AtomicU64::new(0),
             order_count_10s: AtomicU64::new(0),
             order_count_1d: AtomicU64::new(0),
             weight_limit_1m: AtomicU64::new(DEFAULT_WEIGHT_LIMIT_1M),
+            weight_limit_1s: AtomicU64::new(DEFAULT_WEIGHT_LIMIT_1S),
             order_limit_10s: AtomicU64::new(DEFAULT_ORDER_LIMIT_10S),
             order_limit_1d: AtomicU64::new(DEFAULT_ORDER_LIMIT_1D),
             retry_after_until: RwLock::new(None),
@@ -198,9 +218,11 @@ impl WeightRateLimiter {
     pub fn with_limits(weight_limit_1m: u64, order_limit_10s: u64, order_limit_1d: u64) -> Self {
         Self {
             used_weight_1m: AtomicU64::new(0),
+            used_weight_1s: AtomicU64::new(0),
             order_count_10s: AtomicU64::new(0),
             order_count_1d: AtomicU64::new(0),
             weight_limit_1m: AtomicU64::new(weight_limit_1m),
+            weight_limit_1s: AtomicU64::new(DEFAULT_WEIGHT_LIMIT_1S),
             order_limit_10s: AtomicU64::new(order_limit_10s),
             order_limit_1d: AtomicU64::new(order_limit_1d),
             retry_after_until: RwLock::new(None),
@@ -217,6 +239,10 @@ impl WeightRateLimiter {
     pub fn update(&self, info: RateLimitInfo) {
         if let Some(weight) = info.used_weight_1m {
             self.used_weight_1m.store(weight, Ordering::SeqCst);
+        }
+
+        if let Some(weight) = info.used_weight_1s {
+            self.used_weight_1s.store(weight, Ordering::SeqCst);
         }
 
         if let Some(count) = info.order_count_10s {
@@ -295,6 +321,14 @@ impl WeightRateLimiter {
         let weight_limit = self.weight_limit_1m.load(Ordering::SeqCst);
         #[allow(clippy::cast_precision_loss)]
         if (weight as f64) >= (weight_limit as f64) * THROTTLE_THRESHOLD {
+            return true;
+        }
+
+        // Check 1s weight threshold (80%)
+        let weight_1s = self.used_weight_1s.load(Ordering::SeqCst);
+        let weight_limit_1s = self.weight_limit_1s.load(Ordering::SeqCst);
+        #[allow(clippy::cast_precision_loss)]
+        if (weight_1s as f64) >= (weight_limit_1s as f64) * THROTTLE_THRESHOLD {
             return true;
         }
 
@@ -380,6 +414,7 @@ impl WeightRateLimiter {
     /// This should be called when the rate limit window resets.
     pub fn reset(&self) {
         self.used_weight_1m.store(0, Ordering::SeqCst);
+        self.used_weight_1s.store(0, Ordering::SeqCst);
         self.order_count_10s.store(0, Ordering::SeqCst);
         self.order_count_1d.store(0, Ordering::SeqCst);
         if let Ok(mut guard) = self.retry_after_until.write() {

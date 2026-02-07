@@ -701,26 +701,29 @@ pub async fn fetch_orderbook_snapshot(
     is_futures: bool,
     orderbooks: &Mutex<HashMap<String, OrderBook>>,
 ) -> Result<OrderBook> {
-    let mut snapshot = exchange
+    let snapshot = exchange
         .fetch_order_book(symbol, limit.map(|l| l as u32))
         .await?;
 
-    snapshot.is_synced = true;
-
     let mut orderbooks_map = orderbooks.lock().await;
-    if let Some(cached_ob) = orderbooks_map.get_mut(symbol) {
-        snapshot
-            .buffered_deltas
-            .clone_from(&cached_ob.buffered_deltas);
+    let cached_ob = orderbooks_map
+        .entry(symbol.to_string())
+        .or_insert_with(|| OrderBook::new(symbol.to_string(), snapshot.timestamp));
 
-        if let Ok(processed) = snapshot.process_buffered_deltas(is_futures) {
-            tracing::debug!("Processed {} buffered deltas for {}", processed, symbol);
-        }
+    // Use reset_from_snapshot to correctly rebuild bids_map/asks_map
+    cached_ob.reset_from_snapshot(
+        snapshot.bids,
+        snapshot.asks,
+        snapshot.timestamp,
+        snapshot.nonce,
+    );
+
+    // Process any buffered deltas that arrived while waiting for the snapshot
+    if let Ok(processed) = cached_ob.process_buffered_deltas(is_futures) {
+        tracing::debug!("Processed {} buffered deltas for {}", processed, symbol);
     }
 
-    orderbooks_map.insert(symbol.to_string(), snapshot.clone());
-
-    Ok(snapshot)
+    Ok(cached_ob.clone())
 }
 
 #[cfg(test)]

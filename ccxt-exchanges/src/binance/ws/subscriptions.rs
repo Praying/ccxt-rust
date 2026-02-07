@@ -169,20 +169,22 @@ impl SubscriptionManager {
     ///
     /// If a subscription for the same stream already exists, increments the reference count
     /// instead of creating a duplicate subscription.
+    ///
+    /// Returns `true` if a new subscription was created, `false` if an existing one was reused.
     pub async fn add_subscription(
         &self,
         stream: String,
         symbol: String,
         sub_type: SubscriptionType,
         sender: tokio::sync::mpsc::Sender<Value>,
-    ) -> ccxt_core::error::Result<()> {
+    ) -> ccxt_core::error::Result<bool> {
         let mut subs = self.subscriptions.write().await;
 
         // Check if subscription already exists - add sender and increment ref count
         if let Some(existing) = subs.get(&stream) {
             existing.add_sender(sender);
             existing.add_ref();
-            return Ok(());
+            return Ok(false);
         }
 
         let subscription = Subscription::new(stream.clone(), symbol.clone(), sub_type, sender);
@@ -195,7 +197,7 @@ impl SubscriptionManager {
         self.active_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        Ok(())
+        Ok(true)
     }
 
     /// Removes a subscription by stream name.

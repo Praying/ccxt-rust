@@ -439,7 +439,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Ticker);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -448,7 +449,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -460,7 +463,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Ticker);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 "all".to_string(),
@@ -469,7 +473,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -485,7 +491,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Trades);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -494,7 +501,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -510,7 +519,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Trades);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -519,7 +529,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -554,7 +566,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::OrderBook);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -563,7 +576,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -587,7 +602,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::OrderBook);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -596,7 +612,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -614,11 +632,14 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&sub_type);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(stream.clone(), symbol.to_string(), sub_type, tx)
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -634,7 +655,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Ticker);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -643,7 +665,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -655,7 +679,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Ticker);
         let (tx, rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 "all".to_string(),
@@ -664,7 +689,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream]).await?;
+        }
         Ok(rx)
     }
 
@@ -800,11 +827,14 @@ impl BinanceWs {
     {
         let capacity = self.channel_capacity_for(&sub_type);
         let (tx, mut rx) = tokio::sync::mpsc::channel(capacity);
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(stream.clone(), symbol, sub_type, tx)
             .await?;
 
-        self.message_router.subscribe(vec![stream.clone()]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream.clone()]).await?;
+        }
 
         loop {
             if let Some(message) = rx.recv().await {
@@ -875,7 +905,8 @@ impl BinanceWs {
             for sym in syms {
                 let symbol = sym.to_lowercase();
                 let stream = format!("{}@{}", symbol, channel_name);
-                self.subscription_manager
+                let is_new = self
+                    .subscription_manager
                     .add_subscription(
                         stream.clone(),
                         symbol,
@@ -883,12 +914,15 @@ impl BinanceWs {
                         tx.clone(),
                     )
                     .await?;
-                streams.push(stream);
+                if is_new {
+                    streams.push(stream);
+                }
             }
             streams
         } else {
             let stream = format!("!{}@arr", channel_name);
-            self.subscription_manager
+            let is_new = self
+                .subscription_manager
                 .add_subscription(
                     stream.clone(),
                     "all".to_string(),
@@ -896,10 +930,12 @@ impl BinanceWs {
                     tx.clone(),
                 )
                 .await?;
-            vec![stream]
+            if is_new { vec![stream] } else { vec![] }
         };
 
-        self.message_router.subscribe(streams.clone()).await?;
+        if !streams.is_empty() {
+            self.message_router.subscribe(streams.clone()).await?;
+        }
 
         let mut result = HashMap::new();
 
@@ -1005,8 +1041,11 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Ticker);
         let (tx, mut rx) = tokio::sync::mpsc::channel(capacity);
 
+        let mut new_streams = Vec::new();
+
         for stream in &streams {
-            self.subscription_manager
+            let is_new = self
+                .subscription_manager
                 .add_subscription(
                     stream.clone(),
                     "all".to_string(),
@@ -1014,9 +1053,14 @@ impl BinanceWs {
                     tx.clone(),
                 )
                 .await?;
+            if is_new {
+                new_streams.push(stream.clone());
+            }
         }
 
-        self.message_router.subscribe(streams.clone()).await?;
+        if !new_streams.is_empty() {
+            self.message_router.subscribe(new_streams).await?;
+        }
 
         let mut result = HashMap::new();
 
@@ -1124,7 +1168,8 @@ impl BinanceWs {
 
         let capacity = self.channel_capacity_for(&SubscriptionType::OrderBook);
         let (tx, mut rx) = tokio::sync::mpsc::channel(capacity);
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -1133,7 +1178,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream.clone()]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream.clone()]).await?;
+        }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1280,7 +1327,7 @@ impl BinanceWs {
 
         let capacity = self.channel_capacity_for(&SubscriptionType::OrderBook);
         let (tx, mut rx) = tokio::sync::mpsc::channel(capacity);
-        let mut streams = Vec::new();
+        let mut new_streams = Vec::new();
 
         for symbol in &symbols {
             let stream = match update_speed {
@@ -1288,19 +1335,24 @@ impl BinanceWs {
                 UpdateSpeed::Ms1000 => format!("{}@depth", symbol.to_lowercase()),
             };
 
-            streams.push(stream.clone());
-
-            self.subscription_manager
+            let is_new = self
+                .subscription_manager
                 .add_subscription(
-                    stream,
+                    stream.clone(),
                     symbol.clone(),
                     SubscriptionType::OrderBook,
                     tx.clone(),
                 )
                 .await?;
+
+            if is_new {
+                new_streams.push(stream);
+            }
         }
 
-        self.message_router.subscribe(streams).await?;
+        if !new_streams.is_empty() {
+            self.message_router.subscribe(new_streams).await?;
+        }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1390,7 +1442,8 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&SubscriptionType::Trades);
         let (tx, mut rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -1399,7 +1452,9 @@ impl BinanceWs {
             )
             .await?;
 
-        self.message_router.subscribe(vec![stream.clone()]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream.clone()]).await?;
+        }
 
         // Wait for at least one trade or use a loop with timeout if we want to mimic "polling" until data arrives?
         // Usually watch_trades returns the latest trades.
@@ -1455,11 +1510,14 @@ impl BinanceWs {
         let capacity = self.channel_capacity_for(&sub_type);
         let (tx, mut rx) = tokio::sync::mpsc::channel(capacity);
 
-        self.subscription_manager
+        let is_new = self
+            .subscription_manager
             .add_subscription(stream.clone(), symbol.to_string(), sub_type, tx)
             .await?;
 
-        self.message_router.subscribe(vec![stream.clone()]).await?;
+        if is_new {
+            self.message_router.subscribe(vec![stream.clone()]).await?;
+        }
 
         loop {
             if let Some(message) = rx.recv().await {
@@ -1530,6 +1588,7 @@ impl BinanceWs {
             )
             .await?;
 
+        // Note: userData stream doesn't need explicit SUBSCRIBE - it's implicit via listen key
         loop {
             if let Some(message) = rx.recv().await {
                 if let Some(event_type) = message.get("e").and_then(|e| e.as_str()) {
