@@ -27,6 +27,7 @@
 //! // Update from response headers
 //! let info = RateLimitInfo {
 //!     used_weight_1m: Some(500),
+//!     used_weight_1s: None,
 //!     order_count_10s: Some(5),
 //!     order_count_1d: Some(1000),
 //!     retry_after: None,
@@ -485,6 +486,7 @@ mod tests {
 
         let info = RateLimitInfo {
             used_weight_1m: Some(500),
+            used_weight_1s: None,
             order_count_10s: Some(5),
             order_count_1d: Some(1000),
             retry_after: None,
@@ -555,6 +557,7 @@ mod tests {
 
         let info = RateLimitInfo {
             used_weight_1m: Some(1000),
+            used_weight_1s: None,
             order_count_10s: Some(50),
             order_count_1d: Some(5000),
             retry_after: Some(10),

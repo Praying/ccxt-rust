@@ -3,6 +3,7 @@
 //! Implements all REST API endpoint operations for the OKX exchange.
 
 mod account;
+pub mod futures;
 mod market_data;
 mod trading;
 

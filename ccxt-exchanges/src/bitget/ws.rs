@@ -4,17 +4,26 @@
 //! Supports public streams (ticker, orderbook, trades) and private streams
 //! (balance, orders) with automatic reconnection.
 
+use crate::bitget::auth::BitgetAuth;
 use crate::bitget::parser::{parse_orderbook, parse_ticker, parse_trade};
 use ccxt_core::error::{Error, Result};
-use ccxt_core::types::{Market, OrderBook, Ticker, Trade};
+use ccxt_core::types::{
+    Balance, BalanceEntry, Fee, Market, Order, OrderBook, OrderSide, OrderStatus, OrderType,
+    Ticker, Trade,
+    financial::{Amount, Cost, Price},
+};
 use ccxt_core::ws_client::{WsClient, WsConfig, WsConnectionState};
 use ccxt_core::ws_exchange::MessageStream;
 use futures::Stream;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromStr;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::{RwLock, mpsc};
+use tracing::{debug, warn};
 
 /// Default ping interval for Bitget WebSocket (30 seconds).
 const DEFAULT_PING_INTERVAL_MS: u64 = 30000;
@@ -444,6 +453,255 @@ impl BitgetWs {
         self.subscriptions.read().await.clone()
     }
 
+    // ==================== Private WebSocket Methods ====================
+
+    /// Authenticates with the Bitget private WebSocket.
+    ///
+    /// Bitget WS login uses the same HMAC-SHA256 signing as REST API:
+    /// sign(timestamp + "GET" + "/user/verify", secret)
+    pub async fn login(&self, auth: &BitgetAuth) -> Result<()> {
+        let timestamp = (chrono::Utc::now().timestamp_millis() / 1000).to_string();
+        let sign = auth.sign(&timestamp, "GET", "/user/verify", "");
+
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "login",
+            "args": [{
+                "apiKey": auth.api_key(),
+                "passphrase": auth.passphrase(),
+                "timestamp": timestamp,
+                "sign": sign
+            }]
+        });
+
+        self.client.send_json(&msg).await?;
+
+        // Wait for login response
+        let timeout = tokio::time::Duration::from_secs(10);
+        let start = tokio::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            if let Some(resp) = self.client.receive().await {
+                if let Some(event) = resp.get("event").and_then(|e| e.as_str()) {
+                    if event == "login" {
+                        let code = resp.get("code").and_then(|c| c.as_str()).unwrap_or("1");
+                        if code == "0" {
+                            debug!("Bitget WebSocket login successful");
+                            return Ok(());
+                        }
+                        let msg_text = resp
+                            .get("msg")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Unknown error");
+                        return Err(Error::authentication(format!(
+                            "Bitget WebSocket login failed: {} (code: {})",
+                            msg_text, code
+                        )));
+                    }
+                }
+            }
+        }
+
+        Err(Error::authentication(
+            "Bitget WebSocket login timed out waiting for response",
+        ))
+    }
+
+    /// Subscribes to the orders channel (private).
+    ///
+    /// Receives real-time order updates for the specified instrument type.
+    pub async fn subscribe_orders(&self, inst_type: Option<&str>) -> Result<()> {
+        let inst_type = inst_type.unwrap_or("SPOT");
+
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "subscribe",
+            "args": [{
+                "instType": inst_type,
+                "channel": "orders",
+                "instId": "default"
+            }]
+        });
+
+        self.client.send_json(&msg).await?;
+        self.subscriptions.write().await.push("orders".to_string());
+        Ok(())
+    }
+
+    /// Subscribes to the account channel (private).
+    ///
+    /// Receives real-time balance/account updates.
+    pub async fn subscribe_account(&self) -> Result<()> {
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "subscribe",
+            "args": [{
+                "instType": "SPOT",
+                "channel": "account",
+                "coin": "default"
+            }]
+        });
+
+        self.client.send_json(&msg).await?;
+        self.subscriptions.write().await.push("account".to_string());
+        Ok(())
+    }
+
+    /// Watches balance updates via the private WebSocket.
+    ///
+    /// Requires prior authentication via `login()`.
+    pub async fn watch_balance(&self) -> Result<MessageStream<Balance>> {
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        self.subscribe_account().await?;
+
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Balance>>();
+        let client = Arc::clone(&self.client);
+
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                if is_account_message(&msg) {
+                    match parse_ws_balance(&msg) {
+                        Ok(balance) => {
+                            if tx.send(Ok(balance)).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to parse Bitget balance update");
+                            if tx.send(Err(e)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+
+    /// Watches order updates via the private WebSocket.
+    ///
+    /// Requires prior authentication via `login()`.
+    pub async fn watch_orders(
+        &self,
+        symbol_filter: Option<String>,
+    ) -> Result<MessageStream<Order>> {
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        self.subscribe_orders(None).await?;
+
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Order>>();
+        let client = Arc::clone(&self.client);
+
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                if is_orders_message(&msg) {
+                    if let Some(data_array) = msg.get("data").and_then(|d| d.as_array()) {
+                        for data in data_array {
+                            // Apply symbol filter if specified
+                            if let Some(ref filter) = symbol_filter {
+                                let inst_id =
+                                    data.get("instId").and_then(|i| i.as_str()).unwrap_or("");
+                                let unified = format_unified_symbol(inst_id);
+                                if unified != *filter && inst_id != filter.as_str() {
+                                    continue;
+                                }
+                            }
+
+                            match parse_ws_order(data) {
+                                Ok(order) => {
+                                    if tx.send(Ok(order)).is_err() {
+                                        return;
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to parse Bitget order update");
+                                    if tx.send(Err(e)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+
+    /// Watches trade fills via the private WebSocket (orders channel).
+    ///
+    /// Extracts trade information from order execution reports.
+    /// Requires prior authentication via `login()`.
+    pub async fn watch_my_trades(
+        &self,
+        symbol_filter: Option<String>,
+    ) -> Result<MessageStream<Trade>> {
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        self.subscribe_orders(None).await?;
+
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Trade>>();
+        let client = Arc::clone(&self.client);
+
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                if is_orders_message(&msg) {
+                    if let Some(data_array) = msg.get("data").and_then(|d| d.as_array()) {
+                        for data in data_array {
+                            // Only emit trades for filled/partially filled orders
+                            let fill_sz = data
+                                .get("fillSz")
+                                .or_else(|| data.get("baseVolume"))
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(0.0);
+
+                            if fill_sz <= 0.0 {
+                                continue;
+                            }
+
+                            // Apply symbol filter
+                            if let Some(ref filter) = symbol_filter {
+                                let inst_id =
+                                    data.get("instId").and_then(|i| i.as_str()).unwrap_or("");
+                                let unified = format_unified_symbol(inst_id);
+                                if unified != *filter && inst_id != filter.as_str() {
+                                    continue;
+                                }
+                            }
+
+                            match parse_ws_my_trade(data) {
+                                Ok(trade) => {
+                                    if tx.send(Ok(trade)).is_err() {
+                                        return;
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to parse Bitget trade update");
+                                    if tx.send(Err(e)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+
     /// Watches ticker updates for a symbol.
     ///
     /// Returns a stream of `Ticker` updates for the specified symbol.
@@ -738,6 +996,28 @@ fn is_trade_message(msg: &Value, symbol: &str) -> bool {
     }
 }
 
+// ============================================================================
+// Private Message Type Detection Helpers
+// ============================================================================
+
+/// Check if a WebSocket message is an account/balance update.
+fn is_account_message(msg: &Value) -> bool {
+    if let Some(arg) = msg.get("arg") {
+        arg.get("channel").and_then(|c| c.as_str()) == Some("account")
+    } else {
+        false
+    }
+}
+
+/// Check if a WebSocket message is an orders update.
+fn is_orders_message(msg: &Value) -> bool {
+    if let Some(arg) = msg.get("arg") {
+        arg.get("channel").and_then(|c| c.as_str()) == Some("orders")
+    } else {
+        false
+    }
+}
+
 /// Format a Bitget symbol (e.g., "BTCUSDT") to unified format (e.g., "BTC/USDT").
 fn format_unified_symbol(symbol: &str) -> String {
     // Common quote currencies to detect
@@ -813,6 +1093,286 @@ pub fn parse_ws_trades(msg: &Value, market: Option<&Market>) -> Result<Vec<Trade
     }
 
     Ok(trades)
+}
+
+// ============================================================================
+// Private WebSocket Message Parsers
+// ============================================================================
+
+/// Parse a WebSocket account/balance message into a Balance.
+///
+/// Bitget account update format:
+/// ```json
+/// {
+///   "arg": {"instType": "SPOT", "channel": "account", "coin": "default"},
+///   "data": [{
+///     "coin": "USDT",
+///     "available": "50000",
+///     "frozen": "10000",
+///     "uTime": "1700000000000"
+///   }]
+/// }
+/// ```
+pub fn parse_ws_balance(msg: &Value) -> Result<Balance> {
+    let data_array = msg
+        .get("data")
+        .and_then(|d| d.as_array())
+        .ok_or_else(|| Error::invalid_request("Missing data in account message"))?;
+
+    let mut balances = HashMap::new();
+
+    for data in data_array {
+        // Bitget V2 sends individual coin updates
+        let currency = data
+            .get("coin")
+            .and_then(|c| c.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        if currency.is_empty() {
+            continue;
+        }
+
+        let free = data
+            .get("available")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Decimal::from_str(s).ok())
+            .unwrap_or_default();
+
+        let used = data
+            .get("frozen")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Decimal::from_str(s).ok())
+            .unwrap_or_default();
+
+        let total = free + used;
+
+        balances.insert(currency, BalanceEntry { free, used, total });
+    }
+
+    Ok(Balance {
+        balances,
+        info: HashMap::new(),
+    })
+}
+
+/// Parse a WebSocket order update message into an Order.
+///
+/// Bitget order update format:
+/// ```json
+/// {
+///   "instId": "BTCUSDT",
+///   "ordId": "123456",
+///   "clOrdId": "client123",
+///   "side": "buy",
+///   "ordType": "limit",
+///   "px": "50000",
+///   "sz": "0.1",
+///   "fillPx": "49999",
+///   "fillSz": "0.05",
+///   "avgPx": "49999",
+///   "status": "partially_filled",
+///   "fee": "-0.5",
+///   "feeCcy": "USDT",
+///   "uTime": "1700000000000",
+///   "cTime": "1700000000000"
+/// }
+/// ```
+pub fn parse_ws_order(data: &Value) -> Result<Order> {
+    let inst_id = data
+        .get("instId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let symbol = format_unified_symbol(inst_id);
+
+    let id = data
+        .get("ordId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let client_order_id = data
+        .get("clOrdId")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let side = match data.get("side").and_then(|v| v.as_str()) {
+        Some("sell") => OrderSide::Sell,
+        _ => OrderSide::Buy,
+    };
+
+    let order_type = match data.get("ordType").and_then(|v| v.as_str()) {
+        Some("market") => OrderType::Market,
+        _ => OrderType::Limit,
+    };
+
+    let price = data
+        .get("px")
+        .or_else(|| data.get("price"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok());
+
+    let amount = data
+        .get("sz")
+        .or_else(|| data.get("size"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .unwrap_or_default();
+
+    let filled = data
+        .get("accFillSz")
+        .or_else(|| data.get("baseVolume"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok());
+
+    let average = data
+        .get("avgPx")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .filter(|d| !d.is_zero());
+
+    let cost = match (filled, average) {
+        (Some(f), Some(a)) => Some(f * a),
+        _ => None,
+    };
+
+    let status = match data.get("status").and_then(|v| v.as_str()) {
+        Some("filled" | "full-fill") => OrderStatus::Closed,
+        Some("cancelled" | "canceled") => OrderStatus::Cancelled,
+        _ => OrderStatus::Open,
+    };
+
+    let fee = {
+        let fee_amount = data
+            .get("fee")
+            .or_else(|| data.get("feeDetail"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| Decimal::from_str(s).ok());
+        let fee_currency = data
+            .get("feeCcy")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        fee_amount.map(|f| Fee::new(fee_currency, f.abs()))
+    };
+
+    let timestamp = data
+        .get("cTime")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok());
+
+    Ok(Order {
+        id,
+        client_order_id,
+        symbol,
+        order_type,
+        side,
+        price,
+        amount,
+        filled,
+        remaining: None,
+        cost,
+        average,
+        status,
+        fee,
+        fees: None,
+        timestamp,
+        datetime: None,
+        last_trade_timestamp: None,
+        time_in_force: None,
+        post_only: None,
+        reduce_only: None,
+        stop_price: None,
+        trigger_price: None,
+        take_profit_price: None,
+        stop_loss_price: None,
+        trailing_delta: None,
+        trailing_percent: None,
+        activation_price: None,
+        callback_rate: None,
+        working_type: None,
+        trades: None,
+        info: HashMap::new(),
+    })
+}
+
+/// Parse a WebSocket order fill into a Trade (my trade).
+///
+/// Extracts the latest fill information from an order update.
+pub fn parse_ws_my_trade(data: &Value) -> Result<Trade> {
+    let inst_id = data
+        .get("instId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let symbol = format_unified_symbol(inst_id);
+
+    let trade_id = data
+        .get("tradeId")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let order_id = data
+        .get("ordId")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let side = match data.get("side").and_then(|v| v.as_str()) {
+        Some("buy") => OrderSide::Buy,
+        _ => OrderSide::Sell,
+    };
+
+    let fill_px = data
+        .get("fillPx")
+        .or_else(|| data.get("price"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .unwrap_or_default();
+
+    let fill_sz = data
+        .get("fillSz")
+        .or_else(|| data.get("baseVolume"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .unwrap_or_default();
+
+    let timestamp = data
+        .get("fillTime")
+        .or_else(|| data.get("uTime"))
+        .or_else(|| data.get("cTime"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let fee = {
+        let fee_amount = data
+            .get("fillFee")
+            .or_else(|| data.get("fee"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| Decimal::from_str(s).ok());
+        let fee_currency = data
+            .get("fillFeeCcy")
+            .or_else(|| data.get("feeCcy"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        fee_amount.map(|f| Fee::new(fee_currency, f.abs()))
+    };
+
+    Ok(Trade {
+        id: trade_id,
+        order: order_id,
+        symbol,
+        trade_type: None,
+        side,
+        taker_or_maker: None,
+        price: Price(fill_px),
+        amount: Amount(fill_sz),
+        cost: Some(Cost(fill_px * fill_sz)),
+        fee,
+        timestamp,
+        datetime: None,
+        info: HashMap::new(),
+    })
 }
 
 #[cfg(test)]
@@ -1355,5 +1915,288 @@ mod tests {
     fn test_format_unified_symbol_unknown() {
         // Unknown quote currency returns as-is
         assert_eq!(format_unified_symbol("BTCXYZ"), "BTCXYZ");
+    }
+
+    // ==================== Private Message Type Detection Tests ====================
+
+    #[test]
+    fn test_is_account_message_true() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "account", "coin": "default"},
+                "data": [{}]
+            }"#,
+        )
+        .unwrap();
+        assert!(is_account_message(&msg));
+    }
+
+    #[test]
+    fn test_is_account_message_wrong_channel() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "orders"},
+                "data": [{}]
+            }"#,
+        )
+        .unwrap();
+        assert!(!is_account_message(&msg));
+    }
+
+    #[test]
+    fn test_is_orders_message_true() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "orders", "instId": "default"},
+                "data": [{}]
+            }"#,
+        )
+        .unwrap();
+        assert!(is_orders_message(&msg));
+    }
+
+    #[test]
+    fn test_is_orders_message_wrong_channel() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "account"},
+                "data": [{}]
+            }"#,
+        )
+        .unwrap();
+        assert!(!is_orders_message(&msg));
+    }
+
+    // ==================== Private Balance Parsing Tests ====================
+
+    #[test]
+    fn test_parse_ws_balance_single_coin() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "account", "coin": "default"},
+                "data": [{
+                    "coin": "USDT",
+                    "available": "50000.50",
+                    "frozen": "10000.25",
+                    "uTime": "1700000000000"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let balance = parse_ws_balance(&msg).unwrap();
+        assert_eq!(balance.balances.len(), 1);
+
+        let usdt = balance.balances.get("USDT").unwrap();
+        assert_eq!(usdt.free, dec!(50000.50));
+        assert_eq!(usdt.used, dec!(10000.25));
+        assert_eq!(usdt.total, dec!(60000.75));
+    }
+
+    #[test]
+    fn test_parse_ws_balance_multiple_coins() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "account"},
+                "data": [
+                    {"coin": "USDT", "available": "50000", "frozen": "10000"},
+                    {"coin": "BTC", "available": "1.5", "frozen": "0.5"}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let balance = parse_ws_balance(&msg).unwrap();
+        assert_eq!(balance.balances.len(), 2);
+
+        let usdt = balance.balances.get("USDT").unwrap();
+        assert_eq!(usdt.free, dec!(50000));
+        assert_eq!(usdt.total, dec!(60000));
+
+        let btc = balance.balances.get("BTC").unwrap();
+        assert_eq!(btc.free, dec!(1.5));
+        assert_eq!(btc.total, dec!(2.0));
+    }
+
+    #[test]
+    fn test_parse_ws_balance_missing_data() {
+        let msg: Value = serde_json::from_str(
+            r#"{
+                "arg": {"instType": "SPOT", "channel": "account"}
+            }"#,
+        )
+        .unwrap();
+
+        let result = parse_ws_balance(&msg);
+        assert!(result.is_err());
+    }
+
+    // ==================== Private Order Parsing Tests ====================
+
+    #[test]
+    fn test_parse_ws_order_limit_buy() {
+        let data: Value = serde_json::from_str(
+            r#"{
+                "instId": "BTCUSDT",
+                "ordId": "123456789",
+                "clOrdId": "client123",
+                "side": "buy",
+                "ordType": "limit",
+                "px": "50000",
+                "sz": "0.1",
+                "accFillSz": "0.05",
+                "avgPx": "49999",
+                "status": "partially_filled",
+                "fee": "-0.5",
+                "feeCcy": "USDT",
+                "cTime": "1700000000000"
+            }"#,
+        )
+        .unwrap();
+
+        let order = parse_ws_order(&data).unwrap();
+        assert_eq!(order.symbol, "BTC/USDT");
+        assert_eq!(order.id, "123456789");
+        assert_eq!(order.client_order_id, Some("client123".to_string()));
+        assert_eq!(order.side, OrderSide::Buy);
+        assert_eq!(order.order_type, OrderType::Limit);
+        assert_eq!(order.price, Some(dec!(50000)));
+        assert_eq!(order.amount, dec!(0.1));
+        assert_eq!(order.filled, Some(dec!(0.05)));
+        assert_eq!(order.average, Some(dec!(49999)));
+        assert_eq!(order.status, OrderStatus::Open); // partially_filled is still open
+        assert_eq!(order.timestamp, Some(1700000000000));
+        assert!(order.fee.is_some());
+        let fee = order.fee.unwrap();
+        assert_eq!(fee.cost, dec!(0.5)); // abs value
+    }
+
+    #[test]
+    fn test_parse_ws_order_market_sell() {
+        let data: Value = serde_json::from_str(
+            r#"{
+                "instId": "ETHUSDT",
+                "ordId": "987654321",
+                "side": "sell",
+                "ordType": "market",
+                "sz": "1.0",
+                "accFillSz": "1.0",
+                "avgPx": "2000",
+                "status": "filled",
+                "fee": "-2.0",
+                "feeCcy": "USDT",
+                "cTime": "1700000000000"
+            }"#,
+        )
+        .unwrap();
+
+        let order = parse_ws_order(&data).unwrap();
+        assert_eq!(order.symbol, "ETH/USDT");
+        assert_eq!(order.side, OrderSide::Sell);
+        assert_eq!(order.order_type, OrderType::Market);
+        assert_eq!(order.status, OrderStatus::Closed);
+        assert_eq!(order.cost, Some(dec!(2000))); // 1.0 * 2000
+    }
+
+    #[test]
+    fn test_parse_ws_order_cancelled() {
+        let data: Value = serde_json::from_str(
+            r#"{
+                "instId": "BTCUSDT",
+                "ordId": "111222333",
+                "side": "buy",
+                "ordType": "limit",
+                "px": "45000",
+                "sz": "0.5",
+                "status": "cancelled",
+                "cTime": "1700000000000"
+            }"#,
+        )
+        .unwrap();
+
+        let order = parse_ws_order(&data).unwrap();
+        assert_eq!(order.status, OrderStatus::Cancelled);
+    }
+
+    // ==================== Private Trade (My Trade) Parsing Tests ====================
+
+    #[test]
+    fn test_parse_ws_my_trade_basic() {
+        let data: Value = serde_json::from_str(
+            r#"{
+                "instId": "BTCUSDT",
+                "ordId": "123456789",
+                "tradeId": "trade001",
+                "side": "buy",
+                "fillPx": "50000",
+                "fillSz": "0.1",
+                "fillTime": "1700000000000",
+                "fillFee": "-5.0",
+                "fillFeeCcy": "USDT"
+            }"#,
+        )
+        .unwrap();
+
+        let trade = parse_ws_my_trade(&data).unwrap();
+        assert_eq!(trade.symbol, "BTC/USDT");
+        assert_eq!(trade.id, Some("trade001".to_string()));
+        assert_eq!(trade.order, Some("123456789".to_string()));
+        assert_eq!(trade.side, OrderSide::Buy);
+        assert_eq!(trade.price, Price::new(dec!(50000)));
+        assert_eq!(trade.amount, Amount::new(dec!(0.1)));
+        assert_eq!(trade.cost, Some(Cost::new(dec!(5000)))); // 50000 * 0.1
+        assert_eq!(trade.timestamp, 1700000000000);
+        assert!(trade.fee.is_some());
+        let fee = trade.fee.unwrap();
+        assert_eq!(fee.cost, dec!(5.0)); // abs value
+        assert_eq!(fee.currency, "USDT");
+    }
+
+    #[test]
+    fn test_parse_ws_my_trade_sell() {
+        let data: Value = serde_json::from_str(
+            r#"{
+                "instId": "ETHUSDT",
+                "ordId": "987654321",
+                "tradeId": "trade002",
+                "side": "sell",
+                "fillPx": "2000",
+                "fillSz": "0.5",
+                "fillTime": "1700000000001"
+            }"#,
+        )
+        .unwrap();
+
+        let trade = parse_ws_my_trade(&data).unwrap();
+        assert_eq!(trade.symbol, "ETH/USDT");
+        assert_eq!(trade.side, OrderSide::Sell);
+        assert_eq!(trade.price, Price::new(dec!(2000)));
+        assert_eq!(trade.amount, Amount::new(dec!(0.5)));
+        assert_eq!(trade.cost, Some(Cost::new(dec!(1000)))); // 2000 * 0.5
+        assert!(trade.fee.is_none()); // No fee fields
+    }
+
+    #[test]
+    fn test_parse_ws_my_trade_fallback_fields() {
+        // Test fallback field names (price instead of fillPx, etc.)
+        let data: Value = serde_json::from_str(
+            r#"{
+                "instId": "BTCUSDT",
+                "ordId": "111222333",
+                "side": "buy",
+                "price": "48000",
+                "baseVolume": "0.2",
+                "uTime": "1700000000002",
+                "fee": "-1.5",
+                "feeCcy": "USDT"
+            }"#,
+        )
+        .unwrap();
+
+        let trade = parse_ws_my_trade(&data).unwrap();
+        assert_eq!(trade.price, Price::new(dec!(48000)));
+        assert_eq!(trade.amount, Amount::new(dec!(0.2)));
+        assert_eq!(trade.timestamp, 1700000000002);
+        assert!(trade.fee.is_some());
     }
 }

@@ -4,17 +4,26 @@
 //! Supports public streams (ticker, orderbook, trades) and private streams
 //! (balance, orders) with automatic reconnection.
 
+use crate::okx::auth::OkxAuth;
 use crate::okx::parser::{parse_orderbook, parse_ticker, parse_trade};
 use ccxt_core::error::{Error, Result};
-use ccxt_core::types::{Market, OrderBook, Ticker, Trade};
+use ccxt_core::types::{
+    Balance, BalanceEntry, Fee, Market, Order, OrderBook, OrderSide, OrderStatus, OrderType,
+    Ticker, Trade,
+    financial::{Amount, Cost, Price},
+};
 use ccxt_core::ws_client::{WsClient, WsConfig, WsConnectionState};
 use ccxt_core::ws_exchange::MessageStream;
 use futures::Stream;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromStr;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::{RwLock, mpsc};
+use tracing::{debug, warn};
 
 /// Default ping interval for OKX WebSocket (25 seconds).
 /// OKX requires ping every 30 seconds, we use 25 for safety margin.
@@ -509,6 +518,271 @@ impl OkxWs {
 
         Ok(Box::pin(ReceiverStream::new(rx)))
     }
+
+    // ========================================================================
+    // Private WebSocket Methods
+    // ========================================================================
+
+    /// Sends a login message to authenticate the private WebSocket connection.
+    ///
+    /// OKX WebSocket login format:
+    /// ```json
+    /// {
+    ///   "op": "login",
+    ///   "args": [{
+    ///     "apiKey": "...",
+    ///     "passphrase": "...",
+    ///     "timestamp": "...",
+    ///     "sign": "..."
+    ///   }]
+    /// }
+    /// ```
+    ///
+    /// The signature is: HMAC-SHA256(timestamp + "GET" + "/users/self/verify", secret)
+    pub async fn login(&self, auth: &OkxAuth) -> Result<()> {
+        let timestamp = (chrono::Utc::now().timestamp_millis() / 1000).to_string();
+        let sign = auth.sign(&timestamp, "GET", "/users/self/verify", "");
+
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "login",
+            "args": [{
+                "apiKey": auth.api_key(),
+                "passphrase": auth.passphrase(),
+                "timestamp": timestamp,
+                "sign": sign
+            }]
+        });
+
+        self.client.send_json(&msg).await?;
+
+        // Wait for login response
+        let timeout = tokio::time::Duration::from_secs(10);
+        let start = tokio::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            if let Some(resp) = self.client.receive().await {
+                if let Some(event) = resp.get("event").and_then(|e| e.as_str()) {
+                    if event == "login" {
+                        let code = resp.get("code").and_then(|c| c.as_str()).unwrap_or("1");
+                        if code == "0" {
+                            debug!("OKX WebSocket login successful");
+                            return Ok(());
+                        }
+                        let msg_text = resp
+                            .get("msg")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Unknown error");
+                        return Err(Error::authentication(format!(
+                            "OKX WebSocket login failed: {} (code: {})",
+                            msg_text, code
+                        )));
+                    }
+                }
+            }
+        }
+
+        Err(Error::authentication(
+            "OKX WebSocket login timed out waiting for response",
+        ))
+    }
+
+    /// Subscribes to the orders channel (private).
+    ///
+    /// Receives real-time order updates for all instrument types.
+    pub async fn subscribe_orders(&self, inst_type: Option<&str>) -> Result<()> {
+        let mut arg = serde_json::Map::new();
+        arg.insert("channel".to_string(), Value::String("orders".to_string()));
+        arg.insert(
+            "instType".to_string(),
+            Value::String(inst_type.unwrap_or("ANY").to_string()),
+        );
+
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "subscribe",
+            "args": [Value::Object(arg)]
+        });
+
+        self.client.send_json(&msg).await?;
+
+        self.subscriptions.write().await.push("orders".to_string());
+
+        Ok(())
+    }
+
+    /// Subscribes to the account channel (private).
+    ///
+    /// Receives real-time balance/account updates.
+    pub async fn subscribe_account(&self) -> Result<()> {
+        #[allow(clippy::disallowed_methods)]
+        let msg = serde_json::json!({
+            "op": "subscribe",
+            "args": [{
+                "channel": "account"
+            }]
+        });
+
+        self.client.send_json(&msg).await?;
+
+        self.subscriptions.write().await.push("account".to_string());
+
+        Ok(())
+    }
+
+    /// Watches balance updates via the private WebSocket.
+    ///
+    /// Requires prior authentication via `login()`.
+    pub async fn watch_balance(&self) -> Result<MessageStream<Balance>> {
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        self.subscribe_account().await?;
+
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Balance>>();
+        let client = Arc::clone(&self.client);
+
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                if is_account_message(&msg) {
+                    match parse_ws_balance(&msg) {
+                        Ok(balance) => {
+                            if tx.send(Ok(balance)).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to parse OKX balance update");
+                            if tx.send(Err(e)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+
+    /// Watches order updates via the private WebSocket.
+    ///
+    /// Requires prior authentication via `login()`.
+    pub async fn watch_orders(
+        &self,
+        symbol_filter: Option<String>,
+    ) -> Result<MessageStream<Order>> {
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        self.subscribe_orders(None).await?;
+
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Order>>();
+        let client = Arc::clone(&self.client);
+
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                if is_orders_message(&msg) {
+                    if let Some(data_array) = msg.get("data").and_then(|d| d.as_array()) {
+                        for data in data_array {
+                            // Apply symbol filter if specified
+                            if let Some(ref filter) = symbol_filter {
+                                let inst_id =
+                                    data.get("instId").and_then(|i| i.as_str()).unwrap_or("");
+                                let unified = inst_id.replace('-', "/");
+                                if unified != *filter && inst_id != filter.as_str() {
+                                    continue;
+                                }
+                            }
+
+                            match parse_ws_order(data) {
+                                Ok(order) => {
+                                    if tx.send(Ok(order)).is_err() {
+                                        return;
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to parse OKX order update");
+                                    if tx.send(Err(e)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+
+    /// Watches trade fills via the private WebSocket (orders channel).
+    ///
+    /// Extracts trade information from order execution reports.
+    /// Requires prior authentication via `login()`.
+    pub async fn watch_my_trades(
+        &self,
+        symbol_filter: Option<String>,
+    ) -> Result<MessageStream<Trade>> {
+        if !self.is_connected() {
+            self.connect().await?;
+        }
+
+        self.subscribe_orders(None).await?;
+
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Trade>>();
+        let client = Arc::clone(&self.client);
+
+        tokio::spawn(async move {
+            while let Some(msg) = client.receive().await {
+                if is_orders_message(&msg) {
+                    if let Some(data_array) = msg.get("data").and_then(|d| d.as_array()) {
+                        for data in data_array {
+                            // Only emit trades for filled/partially filled orders
+                            let fill_sz = data
+                                .get("fillSz")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(0.0);
+
+                            if fill_sz <= 0.0 {
+                                continue;
+                            }
+
+                            // Apply symbol filter
+                            if let Some(ref filter) = symbol_filter {
+                                let inst_id =
+                                    data.get("instId").and_then(|i| i.as_str()).unwrap_or("");
+                                let unified = inst_id.replace('-', "/");
+                                if unified != *filter && inst_id != filter.as_str() {
+                                    continue;
+                                }
+                            }
+
+                            match parse_ws_my_trade(data) {
+                                Ok(trade) => {
+                                    if tx.send(Ok(trade)).is_err() {
+                                        return;
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to parse OKX trade update");
+                                    if tx.send(Err(e)).is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
 }
 
 // ============================================================================
@@ -645,6 +919,306 @@ pub fn parse_ws_trades(msg: &Value, market: Option<&Market>) -> Result<Vec<Trade
     }
 
     Ok(trades)
+}
+
+// ============================================================================
+// Private Message Type Detection Helpers
+// ============================================================================
+
+/// Check if a WebSocket message is an account/balance update.
+fn is_account_message(msg: &Value) -> bool {
+    if let Some(arg) = msg.get("arg") {
+        arg.get("channel").and_then(|c| c.as_str()) == Some("account")
+    } else {
+        false
+    }
+}
+
+/// Check if a WebSocket message is an orders update.
+fn is_orders_message(msg: &Value) -> bool {
+    if let Some(arg) = msg.get("arg") {
+        arg.get("channel").and_then(|c| c.as_str()) == Some("orders")
+    } else {
+        false
+    }
+}
+
+// ============================================================================
+// Private WebSocket Message Parsers
+// ============================================================================
+
+/// Parse a WebSocket account/balance message into a Balance.
+///
+/// OKX account update format:
+/// ```json
+/// {
+///   "arg": {"channel": "account"},
+///   "data": [{
+///     "uTime": "1700000000000",
+///     "totalEq": "100000.00",
+///     "details": [
+///       {"ccy": "USDT", "availBal": "50000", "frozenBal": "10000", "eq": "60000"},
+///       {"ccy": "BTC", "availBal": "1.5", "frozenBal": "0.5", "eq": "2.0"}
+///     ]
+///   }]
+/// }
+/// ```
+pub fn parse_ws_balance(msg: &Value) -> Result<Balance> {
+    let data = msg
+        .get("data")
+        .and_then(|d| d.as_array())
+        .and_then(|arr| arr.first())
+        .ok_or_else(|| Error::invalid_request("Missing data in account message"))?;
+
+    // uTime is available but Balance struct doesn't have a timestamp field
+    let mut info = HashMap::new();
+
+    if let Some(details) = data.get("details").and_then(|d| d.as_array()) {
+        for detail in details {
+            let currency = detail
+                .get("ccy")
+                .and_then(|c| c.as_str())
+                .unwrap_or_default()
+                .to_string();
+
+            if currency.is_empty() {
+                continue;
+            }
+
+            let free = detail
+                .get("availBal")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default();
+
+            let used = detail
+                .get("frozenBal")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or_default();
+
+            let total = free + used;
+
+            info.insert(currency, BalanceEntry { free, used, total });
+        }
+    }
+
+    Ok(Balance {
+        balances: info,
+        info: HashMap::new(),
+    })
+}
+
+/// Parse a WebSocket order update message into an Order.
+///
+/// OKX order update format:
+/// ```json
+/// {
+///   "instId": "BTC-USDT",
+///   "ordId": "123456",
+///   "clOrdId": "client123",
+///   "side": "buy",
+///   "ordType": "limit",
+///   "px": "50000",
+///   "sz": "0.1",
+///   "fillPx": "49999",
+///   "fillSz": "0.05",
+///   "avgPx": "49999",
+///   "state": "partially_filled",
+///   "fee": "-0.5",
+///   "feeCcy": "USDT",
+///   "uTime": "1700000000000",
+///   "cTime": "1700000000000"
+/// }
+/// ```
+pub fn parse_ws_order(data: &Value) -> Result<Order> {
+    let inst_id = data
+        .get("instId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let symbol = inst_id.replace('-', "/");
+
+    let id = data
+        .get("ordId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let client_order_id = data
+        .get("clOrdId")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let side = match data.get("side").and_then(|v| v.as_str()) {
+        Some("sell") => OrderSide::Sell,
+        _ => OrderSide::Buy,
+    };
+
+    let order_type = match data.get("ordType").and_then(|v| v.as_str()) {
+        Some("market") => OrderType::Market,
+        _ => OrderType::Limit,
+    };
+
+    let price = data
+        .get("px")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok());
+
+    let amount = data
+        .get("sz")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .unwrap_or_default();
+
+    let filled = data
+        .get("accFillSz")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok());
+
+    let average = data
+        .get("avgPx")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .filter(|d| !d.is_zero());
+
+    let cost = match (filled, average) {
+        (Some(f), Some(a)) => Some(f * a),
+        _ => None,
+    };
+
+    let status = match data.get("state").and_then(|v| v.as_str()) {
+        Some("filled") => OrderStatus::Closed,
+        Some("canceled" | "cancelled") => OrderStatus::Cancelled,
+        _ => OrderStatus::Open,
+    };
+
+    let fee = {
+        let fee_amount = data
+            .get("fee")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Decimal::from_str(s).ok());
+        let fee_currency = data
+            .get("feeCcy")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        fee_amount.map(|f| Fee::new(fee_currency, f.abs()))
+    };
+
+    let timestamp = data
+        .get("cTime")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok());
+
+    Ok(Order {
+        id,
+        client_order_id,
+        symbol,
+        order_type,
+        side,
+        price,
+        amount,
+        filled,
+        remaining: None,
+        cost,
+        average,
+        status,
+        fee,
+        fees: None,
+        timestamp,
+        datetime: None,
+        last_trade_timestamp: None,
+        time_in_force: None,
+        post_only: None,
+        reduce_only: None,
+        stop_price: None,
+        trigger_price: None,
+        take_profit_price: None,
+        stop_loss_price: None,
+        trailing_delta: None,
+        trailing_percent: None,
+        activation_price: None,
+        callback_rate: None,
+        working_type: None,
+        trades: None,
+        info: HashMap::new(),
+    })
+}
+
+/// Parse a WebSocket order fill into a Trade (my trade).
+///
+/// Extracts the latest fill information from an order update.
+pub fn parse_ws_my_trade(data: &Value) -> Result<Trade> {
+    let inst_id = data
+        .get("instId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let symbol = inst_id.replace('-', "/");
+
+    let trade_id = data
+        .get("tradeId")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let order_id = data
+        .get("ordId")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let side = match data.get("side").and_then(|v| v.as_str()) {
+        Some("buy") => OrderSide::Buy,
+        _ => OrderSide::Sell,
+    };
+
+    let fill_px = data
+        .get("fillPx")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .unwrap_or_default();
+
+    let fill_sz = data
+        .get("fillSz")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Decimal::from_str(s).ok())
+        .unwrap_or_default();
+
+    let timestamp = data
+        .get("fillTime")
+        .or_else(|| data.get("uTime"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let fee = {
+        let fee_amount = data
+            .get("fillFee")
+            .or_else(|| data.get("fee"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| Decimal::from_str(s).ok());
+        let fee_currency = data
+            .get("fillFeeCcy")
+            .or_else(|| data.get("feeCcy"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        fee_amount.map(|f| Fee::new(fee_currency, f.abs()))
+    };
+
+    Ok(Trade {
+        id: trade_id,
+        order: order_id,
+        symbol,
+        trade_type: None,
+        side,
+        taker_or_maker: None,
+        price: Price(fill_px),
+        amount: Amount(fill_sz),
+        cost: Some(Cost(fill_px * fill_sz)),
+        fee,
+        timestamp,
+        datetime: None,
+        info: HashMap::new(),
+    })
 }
 
 #[cfg(test)]

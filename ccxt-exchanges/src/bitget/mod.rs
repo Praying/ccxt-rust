@@ -12,9 +12,11 @@ pub mod builder;
 pub mod endpoint_router;
 pub mod error;
 mod exchange_impl;
+mod margin_impl;
 pub mod parser;
 pub mod rest;
 pub mod signed_request;
+pub mod symbol;
 pub mod ws;
 mod ws_exchange_impl;
 
@@ -315,6 +317,16 @@ impl Bitget {
     pub fn create_ws(&self) -> ws::BitgetWs {
         let urls = self.urls();
         ws::BitgetWs::new(urls.ws_public)
+    }
+
+    /// Creates a new private WebSocket client for Bitget.
+    ///
+    /// Returns a `BitgetWs` instance configured with the private WebSocket URL.
+    /// The caller must call `login()` on the returned client before subscribing
+    /// to private channels.
+    pub fn create_private_ws(&self) -> ws::BitgetWs {
+        let urls = self.urls();
+        ws::BitgetWs::new(urls.ws_private)
     }
 
     /// Creates a signed request builder for authenticated API requests.
