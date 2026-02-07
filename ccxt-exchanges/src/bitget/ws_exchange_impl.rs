@@ -126,21 +126,24 @@ impl WsExchange for Bitget {
     // ==================== Private Data Streams ====================
 
     async fn watch_balance(&self) -> Result<MessageStream<Balance>> {
-        Err(Error::not_implemented(
-            "watch_balance not yet implemented for Bitget",
-        ))
+        let ws = self.create_private_ws();
+        let auth = self.get_auth()?;
+        ws.login(&auth).await?;
+        ws.watch_balance().await
     }
 
-    async fn watch_orders(&self, _symbol: Option<&str>) -> Result<MessageStream<Order>> {
-        Err(Error::not_implemented(
-            "watch_orders not yet implemented for Bitget",
-        ))
+    async fn watch_orders(&self, symbol: Option<&str>) -> Result<MessageStream<Order>> {
+        let ws = self.create_private_ws();
+        let auth = self.get_auth()?;
+        ws.login(&auth).await?;
+        ws.watch_orders(symbol.map(ToString::to_string)).await
     }
 
-    async fn watch_my_trades(&self, _symbol: Option<&str>) -> Result<MessageStream<Trade>> {
-        Err(Error::not_implemented(
-            "watch_my_trades not yet implemented for Bitget",
-        ))
+    async fn watch_my_trades(&self, symbol: Option<&str>) -> Result<MessageStream<Trade>> {
+        let ws = self.create_private_ws();
+        let auth = self.get_auth()?;
+        ws.login(&auth).await?;
+        ws.watch_my_trades(symbol.map(ToString::to_string)).await
     }
 
     // ==================== Subscription Management ====================

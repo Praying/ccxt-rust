@@ -643,6 +643,169 @@ fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry
 }
 
 // ============================================================================
+// Position and Funding Rate Parser Functions
+// ============================================================================
+
+/// Parse position data from Bitget position response.
+///
+/// Bitget position fields:
+/// - symbol: exchange symbol
+/// - holdSide: position side (long/short)
+/// - total: total position size
+/// - available: available position size
+/// - averageOpenPrice: average entry price
+/// - markPrice: mark price
+/// - unrealizedPL: unrealized PnL
+/// - leverage: leverage multiplier
+/// - liquidationPrice: liquidation price
+/// - marginMode: margin mode (crossed/isolated)
+/// - margin: position margin
+/// - achievedProfits: realized PnL
+pub fn parse_position(data: &Value, symbol: &str) -> Result<ccxt_core::types::Position> {
+    use ccxt_core::types::position::PositionSide;
+
+    let hold_side = data["holdSide"].as_str().unwrap_or("long");
+    let position_side = match hold_side.to_lowercase().as_str() {
+        "short" => PositionSide::Short,
+        "long" => PositionSide::Long,
+        _ => PositionSide::Both,
+    };
+
+    let side = match position_side {
+        PositionSide::Long => Some("long".to_string()),
+        PositionSide::Short => Some("short".to_string()),
+        PositionSide::Both => None,
+    };
+
+    let total = parse_f64_field(data, "total")
+        .or_else(|| parse_f64_field(data, "openDelegateSize"))
+        .unwrap_or(0.0);
+    let avg_px =
+        parse_f64_field(data, "averageOpenPrice").or_else(|| parse_f64_field(data, "openPriceAvg"));
+    let mark_px = parse_f64_field(data, "markPrice");
+    let upl =
+        parse_f64_field(data, "unrealizedPL").or_else(|| parse_f64_field(data, "unrealizedPl"));
+    let lever = parse_f64_field(data, "leverage");
+    let liq_px = parse_f64_field(data, "liquidationPrice");
+    let margin = parse_f64_field(data, "margin");
+    let realized_pnl = parse_f64_field(data, "achievedProfits");
+
+    let mgn_mode = data["marginMode"].as_str().unwrap_or("crossed");
+    let margin_mode = Some(match mgn_mode {
+        "isolated" => "isolated".to_string(),
+        _ => "cross".to_string(),
+    });
+
+    let timestamp = parse_timestamp(data, "uTime").or_else(|| parse_timestamp(data, "cTime"));
+    let datetime = timestamp.and_then(timestamp_to_datetime);
+
+    let initial_margin_percentage = lever.map(|l| if l > 0.0 { 1.0 / l } else { 0.0 });
+
+    let notional = match (avg_px, Some(total)) {
+        (Some(price), Some(qty)) if qty > 0.0 => Some(price * qty),
+        _ => None,
+    };
+
+    let percentage = match (upl, margin) {
+        (Some(pnl), Some(m)) if m > 0.0 => Some((pnl / m) * 100.0),
+        _ => None,
+    };
+
+    Ok(ccxt_core::types::Position {
+        info: data.clone(),
+        id: data["posId"]
+            .as_str()
+            .or_else(|| data["trackingNo"].as_str())
+            .map(ToString::to_string),
+        symbol: symbol.to_string(),
+        side,
+        position_side: Some(position_side),
+        dual_side_position: None,
+        contracts: Some(total),
+        contract_size: parse_f64_field(data, "contractSize"),
+        entry_price: avg_px,
+        mark_price: mark_px,
+        notional,
+        leverage: lever,
+        collateral: margin,
+        initial_margin: margin,
+        initial_margin_percentage,
+        maintenance_margin: None,
+        maintenance_margin_percentage: None,
+        unrealized_pnl: upl,
+        realized_pnl,
+        liquidation_price: liq_px,
+        margin_ratio: None,
+        margin_mode,
+        hedged: None,
+        percentage,
+        timestamp,
+        datetime,
+    })
+}
+
+/// Parse funding rate data from Bitget response.
+pub fn parse_funding_rate(data: &Value, symbol: &str) -> Result<ccxt_core::types::FundingRate> {
+    let funding_rate = parse_f64_field(data, "fundingRate");
+    let funding_time =
+        parse_timestamp(data, "fundingTime").or_else(|| parse_timestamp(data, "nextFundingTime"));
+
+    let timestamp = parse_timestamp(data, "ts").or_else(|| parse_timestamp(data, "fundingTime"));
+    let datetime = timestamp.and_then(timestamp_to_datetime);
+    let funding_datetime = funding_time.and_then(timestamp_to_datetime);
+
+    Ok(ccxt_core::types::FundingRate {
+        info: data.clone(),
+        symbol: symbol.to_string(),
+        mark_price: parse_f64_field(data, "markPrice"),
+        index_price: parse_f64_field(data, "indexPrice"),
+        interest_rate: None,
+        estimated_settle_price: None,
+        funding_rate,
+        funding_timestamp: funding_time,
+        funding_datetime,
+        previous_funding_rate: None,
+        previous_funding_timestamp: None,
+        previous_funding_datetime: None,
+        timestamp,
+        datetime,
+    })
+}
+
+/// Parse funding rate history data from Bitget response.
+pub fn parse_funding_rate_history(
+    data: &Value,
+    symbol: &str,
+) -> Result<ccxt_core::types::FundingRateHistory> {
+    let funding_rate = parse_f64_field(data, "fundingRate");
+    let timestamp =
+        parse_timestamp(data, "fundingTime").or_else(|| parse_timestamp(data, "settleTime"));
+    let datetime = timestamp.and_then(timestamp_to_datetime);
+
+    Ok(ccxt_core::types::FundingRateHistory {
+        info: data.clone(),
+        symbol: symbol.to_string(),
+        funding_rate,
+        timestamp,
+        datetime,
+    })
+}
+
+/// Helper to parse a string field as f64.
+fn parse_f64_field(data: &Value, field: &str) -> Option<f64> {
+    data[field]
+        .as_str()
+        .and_then(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                s.parse::<f64>().ok()
+            }
+        })
+        .or_else(|| data[field].as_f64())
+}
+
+// ============================================================================
 // Unit Tests
 // ============================================================================
 

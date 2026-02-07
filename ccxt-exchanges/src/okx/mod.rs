@@ -13,6 +13,7 @@ pub mod builder;
 pub mod endpoint_router;
 pub mod error;
 pub mod exchange_impl;
+pub mod margin_impl;
 pub mod parser;
 pub mod rest;
 pub mod signed_request;
@@ -330,6 +331,16 @@ impl Okx {
     pub fn create_ws(&self) -> ws::OkxWs {
         let urls = self.urls();
         ws::OkxWs::new(urls.ws_public)
+    }
+
+    /// Creates a new private WebSocket client for OKX.
+    ///
+    /// Returns an `OkxWs` instance configured with the private WebSocket URL.
+    /// The caller must call `login()` on the returned client before subscribing
+    /// to private channels.
+    pub fn create_private_ws(&self) -> ws::OkxWs {
+        let urls = self.urls();
+        ws::OkxWs::new(urls.ws_private)
     }
 
     /// Creates a new signed request builder for authenticated API requests.

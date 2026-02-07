@@ -647,6 +647,223 @@ fn parse_balance_entry(data: &Value, balances: &mut HashMap<String, BalanceEntry
 }
 
 // ============================================================================
+// Position and Funding Rate Parser Functions
+// ============================================================================
+
+/// Parse position data from OKX account positions response.
+///
+/// OKX position fields:
+/// - instId: instrument ID
+/// - posSide: position side (long/short/net)
+/// - pos: position quantity
+/// - avgPx: average entry price
+/// - markPx: mark price
+/// - upl: unrealized PnL
+/// - lever: leverage
+/// - liqPx: liquidation price
+/// - mgnMode: margin mode (cross/isolated)
+/// - imr: initial margin requirement
+/// - mmr: maintenance margin requirement
+/// - cTime: creation time
+/// - uTime: update time
+///
+/// # Arguments
+///
+/// * `data` - OKX position data JSON object
+/// * `symbol` - Unified symbol string
+///
+/// # Returns
+///
+/// Returns a CCXT [`Position`] structure.
+pub fn parse_position(data: &Value, symbol: &str) -> Result<ccxt_core::types::Position> {
+    use ccxt_core::types::position::PositionSide;
+
+    let pos_side_str = data["posSide"].as_str().unwrap_or("net");
+    let position_side = match pos_side_str.to_lowercase().as_str() {
+        "long" => PositionSide::Long,
+        "short" => PositionSide::Short,
+        _ => PositionSide::Both,
+    };
+
+    let pos = parse_f64_field(data, "pos").unwrap_or(0.0);
+    let avg_px = parse_f64_field(data, "avgPx");
+    let mark_px = parse_f64_field(data, "markPx");
+    let upl = parse_f64_field(data, "upl");
+    let lever = parse_f64_field(data, "lever");
+    let liq_px = parse_f64_field(data, "liqPx");
+    let imr = parse_f64_field(data, "imr");
+    let mmr = parse_f64_field(data, "mmr");
+    let notional_usd = parse_f64_field(data, "notionalUsd");
+    let margin = parse_f64_field(data, "margin");
+    let realized_pnl = parse_f64_field(data, "realizedPnl");
+
+    let mgn_mode = data["mgnMode"].as_str().unwrap_or("cross");
+    let margin_mode = Some(mgn_mode.to_string());
+
+    let timestamp = parse_timestamp(data, "uTime").or_else(|| parse_timestamp(data, "cTime"));
+    let datetime = timestamp.and_then(timestamp_to_datetime);
+
+    // Determine side from position quantity or posSide
+    let side = match position_side {
+        PositionSide::Long => Some("long".to_string()),
+        PositionSide::Short => Some("short".to_string()),
+        PositionSide::Both => {
+            if pos > 0.0 {
+                Some("long".to_string())
+            } else if pos < 0.0 {
+                Some("short".to_string())
+            } else {
+                None
+            }
+        }
+    };
+
+    let contracts = Some(pos.abs());
+
+    // Calculate initial margin percentage from leverage
+    let initial_margin_percentage = lever.map(|l| if l > 0.0 { 1.0 / l } else { 0.0 });
+
+    // Calculate notional value
+    let notional = notional_usd.or(match (avg_px, contracts) {
+        (Some(price), Some(qty)) => Some(price * qty),
+        _ => None,
+    });
+
+    // Calculate percentage PnL
+    let percentage = match (upl, margin.or(imr)) {
+        (Some(pnl), Some(m)) if m > 0.0 => Some((pnl / m) * 100.0),
+        _ => None,
+    };
+
+    let hedged = match position_side {
+        PositionSide::Both => Some(false),
+        _ => Some(true),
+    };
+
+    Ok(ccxt_core::types::Position {
+        info: data.clone(),
+        id: data["posId"].as_str().map(ToString::to_string),
+        symbol: symbol.to_string(),
+        side,
+        position_side: Some(position_side),
+        dual_side_position: hedged,
+        contracts,
+        contract_size: parse_f64_field(data, "ctVal"),
+        entry_price: avg_px,
+        mark_price: mark_px,
+        notional,
+        leverage: lever,
+        collateral: margin,
+        initial_margin: imr,
+        initial_margin_percentage,
+        maintenance_margin: mmr,
+        maintenance_margin_percentage: None,
+        unrealized_pnl: upl,
+        realized_pnl,
+        liquidation_price: liq_px,
+        margin_ratio: None,
+        margin_mode,
+        hedged,
+        percentage,
+        timestamp,
+        datetime,
+    })
+}
+
+/// Parse funding rate data from OKX public funding-rate response.
+///
+/// OKX funding rate fields:
+/// - instId: instrument ID
+/// - fundingRate: current funding rate
+/// - fundingTime: next funding time
+/// - nextFundingRate: estimated next funding rate
+/// - nextFundingTime: next funding settlement time
+///
+/// # Arguments
+///
+/// * `data` - OKX funding rate data JSON object
+/// * `symbol` - Unified symbol string
+///
+/// # Returns
+///
+/// Returns a CCXT [`FundingRate`] structure.
+pub fn parse_funding_rate(data: &Value, symbol: &str) -> Result<ccxt_core::types::FundingRate> {
+    let funding_rate = parse_f64_field(data, "fundingRate");
+    let funding_time = parse_timestamp(data, "fundingTime");
+    let next_funding_time = parse_timestamp(data, "nextFundingTime");
+
+    let timestamp = funding_time.or_else(|| parse_timestamp(data, "ts"));
+    let datetime = timestamp.and_then(timestamp_to_datetime);
+
+    let funding_datetime = next_funding_time.and_then(timestamp_to_datetime);
+
+    Ok(ccxt_core::types::FundingRate {
+        info: data.clone(),
+        symbol: symbol.to_string(),
+        mark_price: parse_f64_field(data, "markPx"),
+        index_price: parse_f64_field(data, "idxPx"),
+        interest_rate: None,
+        estimated_settle_price: None,
+        funding_rate,
+        funding_timestamp: next_funding_time,
+        funding_datetime,
+        previous_funding_rate: None,
+        previous_funding_timestamp: None,
+        previous_funding_datetime: None,
+        timestamp,
+        datetime,
+    })
+}
+
+/// Parse funding rate history data from OKX public funding-rate-history response.
+///
+/// OKX funding rate history fields:
+/// - instId: instrument ID
+/// - fundingRate: historical funding rate
+/// - fundingTime: funding settlement time
+/// - realizedRate: realized funding rate
+///
+/// # Arguments
+///
+/// * `data` - OKX funding rate history data JSON object
+/// * `symbol` - Unified symbol string
+///
+/// # Returns
+///
+/// Returns a CCXT [`FundingRateHistory`] structure.
+pub fn parse_funding_rate_history(
+    data: &Value,
+    symbol: &str,
+) -> Result<ccxt_core::types::FundingRateHistory> {
+    let funding_rate =
+        parse_f64_field(data, "fundingRate").or_else(|| parse_f64_field(data, "realizedRate"));
+    let timestamp = parse_timestamp(data, "fundingTime");
+    let datetime = timestamp.and_then(timestamp_to_datetime);
+
+    Ok(ccxt_core::types::FundingRateHistory {
+        info: data.clone(),
+        symbol: symbol.to_string(),
+        funding_rate,
+        timestamp,
+        datetime,
+    })
+}
+
+/// Helper to parse a string field as f64.
+fn parse_f64_field(data: &Value, field: &str) -> Option<f64> {
+    data[field]
+        .as_str()
+        .and_then(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                s.parse::<f64>().ok()
+            }
+        })
+        .or_else(|| data[field].as_f64())
+}
+
+// ============================================================================
 // Unit Tests
 // ============================================================================
 
@@ -827,5 +1044,155 @@ mod tests {
         let ts = 1700000000000i64;
         let dt = timestamp_to_datetime(ts).unwrap();
         assert!(dt.contains("2023-11-14"));
+    }
+
+    // ========================================================================
+    // Position Parser Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_position_long() {
+        let data = json!({
+            "instId": "BTC-USDT-SWAP",
+            "posId": "12345",
+            "posSide": "long",
+            "pos": "1.5",
+            "avgPx": "50000.00",
+            "markPx": "51000.00",
+            "upl": "1500.00",
+            "lever": "10",
+            "liqPx": "45000.00",
+            "mgnMode": "cross",
+            "imr": "5000.00",
+            "mmr": "500.00",
+            "notionalUsd": "76500.00",
+            "margin": "5000.00",
+            "uTime": "1700000000000"
+        });
+
+        let position = parse_position(&data, "BTC/USDT:USDT").unwrap();
+        assert_eq!(position.symbol, "BTC/USDT:USDT");
+        assert_eq!(position.side, Some("long".to_string()));
+        assert_eq!(position.contracts, Some(1.5));
+        assert_eq!(position.entry_price, Some(50000.00));
+        assert_eq!(position.mark_price, Some(51000.00));
+        assert_eq!(position.unrealized_pnl, Some(1500.00));
+        assert_eq!(position.leverage, Some(10.0));
+        assert_eq!(position.liquidation_price, Some(45000.00));
+        assert_eq!(position.margin_mode, Some("cross".to_string()));
+        assert_eq!(position.initial_margin, Some(5000.00));
+        assert_eq!(position.maintenance_margin, Some(500.00));
+        assert_eq!(position.hedged, Some(true));
+    }
+
+    #[test]
+    fn test_parse_position_short() {
+        let data = json!({
+            "instId": "ETH-USDT-SWAP",
+            "posSide": "short",
+            "pos": "-10",
+            "avgPx": "3000.00",
+            "markPx": "2900.00",
+            "upl": "1000.00",
+            "lever": "5",
+            "mgnMode": "isolated",
+            "uTime": "1700000000000"
+        });
+
+        let position = parse_position(&data, "ETH/USDT:USDT").unwrap();
+        assert_eq!(position.side, Some("short".to_string()));
+        assert_eq!(position.contracts, Some(10.0));
+        assert_eq!(position.margin_mode, Some("isolated".to_string()));
+        assert_eq!(position.hedged, Some(true));
+    }
+
+    #[test]
+    fn test_parse_position_net_mode() {
+        let data = json!({
+            "instId": "BTC-USDT-SWAP",
+            "posSide": "net",
+            "pos": "2",
+            "avgPx": "50000.00",
+            "lever": "10",
+            "mgnMode": "cross",
+            "uTime": "1700000000000"
+        });
+
+        let position = parse_position(&data, "BTC/USDT:USDT").unwrap();
+        assert_eq!(position.side, Some("long".to_string()));
+        assert_eq!(position.contracts, Some(2.0));
+        assert_eq!(position.hedged, Some(false));
+    }
+
+    #[test]
+    fn test_parse_position_empty_fields() {
+        let data = json!({
+            "instId": "BTC-USDT-SWAP",
+            "posSide": "net",
+            "pos": "0",
+            "avgPx": "",
+            "markPx": "",
+            "upl": "",
+            "lever": "10",
+            "mgnMode": "cross"
+        });
+
+        let position = parse_position(&data, "BTC/USDT:USDT").unwrap();
+        assert_eq!(position.contracts, Some(0.0));
+        assert_eq!(position.entry_price, None);
+        assert_eq!(position.mark_price, None);
+        assert_eq!(position.unrealized_pnl, None);
+    }
+
+    // ========================================================================
+    // Funding Rate Parser Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_funding_rate() {
+        let data = json!({
+            "instId": "BTC-USDT-SWAP",
+            "fundingRate": "0.0001",
+            "fundingTime": "1700000000000",
+            "nextFundingRate": "0.00015",
+            "nextFundingTime": "1700028800000"
+        });
+
+        let rate = parse_funding_rate(&data, "BTC/USDT:USDT").unwrap();
+        assert_eq!(rate.symbol, "BTC/USDT:USDT");
+        assert_eq!(rate.funding_rate, Some(0.0001));
+        assert_eq!(rate.funding_timestamp, Some(1700028800000));
+        assert_eq!(rate.timestamp, Some(1700000000000));
+    }
+
+    #[test]
+    fn test_parse_funding_rate_history() {
+        let data = json!({
+            "instId": "BTC-USDT-SWAP",
+            "fundingRate": "0.0001",
+            "fundingTime": "1700000000000",
+            "realizedRate": "0.00009"
+        });
+
+        let history = parse_funding_rate_history(&data, "BTC/USDT:USDT").unwrap();
+        assert_eq!(history.symbol, "BTC/USDT:USDT");
+        assert_eq!(history.funding_rate, Some(0.0001));
+        assert_eq!(history.timestamp, Some(1700000000000));
+    }
+
+    #[test]
+    fn test_parse_f64_field() {
+        let data = json!({
+            "a": "123.45",
+            "b": "",
+            "c": 67.89,
+            "d": null
+        });
+
+        assert_eq!(parse_f64_field(&data, "a"), Some(123.45));
+        assert_eq!(parse_f64_field(&data, "b"), None);
+        assert_eq!(parse_f64_field(&data, "c"), Some(67.89));
+        assert_eq!(parse_f64_field(&data, "d"), None);
+        assert_eq!(parse_f64_field(&data, "missing"), None);
     }
 }
