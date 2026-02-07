@@ -11,6 +11,7 @@ use ccxt_core::{
 };
 use rust_decimal::Decimal;
 use serde_json::Value;
+use std::str::FromStr;
 
 /// Parse orderbook data from Binance depth response.
 pub fn parse_orderbook(data: &Value, symbol: String) -> Result<OrderBook> {
@@ -117,13 +118,11 @@ pub fn parse_orderbook_side(data: &Value) -> Result<Vec<OrderBookEntry>> {
             if arr.len() >= 2 {
                 let price = arr[0]
                     .as_str()
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .and_then(Decimal::from_f64_retain)
+                    .and_then(|s| Decimal::from_str(s).ok())
                     .ok_or_else(|| Error::from(ParseError::invalid_value("data", "price")))?;
                 let amount = arr[1]
                     .as_str()
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .and_then(Decimal::from_f64_retain)
+                    .and_then(|s| Decimal::from_str(s).ok())
                     .ok_or_else(|| Error::from(ParseError::invalid_value("data", "amount")))?;
                 result.push(OrderBookEntry {
                     price: Price::new(price),
@@ -149,13 +148,11 @@ pub fn parse_orderbook_side_ws(data: &Value) -> Result<Vec<OrderBookEntry>> {
             if arr.len() >= 2 {
                 let price = arr[0]
                     .as_str()
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .and_then(Decimal::from_f64_retain)
+                    .and_then(|s| Decimal::from_str(s).ok())
                     .ok_or_else(|| Error::from(ParseError::invalid_value("data", "price")))?;
                 let amount = arr[1]
                     .as_str()
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .and_then(Decimal::from_f64_retain)
+                    .and_then(|s| Decimal::from_str(s).ok())
                     .ok_or_else(|| Error::from(ParseError::invalid_value("data", "amount")))?;
                 result.push(OrderBookEntry {
                     price: Price::new(price),

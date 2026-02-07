@@ -421,8 +421,13 @@ impl MessageRouter {
             if let Some(event) = payload.get("e").and_then(|e| e.as_str()) {
                 if event == "listenKeyExpired" {
                     if let Some(manager) = listen_key_manager {
-                        tracing::info!("Received listenKeyExpired event, regenerating key...");
+                        tracing::warn!(
+                            "Listen key expired, regenerating and triggering reconnect..."
+                        );
                         let _ = manager.regenerate().await;
+                        // Return an error to trigger the reconnect logic in the message loop.
+                        // The message loop will reconnect with a fresh listen key URL.
+                        return Err(Error::network("Listen key expired, reconnecting"));
                     }
                 }
             }

@@ -741,6 +741,11 @@ impl Binance {
         url: &str,
         headers: Option<reqwest::header::HeaderMap>,
     ) -> Result<serde_json::Value> {
+        // Apply rate limiting before making the request
+        if let Some(wait) = self.rate_limiter().wait_duration() {
+            tokio::time::sleep(wait).await;
+        }
+
         let data = self.base().http_client.get(url, headers).await?;
 
         // Update rate limiter from response headers

@@ -139,17 +139,21 @@ impl Binance {
             }
         }
 
-        // Handle take profit price
+        // Handle take profit price (only for non-spot markets; spot doesn't support takeProfitPrice)
         if let Some(tp) = request.take_profit_price {
-            request_params.insert("takeProfitPrice".to_string(), tp.to_string());
+            if !market.is_spot() {
+                request_params.insert("takeProfitPrice".to_string(), tp.to_string());
+            }
             if !request_params.contains_key("stopPrice") {
                 request_params.insert("stopPrice".to_string(), tp.to_string());
             }
         }
 
-        // Handle stop loss price
+        // Handle stop loss price (only for non-spot markets; spot doesn't support stopLossPrice)
         if let Some(sl) = request.stop_loss_price {
-            request_params.insert("stopLossPrice".to_string(), sl.to_string());
+            if !market.is_spot() {
+                request_params.insert("stopLossPrice".to_string(), sl.to_string());
+            }
             if !request_params.contains_key("stopPrice") {
                 request_params.insert("stopPrice".to_string(), sl.to_string());
             }
@@ -164,10 +168,15 @@ impl Binance {
         if let Some(percent) = request.trailing_percent {
             if market.is_spot() {
                 // Convert percentage to basis points (e.g., 2.0% -> 200)
-                let delta = (percent * Decimal::from(100)).to_string();
-                if let Ok(delta_int) = delta.parse::<i64>() {
-                    request_params.insert("trailingDelta".to_string(), delta_int.to_string());
-                }
+                use rust_decimal::prelude::ToPrimitive;
+                let basis_points = (percent * Decimal::from(100)).round();
+                let delta_int = basis_points.to_i64().ok_or_else(|| {
+                    ccxt_core::Error::invalid_request(format!(
+                        "Cannot convert trailing percent {} to basis points integer",
+                        percent
+                    ))
+                })?;
+                request_params.insert("trailingDelta".to_string(), delta_int.to_string());
             } else {
                 request_params.insert("trailingPercent".to_string(), percent.to_string());
             }

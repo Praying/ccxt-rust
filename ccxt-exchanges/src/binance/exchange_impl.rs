@@ -342,6 +342,14 @@ impl Binance {
         Ok(())
     }
 
+    /// Check that API key is available (for endpoints that only need X-MBX-APIKEY header).
+    pub(crate) fn check_api_key(&self) -> ccxt_core::Result<()> {
+        if self.base().config.api_key.is_none() {
+            return Err(ccxt_core::Error::authentication("API key is required"));
+        }
+        Ok(())
+    }
+
     /// Get authenticator instance.
     pub(crate) fn get_auth(&self) -> ccxt_core::Result<super::auth::BinanceAuth> {
         let api_key = self

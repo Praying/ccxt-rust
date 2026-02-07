@@ -288,7 +288,17 @@ impl TimeSyncManager {
         let now = TimestampUtils::now_ms();
         let elapsed = now.saturating_sub(last_sync);
 
-        elapsed >= self.config.sync_interval.as_millis() as i64
+        if elapsed >= self.config.sync_interval.as_millis() as i64 {
+            return true;
+        }
+
+        // Check if estimated drift exceeds the configured maximum
+        // The longer since last sync, the more the offset may have drifted
+        if elapsed >= self.config.max_offset_drift {
+            return true;
+        }
+
+        false
     }
 
     /// Gets the current cached time offset.

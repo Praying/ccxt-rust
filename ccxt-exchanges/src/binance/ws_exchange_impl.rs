@@ -94,7 +94,8 @@ impl WsExchange for Binance {
         let (tx, mut rx) = mpsc::channel(1024);
 
         // Register with manager
-        ws.subscription_manager
+        let is_new = ws
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -103,8 +104,10 @@ impl WsExchange for Binance {
             )
             .await?;
 
-        // Send subscribe command
-        ws.message_router.subscribe(vec![stream]).await?;
+        // Only send subscribe command if this is a new subscription
+        if is_new {
+            ws.message_router.subscribe(vec![stream]).await?;
+        }
 
         // Create user channel
         let (user_tx, user_rx) = mpsc::channel::<Result<Ticker>>(1024);
@@ -157,7 +160,8 @@ impl WsExchange for Binance {
                 .await?;
             let (tx, mut rx) = mpsc::channel(1024);
 
-            ws.subscription_manager
+            let is_new = ws
+                .subscription_manager
                 .add_subscription(
                     stream.clone(),
                     symbol.clone(),
@@ -166,7 +170,9 @@ impl WsExchange for Binance {
                 )
                 .await?;
 
-            ws.message_router.subscribe(vec![stream]).await?;
+            if is_new {
+                ws.message_router.subscribe(vec![stream]).await?;
+            }
 
             // Spawn parser task for this symbol
             let agg_tx_clone = agg_tx.clone();
@@ -230,10 +236,13 @@ impl WsExchange for Binance {
         // Choose stream based on limit:
         // - With limit (5/10/20): use @depth{N}@100ms for partial book snapshots
         // - Without limit: use @depth@100ms for incremental diff updates
+        // When no limit is specified, default to @depth20@100ms (partial book snapshots)
+        // instead of @depth@100ms (diff stream) which requires snapshot+delta management.
+        // This is consistent with CCXT Python behavior.
         let stream = if let Some(l) = limit {
             format!("{}@depth{}@100ms", binance_symbol, l)
         } else {
-            format!("{}@depth@100ms", binance_symbol)
+            format!("{}@depth20@100ms", binance_symbol)
         };
 
         // Get shared public connection for this market type
@@ -246,7 +255,8 @@ impl WsExchange for Binance {
         let (tx, mut rx) = mpsc::channel(1024);
 
         // Register with manager
-        ws.subscription_manager
+        let is_new = ws
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -255,8 +265,10 @@ impl WsExchange for Binance {
             )
             .await?;
 
-        // Send subscribe command
-        ws.message_router.subscribe(vec![stream]).await?;
+        // Only send subscribe command if this is a new subscription
+        if is_new {
+            ws.message_router.subscribe(vec![stream]).await?;
+        }
 
         // Create user channel
         let (user_tx, user_rx) = mpsc::channel::<Result<OrderBook>>(1024);
@@ -301,7 +313,8 @@ impl WsExchange for Binance {
         let (tx, mut rx) = mpsc::channel(1024);
 
         // Register with manager
-        ws.subscription_manager
+        let is_new = ws
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -310,8 +323,10 @@ impl WsExchange for Binance {
             )
             .await?;
 
-        // Send subscribe command
-        ws.message_router.subscribe(vec![stream]).await?;
+        // Only send subscribe command if this is a new subscription
+        if is_new {
+            ws.message_router.subscribe(vec![stream]).await?;
+        }
 
         // Create user channel
         let (user_tx, user_rx) = mpsc::channel::<Result<Vec<Trade>>>(1024);
@@ -364,7 +379,8 @@ impl WsExchange for Binance {
         let (tx, mut rx) = mpsc::channel(1024);
 
         // Register with manager
-        ws.subscription_manager
+        let is_new = ws
+            .subscription_manager
             .add_subscription(
                 stream.clone(),
                 symbol.to_string(),
@@ -373,8 +389,10 @@ impl WsExchange for Binance {
             )
             .await?;
 
-        // Send subscribe command
-        ws.message_router.subscribe(vec![stream]).await?;
+        // Only send subscribe command if this is a new subscription
+        if is_new {
+            ws.message_router.subscribe(vec![stream]).await?;
+        }
 
         // Create user channel
         let (user_tx, user_rx) = mpsc::channel::<Result<Ohlcv>>(1024);

@@ -7,7 +7,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-const MAX_STREAMS_PER_CONNECTION: usize = 200;
+/// Returns the maximum number of streams per connection for a given market type.
+///
+/// Binance allows different limits:
+/// - Spot: 1024 streams per connection
+/// - Futures/Swap/Option: 200 streams per connection
+fn max_streams_for(market_type: MarketType) -> usize {
+    match market_type {
+        MarketType::Spot => 1024,
+        MarketType::Futures | MarketType::Swap | MarketType::Option => 200,
+    }
+}
 
 /// Manages multiple WebSocket connections for Binance to handle sharding and isolation.
 ///
@@ -94,7 +104,7 @@ impl BinanceConnectionManager {
 
         // Try to find an existing shard with capacity
         for shard in market_shards.iter() {
-            if shard.subscription_count() < MAX_STREAMS_PER_CONNECTION {
+            if shard.subscription_count() < max_streams_for(market_type) {
                 return Ok(shard.clone());
             }
         }

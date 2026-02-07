@@ -299,7 +299,32 @@ impl Binance {
                 .collect();
         drop(cache);
 
-        let url = format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR);
+        let url = if let Some(ref syms) = symbols {
+            // Convert CCXT symbols to Binance market IDs for server-side filtering
+            let binance_ids: Vec<String> = syms
+                .iter()
+                .filter_map(|s| {
+                    markets_snapshot
+                        .iter()
+                        .find(|(_, m)| m.symbol == *s)
+                        .map(|(id, _)| format!("\"{}\"", id))
+                })
+                .collect();
+            if binance_ids.is_empty() {
+                format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR)
+            } else {
+                let symbols_param = format!("[{}]", binance_ids.join(","));
+                let encoded = urlencoding::encode(&symbols_param);
+                format!(
+                    "{}{}?symbols={}",
+                    self.get_rest_url_public(),
+                    endpoints::TICKER_24HR,
+                    encoded
+                )
+            }
+        } else {
+            format!("{}{}", self.get_rest_url_public(), endpoints::TICKER_24HR)
+        };
         let data = self.public_get(&url, None).await?;
 
         let tickers_array = data.as_array().ok_or_else(|| {
@@ -409,22 +434,21 @@ impl Binance {
     pub async fn fetch_trades(&self, symbol: &str, limit: Option<u32>) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        let url = if let Some(l) = limit {
-            format!(
-                "{}{}?symbol={}&limit={}",
-                self.rest_endpoint(&market, EndpointType::Public),
-                endpoints::TRADES,
-                market.id,
-                l
-            )
-        } else {
-            format!(
-                "{}{}?symbol={}",
-                self.rest_endpoint(&market, EndpointType::Public),
-                endpoints::TRADES,
-                market.id
-            )
-        };
+        let full_url = format!(
+            "{}{}",
+            self.rest_endpoint(&market, EndpointType::Public),
+            endpoints::TRADES
+        );
+        let mut url =
+            Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("symbol", &market.id);
+            if let Some(l) = limit {
+                query.append_pair("limit", &l.to_string());
+            }
+        }
+        let url = url.to_string();
 
         let data = self.public_get(&url, None).await?;
 
@@ -500,33 +524,32 @@ impl Binance {
     ) -> Result<Vec<AggTrade>> {
         let market = self.base().market(symbol).await?;
 
-        let mut url = format!(
-            "{}{}?symbol={}",
+        let full_url = format!(
+            "{}{}",
             self.rest_endpoint(&market, EndpointType::Public),
-            endpoints::AGG_TRADES,
-            market.id
+            endpoints::AGG_TRADES
         );
-
-        if let Some(s) = since {
-            use std::fmt::Write;
-            let _ = write!(url, "&startTime={}", s);
-        }
-
-        if let Some(l) = limit {
-            use std::fmt::Write;
-            let _ = write!(url, "&limit={}", l);
-        }
-
-        if let Some(p) = params {
-            if let Some(from_id) = p.get("fromId") {
-                use std::fmt::Write;
-                let _ = write!(url, "&fromId={}", from_id);
+        let mut url_parsed =
+            Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
+        {
+            let mut query = url_parsed.query_pairs_mut();
+            query.append_pair("symbol", &market.id);
+            if let Some(s) = since {
+                query.append_pair("startTime", &s.to_string());
             }
-            if let Some(end_time) = p.get("endTime") {
-                use std::fmt::Write;
-                let _ = write!(url, "&endTime={}", end_time);
+            if let Some(l) = limit {
+                query.append_pair("limit", &l.to_string());
+            }
+            if let Some(ref p) = params {
+                if let Some(from_id) = p.get("fromId") {
+                    query.append_pair("fromId", from_id);
+                }
+                if let Some(end_time) = p.get("endTime") {
+                    query.append_pair("endTime", end_time);
+                }
             }
         }
+        let url = url_parsed.to_string();
 
         let data = self.public_get(&url, None).await?;
 
@@ -578,27 +601,29 @@ impl Binance {
     ) -> Result<Vec<Trade>> {
         let market = self.base().market(symbol).await?;
 
-        self.check_required_credentials()?;
+        self.check_api_key()?;
 
-        let mut url = format!(
-            "{}{}?symbol={}",
+        let full_url = format!(
+            "{}{}",
             self.rest_endpoint(&market, EndpointType::Public),
-            endpoints::HISTORICAL_TRADES,
-            market.id
+            endpoints::HISTORICAL_TRADES
         );
-
-        // Binance historicalTrades endpoint uses fromId instead of timestamp
-        if let Some(p) = &params {
-            if let Some(from_id) = p.get("fromId") {
-                use std::fmt::Write;
-                let _ = write!(url, "&fromId={}", from_id);
+        let mut url_parsed =
+            Url::parse(&full_url).map_err(|e| Error::exchange("Invalid URL", e.to_string()))?;
+        {
+            let mut query = url_parsed.query_pairs_mut();
+            query.append_pair("symbol", &market.id);
+            // Binance historicalTrades endpoint uses fromId instead of timestamp
+            if let Some(p) = &params {
+                if let Some(from_id) = p.get("fromId") {
+                    query.append_pair("fromId", from_id);
+                }
+            }
+            if let Some(l) = limit {
+                query.append_pair("limit", &l.to_string());
             }
         }
-
-        if let Some(l) = limit {
-            use std::fmt::Write;
-            let _ = write!(url, "&limit={}", l);
-        }
+        let url = url_parsed.to_string();
 
         let mut headers = HeaderMap::new();
         let auth = self.get_auth()?;

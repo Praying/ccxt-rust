@@ -294,6 +294,39 @@ impl WeightRateLimiter {
         now < banned_until
     }
 
+    /// Decays stale counters based on time elapsed since last update.
+    ///
+    /// If no update has been received within a counter's time window,
+    /// the counter is reset to zero to avoid persistent over-counting.
+    fn decay_stale_counters(&self) {
+        let last_update = if let Ok(guard) = self.last_update.read() {
+            *guard
+        } else {
+            return;
+        };
+
+        let Some(last) = last_update else {
+            return;
+        };
+
+        let elapsed = last.elapsed();
+
+        // Reset 1-second weight if >1s since last update
+        if elapsed > Duration::from_secs(1) {
+            self.used_weight_1s.store(0, Ordering::SeqCst);
+        }
+
+        // Reset 10-second order count if >10s since last update
+        if elapsed > Duration::from_secs(10) {
+            self.order_count_10s.store(0, Ordering::SeqCst);
+        }
+
+        // Reset 1-minute weight if >60s since last update
+        if elapsed > Duration::from_secs(60) {
+            self.used_weight_1m.store(0, Ordering::SeqCst);
+        }
+    }
+
     /// Returns true if we should throttle requests.
     ///
     /// Throttling is recommended when:
@@ -302,6 +335,8 @@ impl WeightRateLimiter {
     /// - Order count exceeds 80% of the limit
     /// - IP is banned
     pub fn should_throttle(&self) -> bool {
+        self.decay_stale_counters();
+
         // Check IP ban
         if self.is_ip_banned() {
             return true;
@@ -346,6 +381,8 @@ impl WeightRateLimiter {
     ///
     /// Returns `None` if no waiting is needed.
     pub fn wait_duration(&self) -> Option<Duration> {
+        self.decay_stale_counters();
+
         // Check IP ban first
         if self.is_ip_banned() {
             let banned_until = self.ip_banned_until.load(Ordering::SeqCst);
