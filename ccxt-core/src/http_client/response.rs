@@ -144,18 +144,37 @@ impl HttpClient {
         const BODY_PREVIEW_SIZE: usize = 200;
         let body_preview: String = body.chars().take(BODY_PREVIEW_SIZE).collect();
 
+        // Try to extract exchange-specific error code and message from JSON body
+        let exchange_code = result.get("code").and_then(serde_json::Value::as_i64);
+        let exchange_msg = result
+            .get("msg")
+            .and_then(serde_json::Value::as_str)
+            .map(std::string::ToString::to_string);
+
         match status {
             StatusCode::BAD_REQUEST => {
                 info!(body_preview = %body_preview, "Bad request error");
-                Error::invalid_request(body.to_string())
+                if let (Some(code), Some(msg)) = (exchange_code, &exchange_msg) {
+                    Error::exchange(code.to_string(), msg)
+                } else {
+                    Error::invalid_request(body.to_string())
+                }
             }
             StatusCode::UNAUTHORIZED => {
                 warn!("Authentication error: Unauthorized");
-                Error::authentication("Unauthorized")
+                if let Some(ref msg) = exchange_msg {
+                    Error::authentication(msg.clone())
+                } else {
+                    Error::authentication("Unauthorized")
+                }
             }
             StatusCode::FORBIDDEN => {
                 warn!("Authentication error: Forbidden");
-                Error::authentication("Forbidden")
+                if let Some(ref msg) = exchange_msg {
+                    Error::authentication(msg.clone())
+                } else {
+                    Error::authentication("Forbidden")
+                }
             }
             StatusCode::NOT_FOUND => {
                 info!("Resource not found");
@@ -189,6 +208,15 @@ impl HttpClient {
                     Error::rate_limit("Rate limit exceeded, please retry later", None)
                 }
             }
+            // HTTP 418 - Binance uses this for IP bans
+            status if status.as_u16() == 418 => {
+                error!(body_preview = %body_preview, "IP banned (HTTP 418)");
+                if let (Some(code), Some(msg)) = (exchange_code, &exchange_msg) {
+                    Error::exchange(code.to_string(), format!("IP banned: {msg}"))
+                } else {
+                    Error::exchange("418", format!("IP banned: {body}"))
+                }
+            }
             StatusCode::INTERNAL_SERVER_ERROR => {
                 error!(body_preview = %body_preview, "Internal server error");
                 Error::exchange("500", "Internal server error")
@@ -207,7 +235,11 @@ impl HttpClient {
                     body_preview = %body_preview,
                     "Unhandled HTTP error"
                 );
-                Error::network(format!("HTTP {status} error: {body}"))
+                if let (Some(code), Some(msg)) = (exchange_code, &exchange_msg) {
+                    Error::exchange(code.to_string(), msg)
+                } else {
+                    Error::network(format!("HTTP {status} error: {body}"))
+                }
             }
         }
     }

@@ -5,11 +5,11 @@
 
 use super::super::{Binance, BinanceEndpointRouter, parser};
 use ccxt_core::types::AccountType;
+use ccxt_core::types::default_type::DefaultSubType;
 use ccxt_core::{
     Error, ParseError, Result,
     types::{Balance, Currency, EndpointType, FeeTradingFee, MarketType, Trade},
 };
-use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use tracing::warn;
 
@@ -798,18 +798,12 @@ impl Binance {
         &self,
         market_type: Option<MarketType>,
     ) -> Result<String> {
-        self.check_required_credentials()?;
-
         let url = self.get_listen_key_url(market_type, None);
-        let mut headers = HeaderMap::new();
-
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
 
         let response = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), None)
+            .api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Post)
+            .execute()
             .await?;
 
         response["listenKey"]
@@ -865,18 +859,11 @@ impl Binance {
         listen_key: &str,
         market_type: Option<MarketType>,
     ) -> Result<()> {
-        self.check_required_credentials()?;
-
         let url = self.get_listen_key_url(market_type, Some(listen_key));
-        let mut headers = HeaderMap::new();
 
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let _response = self
-            .base()
-            .http_client
-            .put(&url, Some(headers), None)
+        self.api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Put)
+            .execute()
             .await?;
 
         Ok(())
@@ -926,18 +913,11 @@ impl Binance {
         listen_key: &str,
         market_type: Option<MarketType>,
     ) -> Result<()> {
-        self.check_required_credentials()?;
-
         let url = self.get_listen_key_url(market_type, Some(listen_key));
-        let mut headers = HeaderMap::new();
 
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let _response = self
-            .base()
-            .http_client
-            .delete(&url, Some(headers), None)
+        self.api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Delete)
+            .execute()
             .await?;
 
         Ok(())
@@ -961,9 +941,12 @@ impl Binance {
         let urls = self.urls();
         let (base_url, endpoint) = match market_type {
             Some(MarketType::Swap | MarketType::Futures) => {
-                // Check if it's linear (USDT-M) or inverse (COIN-M) based on default_type
-                // For now, default to linear (fapi) for Swap/Futures
-                (urls.fapi_public.clone(), "listenKey")
+                // Distinguish between linear (USDT-M) and inverse (COIN-M)
+                if self.options().default_sub_type == Some(DefaultSubType::Inverse) {
+                    (urls.dapi_public.clone(), "listenKey")
+                } else {
+                    (urls.fapi_public.clone(), "listenKey")
+                }
             }
             Some(MarketType::Option) => (urls.eapi_public.clone(), "listenKey"),
             // Spot is the default
@@ -1020,18 +1003,12 @@ impl Binance {
     ///
     /// Returns an error if API credentials are not configured or the request fails.
     pub async fn create_linear_listen_key(&self) -> Result<String> {
-        self.check_required_credentials()?;
-
         let url = self.get_linear_listen_key_url(None);
-        let mut headers = HeaderMap::new();
-
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
 
         let response = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), None)
+            .api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Post)
+            .execute()
             .await?;
 
         response["listenKey"]
@@ -1050,18 +1027,12 @@ impl Binance {
     ///
     /// Returns an error if API credentials are not configured or the request fails.
     pub async fn create_inverse_listen_key(&self) -> Result<String> {
-        self.check_required_credentials()?;
-
         let url = self.get_inverse_listen_key_url(None);
-        let mut headers = HeaderMap::new();
-
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
 
         let response = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), None)
+            .api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Post)
+            .execute()
             .await?;
 
         response["listenKey"]
@@ -1080,18 +1051,11 @@ impl Binance {
     ///
     /// Returns `Ok(())` on success.
     pub async fn refresh_linear_listen_key(&self, listen_key: &str) -> Result<()> {
-        self.check_required_credentials()?;
-
         let url = self.get_linear_listen_key_url(Some(listen_key));
-        let mut headers = HeaderMap::new();
 
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let _response = self
-            .base()
-            .http_client
-            .put(&url, Some(headers), None)
+        self.api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Put)
+            .execute()
             .await?;
 
         Ok(())
@@ -1107,18 +1071,11 @@ impl Binance {
     ///
     /// Returns `Ok(())` on success.
     pub async fn refresh_inverse_listen_key(&self, listen_key: &str) -> Result<()> {
-        self.check_required_credentials()?;
-
         let url = self.get_inverse_listen_key_url(Some(listen_key));
-        let mut headers = HeaderMap::new();
 
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let _response = self
-            .base()
-            .http_client
-            .put(&url, Some(headers), None)
+        self.api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Put)
+            .execute()
             .await?;
 
         Ok(())
@@ -1134,18 +1091,11 @@ impl Binance {
     ///
     /// Returns `Ok(())` on success.
     pub async fn delete_linear_listen_key(&self, listen_key: &str) -> Result<()> {
-        self.check_required_credentials()?;
-
         let url = self.get_linear_listen_key_url(Some(listen_key));
-        let mut headers = HeaderMap::new();
 
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let _response = self
-            .base()
-            .http_client
-            .delete(&url, Some(headers), None)
+        self.api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Delete)
+            .execute()
             .await?;
 
         Ok(())
@@ -1161,18 +1111,11 @@ impl Binance {
     ///
     /// Returns `Ok(())` on success.
     pub async fn delete_inverse_listen_key(&self, listen_key: &str) -> Result<()> {
-        self.check_required_credentials()?;
-
         let url = self.get_inverse_listen_key_url(Some(listen_key));
-        let mut headers = HeaderMap::new();
 
-        let auth = self.get_auth()?;
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let _response = self
-            .base()
-            .http_client
-            .delete(&url, Some(headers), None)
+        self.api_key_request(url)
+            .method(crate::binance::signed_request::HttpMethod::Delete)
+            .execute()
             .await?;
 
         Ok(())

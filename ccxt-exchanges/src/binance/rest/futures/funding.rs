@@ -7,7 +7,6 @@ use ccxt_core::{
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::Write;
 use tracing::warn;
 
 impl Binance {
@@ -41,10 +40,12 @@ impl Binance {
             format!("{}/premiumIndex", self.urls().dapi_public)
         };
 
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &request_params {
-            let _ = write!(request_url, "{}={}&", key, value);
-        }
+        let query = crate::binance::signed_request::build_query_string(&request_params);
+        let request_url = if query.is_empty() {
+            url
+        } else {
+            format!("{}?{}", url, query)
+        };
 
         let response = self.public_get(&request_url, None).await?;
 
@@ -85,10 +86,8 @@ impl Binance {
 
         let mut request_url = url.clone();
         if !request_params.is_empty() {
-            request_url.push('?');
-            for (key, value) in &request_params {
-                let _ = write!(request_url, "{}={}&", key, value);
-            }
+            let query = crate::binance::signed_request::build_query_string(&request_params);
+            request_url = format!("{}?{}", url, query);
         }
 
         let response = self.public_get(&request_url, None).await?;
@@ -168,10 +167,12 @@ impl Binance {
             format!("{}/fundingRate", self.urls().dapi_public)
         };
 
-        let mut request_url = format!("{}?", url);
-        for (key, value) in &request_params {
-            let _ = write!(request_url, "{}={}&", key, value);
-        }
+        let query = crate::binance::signed_request::build_query_string(&request_params);
+        let request_url = if query.is_empty() {
+            url
+        } else {
+            format!("{}?{}", url, query)
+        };
 
         let response = self.public_get(&request_url, None).await?;
 
@@ -203,47 +204,31 @@ impl Binance {
         limit: Option<u32>,
         params: Option<HashMap<String, String>>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
         self.load_markets(false).await?;
 
-        let mut request_params = BTreeMap::new();
+        let url = format!("{}/income", self.urls().fapi_private);
+
+        let mut request = self.signed_request(url);
 
         if let Some(sym) = symbol {
             let market = self.base().market(sym).await?;
-            request_params.insert("symbol".to_string(), market.id.clone());
+            request = request.param("symbol", market.id.clone());
         }
 
-        if let Some(s) = since {
-            request_params.insert("startTime".to_string(), s.to_string());
-        }
+        request = request
+            .optional_param("startTime", since)
+            .optional_param("limit", limit);
 
-        if let Some(l) = limit {
-            request_params.insert("limit".to_string(), l.to_string());
-        }
+        // Convert HashMap to serde_json::Value for merge_json_params
+        let json_params = params.map(|p| {
+            serde_json::Value::Object(
+                p.into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::String(v)))
+                    .collect(),
+            )
+        });
 
-        if let Some(p) = params {
-            for (key, value) in p {
-                request_params.insert(key, value);
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string: String = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let url = format!("{}/income?{}", self.urls().fapi_private, query_string);
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
-
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = request.merge_json_params(json_params).execute().await?;
 
         Ok(data)
     }

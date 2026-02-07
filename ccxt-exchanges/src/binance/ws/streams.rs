@@ -10,6 +10,7 @@ pub const WS_TESTNET_URL: &str = "wss://testnet.binance.vision/ws";
 /// Normalizes a symbol to Binance's expected format.
 ///
 /// Converts symbols like "BTC/USDT", "BTC-USDT", "BTC_USDT" to "btcusdt".
+/// Also handles futures-style suffixes like "BTC/USDT:USDT" by stripping the colon suffix.
 /// This function is idempotent - already normalized symbols remain unchanged.
 ///
 /// # Examples
@@ -18,9 +19,11 @@ pub const WS_TESTNET_URL: &str = "wss://testnet.binance.vision/ws";
 /// assert_eq!(normalize_symbol("BTC/USDT"), "btcusdt");
 /// assert_eq!(normalize_symbol("btcusdt"), "btcusdt");
 /// assert_eq!(normalize_symbol("ETH-BTC"), "ethbtc");
+/// assert_eq!(normalize_symbol("BTC/USDT:USDT"), "btcusdt");
 /// ```
 pub fn normalize_symbol(symbol: &str) -> String {
-    symbol.replace(['/', '-', '_'], "").to_lowercase()
+    let base = symbol.split(':').next().unwrap_or(symbol);
+    base.replace(['/', '-', '_'], "").to_lowercase()
 }
 
 /// Builds a ticker stream name
@@ -125,6 +128,13 @@ mod tests {
     fn test_normalize_symbol_already_normalized() {
         assert_eq!(normalize_symbol("btcusdt"), "btcusdt");
         assert_eq!(normalize_symbol("BTCUSDT"), "btcusdt");
+    }
+
+    #[test]
+    fn test_normalize_symbol_with_colon_suffix() {
+        assert_eq!(normalize_symbol("BTC/USDT:USDT"), "btcusdt");
+        assert_eq!(normalize_symbol("ETH/USD:ETH"), "ethusd");
+        assert_eq!(normalize_symbol("BTC/USDT:USDT"), "btcusdt");
     }
 
     #[test]

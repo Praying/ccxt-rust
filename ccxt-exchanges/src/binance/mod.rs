@@ -386,6 +386,17 @@ impl Binance {
         SignedRequestBuilder::new(self, endpoint)
     }
 
+    /// Creates an API-key-only request builder (no signature).
+    ///
+    /// Used for endpoints that require only the `X-MBX-APIKEY` header,
+    /// such as listen key operations.
+    pub(crate) fn api_key_request(
+        &self,
+        endpoint: impl Into<String>,
+    ) -> signed_request::ApiKeyRequestBuilder<'_> {
+        signed_request::ApiKeyRequestBuilder::new(self, endpoint)
+    }
+
     /// Returns the exchange ID.
     pub fn id(&self) -> &'static str {
         "binance"
