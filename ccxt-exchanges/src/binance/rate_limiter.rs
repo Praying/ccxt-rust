@@ -82,10 +82,15 @@ impl RateLimitInfo {
         let mut info = Self::default();
 
         if let Some(obj) = headers.as_object() {
-            // Extract X-MBX-USED-WEIGHT-1M
+            // Extract X-MBX-USED-WEIGHT-1M (also fallback to x-mbx-used-weight without -1m suffix,
+            // and x-sapi-used-uid-weight-1m for SAPI endpoints)
             if let Some(weight) = obj
                 .get("x-mbx-used-weight-1m")
                 .or_else(|| obj.get("X-MBX-USED-WEIGHT-1M"))
+                .or_else(|| obj.get("x-mbx-used-weight"))
+                .or_else(|| obj.get("X-MBX-USED-WEIGHT"))
+                .or_else(|| obj.get("x-sapi-used-uid-weight-1m"))
+                .or_else(|| obj.get("X-SAPI-USED-UID-WEIGHT-1M"))
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<u64>().ok())
             {

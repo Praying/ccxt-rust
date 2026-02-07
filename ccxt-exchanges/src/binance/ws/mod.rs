@@ -146,14 +146,6 @@ impl BinanceWs {
         let subscription_manager = Arc::new(SubscriptionManager::new());
         let message_router = Arc::new(MessageRouter::new(url, subscription_manager.clone(), None));
 
-        // Start the router immediately
-        let router_clone = message_router.clone();
-        tokio::spawn(async move {
-            if let Err(e) = router_clone.start(None).await {
-                tracing::error!("Failed to start MessageRouter: {}", e);
-            }
-        });
-
         Self {
             message_router,
             subscription_manager,
@@ -203,14 +195,6 @@ impl BinanceWs {
             None,
         ));
 
-        // Start the router immediately
-        let router_clone = message_router.clone();
-        tokio::spawn(async move {
-            if let Err(e) = router_clone.start(None).await {
-                tracing::error!("Failed to start MessageRouter: {}", e);
-            }
-        });
-
         Self {
             message_router,
             subscription_manager,
@@ -247,14 +231,6 @@ impl BinanceWs {
             subscription_manager.clone(),
             Some(listen_key_manager.clone()),
         ));
-
-        // Start the router immediately
-        let router_clone = message_router.clone();
-        tokio::spawn(async move {
-            if let Err(e) = router_clone.start(None).await {
-                tracing::error!("Failed to start MessageRouter: {}", e);
-            }
-        });
 
         Self {
             message_router,

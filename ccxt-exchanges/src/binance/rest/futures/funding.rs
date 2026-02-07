@@ -46,7 +46,7 @@ impl Binance {
             let _ = write!(request_url, "{}={}&", key, value);
         }
 
-        let response = self.base().http_client.get(&request_url, None).await?;
+        let response = self.public_get(&request_url, None).await?;
 
         let data = if market.linear.unwrap_or(true) {
             &response
@@ -91,7 +91,7 @@ impl Binance {
             }
         }
 
-        let response = self.base().http_client.get(&request_url, None).await?;
+        let response = self.public_get(&request_url, None).await?;
 
         let mut rates = BTreeMap::new();
 
@@ -173,7 +173,7 @@ impl Binance {
             let _ = write!(request_url, "{}={}&", key, value);
         }
 
-        let response = self.base().http_client.get(&request_url, None).await?;
+        let response = self.public_get(&request_url, None).await?;
 
         let history_array = response.as_array().ok_or_else(|| {
             Error::from(ParseError::invalid_format(

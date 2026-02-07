@@ -2,7 +2,6 @@
 
 use super::super::super::{Binance, signed_request::HttpMethod};
 use ccxt_core::{Error, ParseError, Result, types::MarketType};
-use reqwest::header::HeaderMap;
 use rust_decimal::Decimal;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -70,38 +69,11 @@ impl Binance {
 
     /// Set position mode (hedge mode or one-way mode).
     pub async fn set_position_mode(&self, dual_side: bool, params: Option<Value>) -> Result<Value> {
-        self.check_required_credentials()?;
-
         let use_dapi = params
             .as_ref()
             .and_then(|p| p.get("type"))
             .and_then(serde_json::Value::as_str)
             .is_some_and(|t| t == "delivery" || t == "coin_m");
-
-        let mut request_params = BTreeMap::new();
-        request_params.insert("dualSidePosition".to_string(), dual_side.to_string());
-
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if key == "type" {
-                        continue;
-                    }
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_bool() {
-                        request_params.insert(key.clone(), v.to_string());
-                    } else if let Some(v) = value.as_i64() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let url = if use_dapi {
             format!("{}/positionSide/dual", self.urls().dapi_private)
@@ -109,79 +81,33 @@ impl Binance {
             format!("{}/positionSide/dual", self.urls().fapi_private)
         };
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        let builder = self
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("dualSidePosition", dual_side)
+            .merge_json_params(params);
 
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
-
-        let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
-            .await?;
-
+        let data = builder.execute().await?;
         Ok(data)
     }
 
     /// Fetch current position mode.
     pub async fn fetch_position_mode(&self, params: Option<Value>) -> Result<bool> {
-        self.check_required_credentials()?;
-
         let use_dapi = params
             .as_ref()
             .and_then(|p| p.get("type"))
             .and_then(serde_json::Value::as_str)
             .is_some_and(|t| t == "delivery" || t == "coin_m");
 
-        let mut request_params = BTreeMap::new();
-
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if key == "type" {
-                        continue;
-                    }
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
-
-        let query_string = signed_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-
         let url = if use_dapi {
-            format!(
-                "{}/positionSide/dual?{}",
-                self.urls().dapi_private,
-                query_string
-            )
+            format!("{}/positionSide/dual", self.urls().dapi_private)
         } else {
-            format!(
-                "{}/positionSide/dual?{}",
-                self.urls().fapi_private,
-                query_string
-            )
+            format!("{}/positionSide/dual", self.urls().fapi_private)
         };
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        let builder = self.signed_request(url).merge_json_params(params);
 
-        let data = self.base().http_client.get(&url, Some(headers)).await?;
+        let data = builder.execute().await?;
 
         if let Some(dual_side) = data.get("dualSidePosition") {
             if let Some(value) = dual_side.as_bool() {
@@ -205,35 +131,7 @@ impl Binance {
         amount: Decimal,
         params: Option<Value>,
     ) -> Result<Value> {
-        self.check_required_credentials()?;
-
         let market = self.base().market(symbol).await?;
-        let mut request_params = BTreeMap::new();
-        request_params.insert("symbol".to_string(), market.id.clone());
-        request_params.insert("amount".to_string(), amount.abs().to_string());
-        request_params.insert(
-            "type".to_string(),
-            if amount > Decimal::ZERO {
-                "1".to_string()
-            } else {
-                "2".to_string()
-            },
-        );
-
-        if let Some(params) = params {
-            if let Some(obj) = params.as_object() {
-                for (key, value) in obj {
-                    if let Some(v) = value.as_str() {
-                        request_params.insert(key.clone(), v.to_string());
-                    }
-                }
-            }
-        }
-
-        let timestamp = self.get_signing_timestamp().await?;
-        let auth = self.get_auth()?;
-        let signed_params =
-            auth.sign_with_timestamp(&request_params, timestamp, Some(self.options().recv_window))?;
 
         let url = if market.linear.unwrap_or(true) {
             format!("{}/positionMargin", self.urls().fapi_private)
@@ -241,22 +139,17 @@ impl Binance {
             format!("{}/positionMargin", self.urls().dapi_private)
         };
 
-        let mut headers = HeaderMap::new();
-        auth.add_auth_headers_reqwest(&mut headers);
+        let margin_type = if amount > Decimal::ZERO { "1" } else { "2" };
 
-        let body = serde_json::to_value(&signed_params).map_err(|e| {
-            Error::from(ParseError::invalid_format(
-                "data",
-                format!("Failed to serialize params: {}", e),
-            ))
-        })?;
+        let builder = self
+            .signed_request(url)
+            .method(HttpMethod::Post)
+            .param("symbol", &market.id)
+            .param("amount", amount.abs())
+            .param("type", margin_type)
+            .merge_json_params(params);
 
-        let data = self
-            .base()
-            .http_client
-            .post(&url, Some(headers), Some(body))
-            .await?;
-
+        let data = builder.execute().await?;
         Ok(data)
     }
 }

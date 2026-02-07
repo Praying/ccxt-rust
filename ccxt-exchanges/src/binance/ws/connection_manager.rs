@@ -48,6 +48,17 @@ impl BinanceConnectionManager {
 
     /// Returns the WebSocket URL for the given market type.
     ///
+    /// # URL Routing
+    ///
+    /// - `MarketType::Spot` → `stream.binance.com` (spot and margin trading)
+    /// - `MarketType::Futures` → `fstream.binance.com` (Linear/USDT-margined contracts)
+    /// - `MarketType::Swap` → `dstream.binance.com` (Inverse/Coin-margined contracts)
+    /// - `MarketType::Option` → `nbstream.binance.com` (European-style options)
+    ///
+    /// Callers should select the `MarketType` based on the market's `linear`/`inverse` flags:
+    /// - `market.linear == true` → use `MarketType::Futures`
+    /// - `market.inverse == true` → use `MarketType::Swap`
+    ///
     /// # Arguments
     ///
     /// * `market_type` - The market type to get the URL for
