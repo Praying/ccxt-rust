@@ -4,11 +4,12 @@
 //!
 //! Run with: cargo run --example okx_example
 
+use ccxt_core::DefaultType;
 use ccxt_core::exchange::Exchange;
 use ccxt_exchanges::okx::OkxBuilder;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
@@ -16,7 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a public-only instance (no authentication)
     let exchange = OkxBuilder::new()
-        .sandbox(true) // Use demo environment for safety
+        .sandbox(false) // Use demo environment for safety
+        .default_type(DefaultType::Swap)
         .build()?;
 
     println!("Exchange: {} ({})", exchange.name(), exchange.id());

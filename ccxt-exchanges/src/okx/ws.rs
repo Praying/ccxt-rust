@@ -192,7 +192,12 @@ impl OkxWs {
 
                     if channel == Some("tickers") {
                         if let Some(id) = inst_id {
-                            if symbols_owned.iter().any(|s| s == id) {
+                            let has_data = msg
+                                .get("data")
+                                .and_then(|d| d.as_array())
+                                .and_then(|arr| arr.first())
+                                .is_some();
+                            if has_data && symbols_owned.iter().any(|s| s == id) {
                                 match parse_ws_ticker(&msg, None) {
                                     Ok(ticker) => {
                                         if tx.send(Ok(vec![ticker])).is_err() {
@@ -819,7 +824,12 @@ fn is_ticker_message(msg: &Value, symbol: &str) -> bool {
     if let Some(arg) = msg.get("arg") {
         let channel = arg.get("channel").and_then(|c| c.as_str());
         let inst_id = arg.get("instId").and_then(|i| i.as_str());
-        channel == Some("tickers") && inst_id == Some(symbol)
+        let has_data = msg
+            .get("data")
+            .and_then(|d| d.as_array())
+            .and_then(|arr| arr.first())
+            .is_some();
+        channel == Some("tickers") && inst_id == Some(symbol) && has_data
     } else {
         false
     }
@@ -832,9 +842,13 @@ fn is_orderbook_message(msg: &Value, symbol: &str) -> bool {
     if let Some(arg) = msg.get("arg") {
         let channel = arg.get("channel").and_then(|c| c.as_str());
         let inst_id = arg.get("instId").and_then(|i| i.as_str());
-        // Check if channel starts with "books" and instId matches
+        let has_data = msg
+            .get("data")
+            .and_then(|d| d.as_array())
+            .and_then(|arr| arr.first())
+            .is_some();
         if let (Some(ch), Some(id)) = (channel, inst_id) {
-            ch.starts_with("books") && id == symbol
+            ch.starts_with("books") && id == symbol && has_data
         } else {
             false
         }
@@ -850,7 +864,12 @@ fn is_trade_message(msg: &Value, symbol: &str) -> bool {
     if let Some(arg) = msg.get("arg") {
         let channel = arg.get("channel").and_then(|c| c.as_str());
         let inst_id = arg.get("instId").and_then(|i| i.as_str());
-        channel == Some("trades") && inst_id == Some(symbol)
+        let has_data = msg
+            .get("data")
+            .and_then(|d| d.as_array())
+            .and_then(|arr| arr.first())
+            .is_some();
+        channel == Some("trades") && inst_id == Some(symbol) && has_data
     } else {
         false
     }

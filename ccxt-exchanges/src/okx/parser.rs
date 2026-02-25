@@ -42,16 +42,28 @@ pub fn parse_market(data: &Value) -> Result<Market> {
         .ok_or_else(|| Error::from(ParseError::missing_field("instId")))?
         .to_string();
 
+    // Parse instId parts for fallback
+    let parts: Vec<&str> = id.split('-').collect();
+    let (base_from_id, quote_from_id) = if parts.len() >= 2 {
+        (Some(parts[0]), Some(parts[1]))
+    } else {
+        (None, None)
+    };
+
     // Base and quote currencies
     let base = data["baseCcy"]
         .as_str()
-        .ok_or_else(|| Error::from(ParseError::missing_field("baseCcy")))?
-        .to_string();
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| base_from_id.map(ToString::to_string))
+        .ok_or_else(|| Error::from(ParseError::missing_field("baseCcy")))?;
 
     let quote = data["quoteCcy"]
         .as_str()
-        .ok_or_else(|| Error::from(ParseError::missing_field("quoteCcy")))?
-        .to_string();
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| quote_from_id.map(ToString::to_string))
+        .ok_or_else(|| Error::from(ParseError::missing_field("quoteCcy")))?;
 
     // Instrument type
     let inst_type = data["instType"].as_str().unwrap_or("SPOT");
@@ -872,6 +884,30 @@ mod tests {
     use super::*;
     use rust_decimal_macros::dec;
     use serde_json::json;
+
+    #[test]
+    fn test_parse_market_swap_empty_base_quote() {
+        let data = json!({
+            "instId": "BTC-USDT-SWAP",
+            "instType": "SWAP",
+            "baseCcy": "",
+            "quoteCcy": "",
+            "settleCcy": "USDT",
+            "state": "live",
+            "tickSz": "0.1",
+            "lotSz": "1",
+            "minSz": "1",
+            "ctVal": "100"
+        });
+
+        // This should now correctly infer base/quote from instId
+        let market = parse_market(&data).unwrap();
+
+        // Assertions for FIXED behavior
+        assert_eq!(market.base, "BTC");
+        assert_eq!(market.quote, "USDT");
+        assert_eq!(market.symbol, "BTC/USDT:USDT");
+    }
 
     #[test]
     fn test_parse_market() {
