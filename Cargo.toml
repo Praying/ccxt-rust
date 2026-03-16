@@ -52,7 +52,7 @@ hex = "0.4"
 base64 = "0.22"
 # rsa = "0.9.6"
 ed25519-dalek = "2.1"
-rand = "0.9"
+rand = "0.10"
 k256 = { version = "0.13", features = ["ecdsa"] }
 
 # Logging & Tracing
