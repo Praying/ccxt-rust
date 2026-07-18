@@ -33,6 +33,7 @@ tokio-tungstenite = { version = "0.28", default-features = false, features = ["r
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sonic-rs = "0.5.8"
 
 # Error handling
 thiserror = "2.0.17"

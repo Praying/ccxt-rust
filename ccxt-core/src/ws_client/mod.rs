@@ -673,7 +673,7 @@ impl WsClient {
                 match msg_result {
                     Ok(Message::Text(text)) => {
                         ws_stats.record_received(text.len() as u64);
-                        if let Ok(json) = serde_json::from_str::<Value>(&text) {
+                        if let Some(json) = Self::parse_ingress_json(text.as_bytes()) {
                             Self::send_with_backpressure(
                                 &message_tx,
                                 json,
@@ -685,10 +685,7 @@ impl WsClient {
                     }
                     Ok(Message::Binary(data)) => {
                         ws_stats.record_received(data.len() as u64);
-                        if let Some(json) = String::from_utf8(data.to_vec())
-                            .ok()
-                            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-                        {
+                        if let Some(json) = Self::parse_ingress_json(data.as_ref()) {
                             Self::send_with_backpressure(
                                 &message_tx,
                                 json,
@@ -767,6 +764,13 @@ impl WsClient {
         tokio::spawn(async move {
             let _ = tokio::join!(write_handle, read_handle);
         });
+    }
+
+    /// Parses an inbound WebSocket payload with sonic-rs while preserving the
+    /// public `serde_json::Value` message type.
+    #[inline]
+    fn parse_ingress_json(payload: &[u8]) -> Option<Value> {
+        sonic_rs::from_slice(payload).ok()
     }
 
     /// Sends a message with backpressure handling.
@@ -914,6 +918,28 @@ mod tests {
 
         let key2 = WsClient::subscription_key("trades", None);
         assert_eq!(key2, "trades");
+    }
+
+    #[test]
+    fn test_parse_ingress_json() {
+        let payload = br#"{
+            "stream":"btcusdt@trade",
+            "data":{"price":"64123.45","quantity":2,"active":true,"note":"\u4ea4\u6613"}
+        }"#;
+
+        let value = WsClient::parse_ingress_json(payload).expect("valid JSON should be parsed");
+
+        assert_eq!(value["stream"], "btcusdt@trade");
+        assert_eq!(value["data"]["price"], "64123.45");
+        assert_eq!(value["data"]["quantity"], 2);
+        assert_eq!(value["data"]["active"], true);
+        assert_eq!(value["data"]["note"], "交易");
+    }
+
+    #[test]
+    fn test_parse_ingress_json_rejects_invalid_payloads() {
+        assert!(WsClient::parse_ingress_json(br#"{"incomplete":true"#).is_none());
+        assert!(WsClient::parse_ingress_json(&[0xff, 0xfe, 0xfd]).is_none());
     }
 
     #[tokio::test]
