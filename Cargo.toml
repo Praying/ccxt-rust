@@ -29,10 +29,13 @@ async-trait = "0.1"
 # HTTP & WebSocket
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "gzip", "stream"] }
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+ratatui = "0.30.2"
+crossterm = { version = "0.29.0", features = ["event-stream"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sonic-rs = "0.5.8"
 
 # Error handling
 thiserror = "2.0.17"
@@ -102,6 +105,8 @@ ccxt-exchanges = { path = "ccxt-exchanges", version = "0.1.5" }
 # Async runtime
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+futures-util = { workspace = true }
+tokio-tungstenite = { workspace = true }
 
 # Error handling (for examples)
 anyhow = { workspace = true }
@@ -109,6 +114,11 @@ anyhow = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+sonic-rs = { workspace = true }
+
+# Terminal benchmark UI
+ratatui = { workspace = true }
+crossterm = { workspace = true }
 
 # Decimal precision
 rust_decimal = { workspace = true }
@@ -181,6 +191,10 @@ inherits = "release"
 # name = "orderbook"
 # harness = false
 
-# [[bench]]
-# name = "parsing"
-# harness = false
+[[bench]]
+name = "binance_ingress"
+harness = false
+
+[[bench]]
+name = "binance_kline_1s_top10"
+harness = false

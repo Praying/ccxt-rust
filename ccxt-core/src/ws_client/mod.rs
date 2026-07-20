@@ -29,7 +29,7 @@ use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::{Duration, interval};
@@ -40,9 +40,34 @@ use tokio_tungstenite::{
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, warn};
 
+#[cfg(all(feature = "sonic-ingress", feature = "serde-ingress"))]
+compile_error!("features `sonic-ingress` and `serde-ingress` are mutually exclusive");
+#[cfg(not(any(feature = "sonic-ingress", feature = "serde-ingress")))]
+compile_error!("enable exactly one of `sonic-ingress` or `serde-ingress`");
+
 /// Type alias for WebSocket write half.
 #[allow(dead_code)]
 type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
+
+// Preserve serde_json's effective default recursion ceiling while protecting
+// sonic-rs from deeply nested inputs on the WebSocket runtime thread.
+const MAX_INGRESS_JSON_DEPTH: usize = 127;
+
+#[derive(Debug, thiserror::Error)]
+/// Error returned when an inbound WebSocket JSON frame is rejected.
+pub enum IngressJsonError {
+    /// The payload exceeds the fork's defensive nesting limit.
+    #[error("JSON nesting exceeds the {MAX_INGRESS_JSON_DEPTH}-level ingress limit")]
+    NestingLimitExceeded,
+    #[error(transparent)]
+    #[cfg(feature = "sonic-ingress")]
+    /// sonic-rs rejected the payload.
+    ParseSonic(#[from] sonic_rs::Error),
+    #[error(transparent)]
+    #[cfg(feature = "serde-ingress")]
+    /// serde_json rejected the payload.
+    ParseSerde(#[from] serde_json::Error),
+}
 
 /// Async WebSocket client for exchange streaming APIs.
 ///
@@ -71,6 +96,8 @@ pub struct WsClient {
     event_callback: Arc<Mutex<Option<WsEventCallback>>>,
     /// Counter for dropped messages due to backpressure
     dropped_messages: Arc<AtomicU32>,
+    /// Counter for inbound payloads rejected by the JSON parser.
+    ingress_parse_errors: Arc<AtomicU64>,
 }
 
 impl WsClient {
@@ -95,6 +122,7 @@ impl WsClient {
             cancel_token: Arc::new(Mutex::new(None)),
             event_callback: Arc::new(Mutex::new(None)),
             dropped_messages: Arc::new(AtomicU32::new(0)),
+            ingress_parse_errors: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -320,6 +348,7 @@ impl WsClient {
             self.subscription_manager.clear();
             self.reconnect_count.store(0, Ordering::Release);
             self.dropped_messages.store(0, Ordering::Relaxed);
+            self.ingress_parse_errors.store(0, Ordering::Relaxed);
             self.stats.reset();
         }
 
@@ -458,6 +487,16 @@ impl WsClient {
     /// Resets the dropped messages counter.
     pub fn reset_dropped_messages(&self) {
         self.dropped_messages.store(0, Ordering::Relaxed);
+    }
+
+    /// Returns the number of inbound WebSocket payloads rejected as invalid JSON.
+    pub fn ingress_parse_errors(&self) -> u64 {
+        self.ingress_parse_errors.load(Ordering::Relaxed)
+    }
+
+    /// Resets the ingress JSON parse error counter.
+    pub fn reset_ingress_parse_errors(&self) {
+        self.ingress_parse_errors.store(0, Ordering::Relaxed);
     }
 
     /// Creates an automatic reconnection coordinator.
@@ -647,6 +686,7 @@ impl WsClient {
         let ping_interval_ms = self.config.ping_interval;
         let backpressure_strategy = self.config.backpressure_strategy;
         let dropped_messages = Arc::clone(&self.dropped_messages);
+        let ingress_parse_errors = Arc::clone(&self.ingress_parse_errors);
 
         let write_handle = tokio::spawn(async move {
             let mut write = write;
@@ -673,29 +713,42 @@ impl WsClient {
                 match msg_result {
                     Ok(Message::Text(text)) => {
                         ws_stats.record_received(text.len() as u64);
-                        if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                            Self::send_with_backpressure(
-                                &message_tx,
-                                json,
-                                backpressure_strategy,
-                                &dropped_messages,
-                            )
-                            .await;
+                        match Self::parse_ingress_json(text.as_bytes()) {
+                            Ok(json) => {
+                                Self::send_with_backpressure(
+                                    &message_tx,
+                                    json,
+                                    backpressure_strategy,
+                                    &dropped_messages,
+                                )
+                                .await;
+                            }
+                            Err(parse_error) => Self::record_ingress_parse_error(
+                                &ingress_parse_errors,
+                                "text",
+                                text.len(),
+                                &parse_error,
+                            ),
                         }
                     }
                     Ok(Message::Binary(data)) => {
                         ws_stats.record_received(data.len() as u64);
-                        if let Some(json) = String::from_utf8(data.to_vec())
-                            .ok()
-                            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-                        {
-                            Self::send_with_backpressure(
-                                &message_tx,
-                                json,
-                                backpressure_strategy,
-                                &dropped_messages,
-                            )
-                            .await;
+                        match Self::parse_ingress_json(data.as_ref()) {
+                            Ok(json) => {
+                                Self::send_with_backpressure(
+                                    &message_tx,
+                                    json,
+                                    backpressure_strategy,
+                                    &dropped_messages,
+                                )
+                                .await;
+                            }
+                            Err(parse_error) => Self::record_ingress_parse_error(
+                                &ingress_parse_errors,
+                                "binary",
+                                data.len(),
+                                &parse_error,
+                            ),
                         }
                     }
                     Ok(Message::Pong(_)) => {
@@ -767,6 +820,70 @@ impl WsClient {
         tokio::spawn(async move {
             let _ = tokio::join!(write_handle, read_handle);
         });
+    }
+
+    /// Parses an inbound WebSocket payload using the selected ingress backend.
+    #[inline]
+    pub fn parse_ingress_json(payload: &[u8]) -> std::result::Result<Value, IngressJsonError> {
+        Self::validate_ingress_json_depth(payload)?;
+        #[cfg(feature = "sonic-ingress")]
+        return Ok(sonic_rs::from_slice(payload)?);
+        #[cfg(feature = "serde-ingress")]
+        return Ok(serde_json::from_slice(payload)?);
+    }
+
+    #[inline]
+    fn validate_ingress_json_depth(payload: &[u8]) -> std::result::Result<(), IngressJsonError> {
+        let mut depth = 0_usize;
+        let mut in_string = false;
+        let mut escaped = false;
+
+        for &byte in payload {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else {
+                    match byte {
+                        b'\\' => escaped = true,
+                        b'"' => in_string = false,
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            match byte {
+                b'"' => in_string = true,
+                b'{' | b'[' => {
+                    depth += 1;
+                    if depth > MAX_INGRESS_JSON_DEPTH {
+                        return Err(IngressJsonError::NestingLimitExceeded);
+                    }
+                }
+                b'}' | b']' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn record_ingress_parse_error(
+        counter: &AtomicU64,
+        frame_type: &'static str,
+        payload_bytes: usize,
+        parse_error: &IngressJsonError,
+    ) {
+        let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if count % 100 == 1 {
+            warn!(
+                error = %parse_error,
+                frame_type,
+                payload_bytes,
+                parse_error_count = count,
+                "Rejected invalid WebSocket JSON payload"
+            );
+        }
     }
 
     /// Sends a message with backpressure handling.
@@ -914,6 +1031,110 @@ mod tests {
 
         let key2 = WsClient::subscription_key("trades", None);
         assert_eq!(key2, "trades");
+    }
+
+    #[test]
+    fn test_parse_ingress_json() {
+        let payload = br#"{
+            "stream":"btcusdt@trade",
+            "data":{"price":"64123.45","quantity":2,"active":true,"note":"\u4ea4\u6613"}
+        }"#;
+
+        let value = WsClient::parse_ingress_json(payload).expect("valid JSON should be parsed");
+
+        assert_eq!(value["stream"], "btcusdt@trade");
+        assert_eq!(value["data"]["price"], "64123.45");
+        assert_eq!(value["data"]["quantity"], 2);
+        assert_eq!(value["data"]["active"], true);
+        assert_eq!(value["data"]["note"], "交易");
+
+        let serde_value: Value = serde_json::from_slice(payload).unwrap();
+        assert_eq!(value, serde_value);
+    }
+
+    #[test]
+    fn test_parse_ingress_json_rejects_invalid_payloads() {
+        assert!(WsClient::parse_ingress_json(br#"{"incomplete":true"#).is_err());
+        assert!(WsClient::parse_ingress_json(&[0xff, 0xfe, 0xfd]).is_err());
+
+        let deeply_nested = format!("{}0{}", "[".repeat(128), "]".repeat(128));
+        assert!(serde_json::from_str::<Value>(&deeply_nested).is_err());
+        assert!(matches!(
+            WsClient::parse_ingress_json(deeply_nested.as_bytes()),
+            Err(IngressJsonError::NestingLimitExceeded)
+        ));
+
+        let brackets_in_string = format!(r#"{{"text":"{}"}}"#, "[".repeat(256));
+        assert!(WsClient::parse_ingress_json(brackets_in_string.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_ingress_parse_error_counter() {
+        let client = WsClient::new(WsConfig::default());
+
+        WsClient::record_ingress_parse_error(
+            &client.ingress_parse_errors,
+            "text",
+            1,
+            &WsClient::parse_ingress_json(b"{").unwrap_err(),
+        );
+
+        assert_eq!(client.ingress_parse_errors(), 1);
+        client.reset_ingress_parse_errors();
+        assert_eq!(client.ingress_parse_errors(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_message_loop_recovers_after_invalid_text_and_binary_json() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut websocket = tokio_tungstenite::accept_async(stream).await.unwrap();
+
+            websocket
+                .send(Message::Text(r#"{"broken":true"#.into()))
+                .await
+                .unwrap();
+            websocket
+                .send(Message::Binary(vec![0xff, 0xfe, 0xfd].into()))
+                .await
+                .unwrap();
+            websocket
+                .send(Message::Text(r#"{"kind":"text","sequence":1}"#.into()))
+                .await
+                .unwrap();
+            websocket
+                .send(Message::Binary(
+                    br#"{"kind":"binary","sequence":2}"#.to_vec().into(),
+                ))
+                .await
+                .unwrap();
+        });
+
+        let client = WsClient::new(WsConfig {
+            url: format!("ws://{address}"),
+            ping_interval: 0,
+            ..WsConfig::default()
+        });
+        client.connect().await.unwrap();
+
+        let text = tokio::time::timeout(Duration::from_secs(1), client.receive())
+            .await
+            .unwrap()
+            .unwrap();
+        let binary = tokio::time::timeout(Duration::from_secs(1), client.receive())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(text, serde_json::json!({"kind": "text", "sequence": 1}));
+        assert_eq!(binary, serde_json::json!({"kind": "binary", "sequence": 2}));
+        assert_eq!(client.ingress_parse_errors(), 2);
+
+        client.disconnect().await.unwrap();
+        server.await.unwrap();
     }
 
     #[tokio::test]
