@@ -40,6 +40,11 @@ use tokio_tungstenite::{
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, warn};
 
+#[cfg(all(feature = "sonic-ingress", feature = "serde-ingress"))]
+compile_error!("features `sonic-ingress` and `serde-ingress` are mutually exclusive");
+#[cfg(not(any(feature = "sonic-ingress", feature = "serde-ingress")))]
+compile_error!("enable exactly one of `sonic-ingress` or `serde-ingress`");
+
 /// Type alias for WebSocket write half.
 #[allow(dead_code)]
 type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
@@ -49,11 +54,19 @@ type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 const MAX_INGRESS_JSON_DEPTH: usize = 127;
 
 #[derive(Debug, thiserror::Error)]
-enum IngressJsonError {
+/// Error returned when an inbound WebSocket JSON frame is rejected.
+pub enum IngressJsonError {
+    /// The payload exceeds the fork's defensive nesting limit.
     #[error("JSON nesting exceeds the {MAX_INGRESS_JSON_DEPTH}-level ingress limit")]
     NestingLimitExceeded,
     #[error(transparent)]
-    Parse(#[from] sonic_rs::Error),
+    #[cfg(feature = "sonic-ingress")]
+    /// sonic-rs rejected the payload.
+    ParseSonic(#[from] sonic_rs::Error),
+    #[error(transparent)]
+    #[cfg(feature = "serde-ingress")]
+    /// serde_json rejected the payload.
+    ParseSerde(#[from] serde_json::Error),
 }
 
 /// Async WebSocket client for exchange streaming APIs.
@@ -809,12 +822,14 @@ impl WsClient {
         });
     }
 
-    /// Parses an inbound WebSocket payload with sonic-rs while preserving the
-    /// public `serde_json::Value` message type.
+    /// Parses an inbound WebSocket payload using the selected ingress backend.
     #[inline]
-    fn parse_ingress_json(payload: &[u8]) -> std::result::Result<Value, IngressJsonError> {
+    pub fn parse_ingress_json(payload: &[u8]) -> std::result::Result<Value, IngressJsonError> {
         Self::validate_ingress_json_depth(payload)?;
-        Ok(sonic_rs::from_slice(payload)?)
+        #[cfg(feature = "sonic-ingress")]
+        return Ok(sonic_rs::from_slice(payload)?);
+        #[cfg(feature = "serde-ingress")]
+        return Ok(serde_json::from_slice(payload)?);
     }
 
     #[inline]

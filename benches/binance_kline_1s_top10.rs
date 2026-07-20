@@ -1,4 +1,4 @@
-use std::{env, hint::black_box, time::Duration};
+use std::{env, fs, hint::black_box, path::PathBuf, time::Duration};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use futures_util::StreamExt;
@@ -21,12 +21,22 @@ fn bench_top10_kline_1s(c: &mut Criterion) {
     eprintln!("symbols: {}", symbols.join(","));
     let runtime = tokio::runtime::Runtime::new().expect("failed to create Tokio runtime");
     let messages = runtime.block_on(capture(&stream_path, target_messages, timeout_secs));
+    let corpus_path = env::var_os("BINANCE_KLINE_CORPUS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/binance_kline_1s_top10.ndjson"));
+    let corpus = messages
+        .iter()
+        .flat_map(|message| message.iter().copied().chain(std::iter::once(b'\n')))
+        .collect::<Vec<_>>();
+    fs::write(&corpus_path, corpus)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", corpus_path.display()));
     let total_bytes = messages.iter().map(Vec::len).sum::<usize>();
     eprintln!(
         "captured {} messages ({} bytes); starting replay benchmark",
         messages.len(),
         total_bytes
     );
+    eprintln!("saved corpus: {}", corpus_path.display());
 
     validate_corpus(&messages);
 
