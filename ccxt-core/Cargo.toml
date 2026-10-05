@@ -24,6 +24,7 @@ tokio-tungstenite = { workspace = true, default-features = false, optional = tru
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+sonic-rs = { workspace = true, optional = true }
 
 # Error handling
 thiserror = { workspace = true }
@@ -83,7 +84,11 @@ proptest = { workspace = true }
 criterion = { workspace = true }
 
 [features]
-default = ["rustls-tls", "websocket"]
+default = ["rustls-tls", "websocket", "sonic-ingress"]
+
+# Inbound WebSocket JSON parser (mutually exclusive)
+sonic-ingress = ["dep:sonic-rs"]
+serde-ingress = []
 
 # TLS implementations (mutually exclusive, choose one)
 rustls-tls = [
@@ -114,4 +119,8 @@ backtrace = []
 
 [[bench]]
 name = "timestamp_benchmark"
+harness = false
+
+[[bench]]
+name = "binance_kline_ingress"
 harness = false
