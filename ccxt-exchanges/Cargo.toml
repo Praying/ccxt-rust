@@ -1,14 +1,16 @@
 [package]
 name = "ccxt-exchanges"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Praying"]
 license = "MIT"
-description = "Exchange implementations for CCXT Rust"
+description = "Unofficial exchange implementations for the ccxt-rust trading library. Not affiliated with or endorsed by the CCXT project; not an official CCXT crate."
+repository = "https://github.com/Praying/ccxt-rust"
+readme = "README.md"
 
 [dependencies]
-ccxt-core = { path = "../ccxt-core", version = "0.1.5" }
+ccxt-core = { path = "../ccxt-core", version = "0.1.6" }
 
 # Async runtime
 tokio = { workspace = true }

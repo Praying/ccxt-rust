@@ -3,6 +3,9 @@
 //! This is the core library for CCXT Rust implementation, providing fundamental
 //! data structures, error types, and traits for cryptocurrency exchange integration.
 //!
+//! **Unofficial project:** this crate is not affiliated with or endorsed by the CCXT
+//! project and is not an official CCXT crate.
+//!
 //! # Features
 //!
 //! - **Type Safety**: Leverages Rust's type system for compile-time guarantees

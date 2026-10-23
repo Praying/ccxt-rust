@@ -5,6 +5,9 @@
 //! WebSocket APIs for major cryptocurrency exchanges under a single, strongly
 //! typed abstraction.
 //!
+//! **This is an unofficial, community-maintained project.** It is not affiliated with, endorsed by, or sponsored
+//! by the CCXT project, and it is not an official CCXT library.
+//!
 //! ## Features
 //!
 //! - **Async first**: Powered by `tokio` with ergonomic async/await APIs for every call

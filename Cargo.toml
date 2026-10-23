@@ -1,11 +1,11 @@
 [package]
 name = "ccxt-rust"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Praying"]
 license = "MIT"
-description = "Cryptocurrency exchange trading library in Rust"
+description = "Unofficial cryptocurrency exchange trading library in Rust. Not affiliated with or endorsed by the CCXT project; not an official CCXT library."
 repository = "https://github.com/Praying/ccxt-rust"
 keywords = ["cryptocurrency", "exchange", "trading", "api", "bitcoin"]
 categories = ["api-bindings", "finance"]
@@ -99,8 +99,8 @@ envy = "0.4"
 
 [dependencies]
 # Workspace members
-ccxt-core = { path = "ccxt-core", version = "0.1.5" }
-ccxt-exchanges = { path = "ccxt-exchanges", version = "0.1.5" }
+ccxt-core = { path = "ccxt-core", version = "0.1.6" }
+ccxt-exchanges = { path = "ccxt-exchanges", version = "0.1.6" }
 
 # Async runtime
 tokio = { workspace = true }

@@ -1,11 +1,13 @@
 [package]
 name = "ccxt-core"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Praying"]
 license = "MIT"
-description = "Core types and traits for CCXT Rust"
+description = "Unofficial core types and traits for the ccxt-rust trading library. Not affiliated with or endorsed by the CCXT project; not an official CCXT crate."
+repository = "https://github.com/Praying/ccxt-rust"
+readme = "README.md"
 
 [dependencies]
 # Async runtime

@@ -3,6 +3,9 @@
 //! This library contains concrete implementations of cryptocurrency exchanges
 //! built on top of ccxt-core.
 //!
+//! **Unofficial project:** this crate is not affiliated with or endorsed by the CCXT
+//! project and is not an official CCXT crate.
+//!
 //! # Supported Exchanges
 //!
 //! - Binance ✅

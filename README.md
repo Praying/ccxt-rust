@@ -6,10 +6,16 @@ ___
 [![Rust CI](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml)
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://docs.rs/ccxt-rust)
 
-A professional-grade, type-safe Rust implementation of the CCXT library for cryptocurrency trading, providing unified
-access to major exchanges.
+A professional-grade, type-safe **unofficial** Rust implementation of the CCXT library for cryptocurrency trading,
+providing unified access to major exchanges.
 
 [English](README.md) | [简体中文](README_CN.md)
+
+> [!IMPORTANT]
+> **Unofficial project — not affiliated with CCXT.** This project is not affiliated with, associated with,
+> authorized by, endorsed by, or in any way officially connected with the CCXT project or its maintainers. "CCXT"
+> is a trademark of its respective owners. This is a community-maintained project and **not** an official CCXT
+> library.
 
 ## 🎯 Supported Exchanges
 
@@ -117,9 +123,13 @@ MIT License. See [LICENSE](LICENSE).
 
 ## ⚠️ Disclaimer
 
-This project is for educational and research purposes only. The authors and contributors are not responsible for any
-financial losses or damages arising from the use of this software. Cryptocurrency trading involves high risk; please
-trade responsibly.
+**Non-affiliation.** This project is not affiliated with, associated with, authorized by, endorsed by, or in any way
+officially connected with the CCXT project or its maintainers. "CCXT" is a trademark of its respective owners. This
+is an unofficial, community-maintained Rust implementation and **not** an official CCXT library.
+
+**No warranty.** This project is for educational and research purposes only. The authors and contributors are not
+responsible for any financial losses or damages arising from the use of this software. Cryptocurrency trading
+involves high risk; please trade responsibly.
 
 ---
-**Status**: 🚧 Active Development (v0.1.4) | **Donations (BSC)**: `0x8e5d858f92938b028065d39450421d0e080d15f7`
+**Status**: 🚧 Active Development (v0.1.6) | **Donations (BSC)**: `0x8e5d858f92938b028065d39450421d0e080d15f7`

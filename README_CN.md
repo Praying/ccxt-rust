@@ -7,9 +7,12 @@ ___
 [![Rust CI](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/Praying/ccxt-rust/actions/workflows/rust.yml)
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://docs.rs/ccxt-rust)
 
-CCXT 库的专业级 Rust 实现，提供统一、类型安全的接口访问主流加密货币交易所。
+CCXT 库的**非官方**（unofficial）专业级 Rust 实现，提供统一、类型安全的接口访问主流加密货币交易所。
 
 [English](README.md) | [简体中文](README_CN.md)
+
+> [!IMPORTANT]
+> **非官方项目 — 与 CCXT 无关联。** 本项目与 CCXT 项目及其维护者不存在任何隶属、合作、授权或背书关系，也从未以任何方式与 CCXT 项目建立官方连接。"CCXT" 是其相应所有者的商标。这是一个社区维护的项目，**并非**官方 CCXT 库。
 
 ## 🎯 支持的交易所
 
@@ -117,7 +120,9 @@ MIT License. 详见 [LICENSE](LICENSE).
 
 ## ⚠️ 免责声明
 
-本项目仅供学习和研究使用。作者和贡献者不对因使用本软件而产生的任何财务损失或损害负责。加密货币交易风险极高，请谨慎交易。
+**非附属声明。** 本项目与 CCXT 项目及其维护者不存在任何隶属、合作、授权或背书关系，也从未以任何方式与 CCXT 项目建立官方连接。"CCXT" 是其相应所有者的商标。本项目是一个非官方的、社区维护的 Rust 实现，**并非**官方 CCXT 库。
+
+**无担保。** 本项目仅供学习和研究使用。作者和贡献者不对因使用本软件而产生的任何财务损失或损害负责。加密货币交易风险极高，请谨慎交易。
 
 ---
-**状态**: 🚧 开发中 (v0.1.4) | **捐赠 (BSC)**: `0x8e5d858f92938b028065d39450421d0e080d15f7`
+**状态**: 🚧 开发中 (v0.1.6) | **捐赠 (BSC)**: `0x8e5d858f92938b028065d39450421d0e080d15f7`
